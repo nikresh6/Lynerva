@@ -4,11 +4,11 @@ import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getDb } from "@/db";
 import { userPositions } from "@/db/schema";
-import { auth } from "@/lib/auth";
+import { getAuth } from "@/lib/auth";
 import { inferredPayoutCents, positionProfitCents } from "./math";
 
 export async function requireUser() {
-  const session = await auth.api.getSession({ headers: await headers() });
+  const session = await getAuth().api.getSession({ headers: await headers() });
   if (!session?.user) throw new Error("Unauthorized");
   return session.user;
 }
