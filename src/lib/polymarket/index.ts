@@ -96,6 +96,7 @@ async function fetchBooks(tokenIds: string[]) {
           body: JSON.stringify(
             tokenChunk.map((tokenId) => ({ token_id: tokenId })),
           ),
+          cache: "no-store",
         },
       );
       for (const book of books) map.set(book.asset_id, book);
