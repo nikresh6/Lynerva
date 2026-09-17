@@ -1,0 +1,52 @@
+import Link from "next/link";
+import { AccountMenu } from "./account-menu";
+import { ThemeToggle } from "./theme-toggle";
+
+const links = [["Markets", "/"], ["Live", "/live"], ["Builder", "/builder"], ["Tracker", "/tracker"]] as const;
+
+export function SiteHeader() {
+  return (
+    <header className="sticky top-0 z-40 border-b bg-[var(--header)] backdrop-blur-xl">
+      <div className="mx-auto flex h-14 max-w-[1480px] items-center gap-4 px-4 sm:px-6 lg:px-8">
+        <Link
+          href="/"
+          className="mr-2 text-[15px] font-semibold tracking-[0.14em]"
+        >
+          LYNERVA
+        </Link>
+        <nav
+          className="scrollbar-subtle hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto sm:flex"
+          aria-label="Primary navigation"
+        >
+          {links.map(([label, href]) => (
+            <Link
+              key={href}
+              href={href}
+              className="rounded-md px-2.5 py-1.5 text-[13px] text-muted transition-colors hover:bg-surface hover:text-foreground"
+            >
+              {label}
+            </Link>
+          ))}
+        </nav>
+        <div className="ml-auto flex items-center gap-1.5">
+          <ThemeToggle />
+          <AccountMenu />
+        </div>
+      </div>
+      <nav
+        className="grid h-11 grid-cols-4 border-t px-2 sm:hidden"
+        aria-label="Primary navigation"
+      >
+        {links.map(([label, href]) => (
+          <Link
+            key={href}
+            href={href}
+            className="flex items-center justify-center rounded-md text-[13px] text-muted transition-colors hover:bg-surface hover:text-foreground"
+          >
+            {label}
+          </Link>
+        ))}
+      </nav>
+    </header>
+  );
+}

@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f7f7f5;
+  --surface: #ffffff;
+  --surface-raised: #fbfbfa;
+  --foreground: #151515;
+  --muted: #6f6f6a;
+  --faint: #9b9b94;
+  --border: #e3e3df;
+  --border-strong: #d0d0ca;
+  --positive: #16845b;
+  --positive-bg: #eaf7f0;
+  --negative: #c2413a;
+  --negative-bg: #fcefee;
+  --warning: #986a18;
+  --warning-bg: #fbf4e5;
+  --header: rgb(247 247 245 / 86%);
+  --overlay: rgb(0 0 0 / 28%);
+}
+
+.dark {
+  --background: #0d0d0d;
+  --surface: #141414;
+  --surface-raised: #181818;
+  --foreground: #f3f3f1;
+  --muted: #a2a29c;
+  --faint: #74746f;
+  --border: #2a2a28;
+  --border-strong: #3a3a37;
+  --positive: #66c99a;
+  --positive-bg: #10251d;
+  --negative: #ef817a;
+  --negative-bg: #2a1717;
+  --warning: #d4a855;
+  --warning-bg: #282012;
+  --header: rgb(13 13 13 / 86%);
+  --overlay: rgb(0 0 0 / 60%);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-positive: var(--positive);
+  --color-positive-bg: var(--positive-bg);
+  --color-negative: var(--negative);
+  --color-negative-bg: var(--negative-bg);
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+* { border-color: var(--border); }
+html { color-scheme: light; background: var(--background); }
+html.dark { color-scheme: dark; }
+body {
+  min-height: 100vh;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  letter-spacing: -0.007em;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; }
+button, a, input, select, textarea { outline-offset: 3px; }
+::selection { background: color-mix(in srgb, var(--foreground) 18%, transparent); }
+.tabular { font-variant-numeric: tabular-nums; }
+.scrollbar-subtle { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.market-row { content-visibility: auto; contain-intrinsic-size: 50px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .sheet-enter { animation: sheet-in 180ms cubic-bezier(0.22, 1, 0.36, 1); }
+  @keyframes sheet-in {
+    from { transform: translateX(16px); opacity: 0; }
+  }
+}
