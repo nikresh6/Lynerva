@@ -9,7 +9,7 @@ import { getMarketOpportunities } from "@/lib/markets/service";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default async function MarketsPage({ searchParams }: PageProps<"/">) {
+export default async function MarketsPage({\n  searchParams,\n}: {\n  searchParams: Promise<Record<string, string | string[] | undefined>>;\n}) {
   const params = await searchParams;
   const filters = parseMarketFilters(params);
   const payload = await getMarketOpportunities();
