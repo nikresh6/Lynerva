@@ -68,7 +68,7 @@ export async function ingestNflverseSeason(season: number) {
   const [games, stats] = await Promise.all([
     fetchCsv("https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv"),
     fetchCsv(
-      `https://github.com/nflverse/nflverse-data/releases/download/player_stats/player_stats_${season}.csv`,
+      `https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_${season}.csv`,
     ),
   ]);
   const db = getDb();
