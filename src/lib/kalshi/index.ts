@@ -10,7 +10,7 @@ import {
   safeIso,
 } from "@/lib/providers/http";
 
-const KALSHI_BASE = "https://api.elections.kalshi.com/trade-api/v2";
+const KALSHI_BASE = "https://external-api.kalshi.com/trade-api/v2";
 
 const marketSchema = z
   .object({
@@ -101,6 +101,7 @@ export async function fetchKalshiNflMarkets(): Promise<ProviderResult> {
         "Kalshi",
         url.toString(),
         marketsResponseSchema,
+        { cache: "no-store" },
       );
       for (const market of payload.markets) {
         if (
