@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/markets",
       "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/nflverse",
+      "schedule": "15 11 * * *"
     }
   ]
 }
