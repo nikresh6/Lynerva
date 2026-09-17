@@ -9,7 +9,11 @@ import { getMarketOpportunities } from "@/lib/markets/service";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default async function MarketsPage({\n  searchParams,\n}: {\n  searchParams: Promise<Record<string, string | string[] | undefined>>;\n}) {
+export default async function MarketsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const params = await searchParams;
   const filters = parseMarketFilters(params);
   const payload = await getMarketOpportunities();
@@ -17,12 +21,16 @@ export default async function MarketsPage({\n  searchParams,\n}: {\n  searchPara
     0,
     250,
   );
+
   return (
     <>
       <LiveRefresh intervalMs={10_000} />
       <PageHeading title="Today’s top markets" />
       <MarketFiltersBar filters={filters} />
-      <SourceStatus providers={payload.providers} fixtureMode={payload.fixtureMode} />
+      <SourceStatus
+        providers={payload.providers}
+        fixtureMode={payload.fixtureMode}
+      />
       <MarketTable markets={markets} />
     </>
   );
