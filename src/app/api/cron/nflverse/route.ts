@@ -1,7 +1,6 @@
 import { ingestNflverseSeason } from "@/lib/nfl/nflverse";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
 
 async function handle(request: Request) {
   const secret = process.env.CRON_SECRET;
