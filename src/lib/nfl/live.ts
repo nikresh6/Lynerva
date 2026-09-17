@@ -62,6 +62,7 @@ export class EspnLiveNflProvider implements LiveNflProvider {
       "ESPN",
       "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard",
       scoreboardSchema,
+      { cache: "no-store" },
     );
     return payload.events.map((event) => {
       const competitors = event.competitions[0]?.competitors ?? [];
