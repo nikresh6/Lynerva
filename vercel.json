@@ -2,12 +2,12 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
     {
-      "path": "/api/cron/markets",
-      "schedule": "0 12 * * *"
+      "path": "/api/cron/nflverse",
+      "schedule": "0 11 * * *"
     },
     {
-      "path": "/api/cron/nflverse",
-      "schedule": "15 11 * * *"
+      "path": "/api/cron/markets",
+      "schedule": "0 12 * * *"
     }
   ]
 }
