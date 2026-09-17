@@ -3,6 +3,19 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AccountPanel } from "@/components/account-panel";
 import { PageHeading } from "@/components/page-heading";
-import { auth } from "@/lib/auth";
+import { getAuth } from "@/lib/auth";
+
 export const metadata: Metadata = { title: "Account" };
-export default async function AccountPage() { const session = await auth.api.getSession({ headers: await headers() }); if (!session?.user) redirect("/sign-in"); return <><PageHeading title="Account" /><AccountPanel name={session.user.name} email={session.user.email} /></>; }
+export const dynamic = "force-dynamic";
+
+export default async function AccountPage() {
+  const session = await getAuth().api.getSession({ headers: await headers() });
+  if (!session?.user) redirect("/sign-in");
+
+  return (
+    <>
+      <PageHeading title="Account" />
+      <AccountPanel name={session.user.name} email={session.user.email} />
+    </>
+  );
+}
