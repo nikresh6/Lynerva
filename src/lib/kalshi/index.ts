@@ -66,7 +66,7 @@ function toProviderMarket(
     outcomeLabel: market.yes_sub_title || "Yes",
     resolutionRules: rules || null,
     status:
-      market.status === "open"
+      market.status === "open" || market.status === "active"
         ? "open"
         : market.status === "settled"
           ? "settled"

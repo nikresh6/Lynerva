@@ -5,26 +5,27 @@ Lynerva is an NFL prediction-market research app. It normalizes live contracts f
 ## Features
 
 - Live Kalshi and Polymarket NFL markets in one comparable table
+- Uncached executable market pricing with automatic page refresh
 - Server-rendered filters with shareable URL parameters
 - Contract detail drawer with implied odds, spread, model edge, and freshness
 - Live NFL scoreboard and in-game market view
 - Multi-leg return-range builder
 - Email/password accounts and a private, server-authorized position tracker
 - Turso/libSQL persistence through Drizzle ORM
-- nflverse historical schedule and player-stat ingestion
+- Current nflverse schedule and weekly player-stat ingestion
 - Open-Meteo weather adapter and ESPN live-game adapter
 - Resend password-reset email support
-- Scheduled market snapshots through Vercel Cron
+- Scheduled NFL ingestion and market snapshots through Vercel Cron
 
 ## Local setup
 
-Requirements: Node.js 20.9 or newer, npm, and a Turso database.
+Requirements: Node.js 22, npm, and a Turso database.
 
 ```bash
 cp .env.example .env.local
 npm install
 npm run db:migrate
-npm run data:nflverse -- 2024
+npm run data:nflverse
 npm run dev
 ```
 
@@ -40,10 +41,16 @@ Open [http://localhost:3000](http://localhost:3000). Live provider data is used 
 | `EMAIL_FROM` | Verified Resend sender, such as `Lynerva <account@example.com>` |
 | `BETTER_AUTH_URL` | Canonical app URL; use the deployed HTTPS URL in production |
 | `BETTER_AUTH_SECRET` | Long random secret used to sign auth data |
-| `CRON_SECRET` | Secret accepted by ingestion cron endpoints |
+| `CRON_SECRET` | Secret used to authorize scheduled ingestion |
 | `USE_MARKET_FIXTURES` | Optional development-only fixture switch |
 
 Do not commit `.env.local`; it is ignored by Git.
+
+## Live data
+
+The Markets page fetches current Kalshi and Polymarket data directly on the server and refreshes every 10 seconds while visible. The Live page refreshes every 5 seconds. Kalshi market reads, Polymarket Gamma/CLOB reads, and ESPN live-game reads bypass the Next.js data cache.
+
+The database is not used as the source of truth for current prices. It stores history, model inputs, predictions, and tracker data. Vercel Cron updates the current NFL season from nflverse daily and records a daily market snapshot as a fallback. Additional snapshots can be persisted when the application is actively used.
 
 ## Data and scheduled jobs
 
@@ -54,13 +61,19 @@ npm run db:generate
 npm run db:migrate
 ```
 
-Import a historical nflverse season with:
+Import the current nflverse season with:
 
 ```bash
-npm run data:nflverse -- 2024
+npm run data:nflverse
 ```
 
-Vercel invokes `/api/cron/markets` daily using `vercel.json`. The route accepts Vercel's cron authorization header or a bearer token matching `CRON_SECRET`. Historical ingestion is also exposed at `/api/cron/nflverse?season=2024` and uses the same authorization.
+To import a specific historical season:
+
+```bash
+npm run data:nflverse -- 2025
+```
+
+The nflverse ingestion route defaults to the current year. Vercel invokes `/api/cron/nflverse` and `/api/cron/markets` daily. Both require the Vercel cron authorization header backed by `CRON_SECRET`.
 
 ## Verification
 
@@ -73,6 +86,6 @@ npm run build
 
 ## Deployment
 
-Import the GitHub repository into Vercel, add every variable from `.env.example` to the project, set `BETTER_AUTH_URL` to the production domain, and deploy. Add a verified domain sender to Resend before relying on password-reset delivery; Resend's testing sender is suitable only for its supported test flow.
+Import the GitHub repository into Vercel, add every variable from `.env.example`, set `BETTER_AUTH_URL` to the production domain, and deploy. The public market pages can build without database secrets, but authentication, the private tracker, historical ingestion, and model persistence require Turso at runtime.
 
 Lynerva is a research tool, not financial advice. It does not place trades or hold funds.

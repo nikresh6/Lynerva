@@ -3,5 +3,15 @@
   "framework": "nextjs",
   "installCommand": "npm ci",
   "buildCommand": "npm run build",
-  "outputDirectory": ".next"
+  "outputDirectory": ".next",
+  "crons": [
+    {
+      "path": "/api/cron/nflverse",
+      "schedule": "0 11 * * *"
+    },
+    {
+      "path": "/api/cron/markets",
+      "schedule": "0 12 * * *"
+    }
+  ]
 }
