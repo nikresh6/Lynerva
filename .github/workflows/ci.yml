@@ -40,3 +40,16 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+
+  build_without_runtime_env:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build with no runtime secrets
+        run: npm run build
