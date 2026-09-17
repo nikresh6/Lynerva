@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { LiveRefresh } from "@/components/live-refresh";
 import { MarketFiltersBar } from "@/components/market-filters";
 import { MarketTable } from "@/components/market-table";
 import { LiveGameStrip } from "@/components/live-game-strip";
@@ -9,7 +10,8 @@ import { getMarketOpportunities } from "@/lib/markets/service";
 import { getLiveNflGames } from "@/lib/nfl/live";
 
 export const metadata: Metadata = { title: "Live markets" };
-export const revalidate = 10;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function LivePage({
   searchParams,
@@ -27,6 +29,7 @@ export default async function LivePage({
     .slice(0, 250);
   return (
     <>
+      <LiveRefresh intervalMs={5_000} />
       <PageHeading title="Live markets" description="Executable prices for NFL games in progress. Stale sources are labeled and never silently filled." />
       <LiveGameStrip games={games} />
       <MarketFiltersBar filters={filters} basePath="/live" />
