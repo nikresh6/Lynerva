@@ -41,6 +41,20 @@ function mean(values: number[]) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+function quantile(values: number[], q: number) {
+  if (!values.length) return null;
+  const sorted = values.toSorted((a, b) => a - b);
+  const index = (sorted.length - 1) * q;
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  if (lower === upper) return sorted[lower] ?? null;
+  const fraction = index - lower;
+  return (
+    (sorted[lower] ?? 0) * (1 - fraction) +
+    (sorted[upper] ?? 0) * fraction
+  );
+}
+
 export function calculateSourceWeights(
   samples: SourceGradeSample[],
   sources: readonly string[] = ACTIVE_PROJECTION_SOURCES,
@@ -62,17 +76,28 @@ export function calculateSourceWeights(
     const recentErrors = rows.slice(0, 40).map((row) => row.absoluteError);
     const mae = mean(allErrors);
     const recentMae = mean(recentErrors);
-    const blendedError =
-      mae === null
+    const medianError = quantile(allErrors, 0.5);
+    const recentMedianError = quantile(recentErrors, 0.5);
+    const p90Error = quantile(allErrors, 0.9);
+
+    // Weight sources on a robust error score rather than raw average error.
+    // Median captures the normal miss, recent median lets current form matter,
+    // and p90 still penalizes sources that regularly produce ugly misses.
+    // One freak projection therefore cannot destroy an otherwise good source.
+    const robustError =
+      medianError === null
         ? null
-        : 0.65 * mae + 0.35 * (recentMae ?? mae);
+        : 0.5 * medianError +
+          0.3 * (recentMedianError ?? medianError) +
+          0.2 * (p90Error ?? medianError);
+
     return {
       source,
       sampleSize: rows.length,
       mae,
       recentMae,
       performance:
-        blendedError === null ? null : 1 / Math.max(blendedError, 0.25),
+        robustError === null ? null : 1 / Math.max(robustError, 0.25),
     };
   });
 
