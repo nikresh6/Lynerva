@@ -1,4 +1,4 @@
-import { buildCombination } from "../src/lib/builder";
+import { buildBestAvailableCombination } from "../src/lib/builder";
 import {
   isBuilderEligibleOpportunity,
   isTopOpportunity,
@@ -64,7 +64,7 @@ async function main() {
   const builderMarkets = payload.opportunities.filter(
     isBuilderEligibleOpportunity,
   );
-  const defaultBuild = buildCombination(builderMarkets, {
+  const defaultBuild = buildBestAvailableCombination(builderMarkets, {
     minReturn: 3,
     maxReturn: 5,
     maxLegs: 4,
