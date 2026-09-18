@@ -11,7 +11,7 @@ export async function GET() {
         (second.opportunityScore ?? -Infinity) -
         (first.opportunityScore ?? -Infinity),
     )
-    .slice(0, 800);
+    .slice(0, 300);
 
   return Response.json(
     {
