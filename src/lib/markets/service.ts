@@ -42,7 +42,7 @@ export interface MarketsPayload {
 interface NormalizedItem {
   market: ProviderMarket;
   canonical: NonNullable<ReturnType<typeof normalizeMarket>>;
-  scheduleGame: NflScheduleGame;
+  scheduleGame: NflScheduleGame | null;
   liveGame: LiveNflGame | null;
 }
 
@@ -176,56 +176,41 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
     (provider) => provider.markets,
   );
 
-  const marketGameDate = (market: ProviderMarket, fallback: string) => {
+  const marketGameDate = (market: ProviderMarket, fallback: string | null) => {
     const text = `${market.platformMarketId} ${market.eventTitle}`.toUpperCase();
     const match = text.match(/(?:^|[-_])(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(?:[A-Z]|[-_]|$)/);
-    if (!match) return fallback;
-    const months: Record<string, string> = {
-      JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06",
-      JUL: "07", AUG: "08", SEP: "09", OCT: "10", NOV: "11", DEC: "12",
-    };
-    const month = months[match[2]!];
-    return month ? `20${match[1]}-${month}-${match[3]}` : fallback;
+    if (match) {
+      const months: Record<string, string> = {
+        JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06",
+        JUL: "07", AUG: "08", SEP: "09", OCT: "10", NOV: "11", DEC: "12",
+      };
+      const month = months[match[2]!];
+      if (month) return `20${match[1]}-${month}-${match[3]}`;
+    }
+    return fallback;
   };
 
-  const playerOnlyScheduleFallback = (
+  const isCurrentUpcomingPlayerMarket = (
     canonical: NonNullable<ReturnType<typeof normalizeMarket>>,
     market: ProviderMarket,
-  ): NflScheduleGame | null => {
+  ) => {
     if (
-      !canonical.matchup ||
-      !canonical.settlementDate ||
-      ["moneyline", "spread", "game_total"].includes(canonical.family)
+      ["moneyline", "spread", "game_total"].includes(canonical.family) ||
+      !canonical.matchup
     ) {
-      return null;
+      return false;
     }
     const gameDate = marketGameDate(market, canonical.settlementDate);
-    const kickoff = new Date(`${gameDate}T17:00:00Z`);
-    const timestamp = kickoff.getTime();
+    if (!gameDate) return false;
+    const timestamp = new Date(`${gameDate}T17:00:00Z`).getTime();
     const now = Date.now();
     const currentSeason = new Date(now).getUTCFullYear();
-    if (
-      Number.isNaN(timestamp) ||
-      !gameDate.startsWith(`${currentSeason}-`) ||
-      timestamp < now - 8 * 60 * 60 * 1_000 ||
-      timestamp > now + 10 * 24 * 60 * 60 * 1_000
-    ) {
-      return null;
-    }
-    const [first, second] = canonical.matchup.split("-");
-    if (!first || !second) return null;
-    return {
-      gameId: `market:${gameDate}:${canonical.matchup}`,
-      season: currentSeason,
-      week: null,
-      seasonType: "REG",
-      gameday: gameDate,
-      kickoffAt: kickoff.toISOString(),
-      homeTeam: first,
-      awayTeam: second,
-      stadium: null,
-      roof: null,
-    };
+    return (
+      gameDate.startsWith(`${currentSeason}-`) &&
+      Number.isFinite(timestamp) &&
+      timestamp >= now - 8 * 60 * 60 * 1_000 &&
+      timestamp <= now + 10 * 24 * 60 * 60 * 1_000
+    );
   };
 
   const normalizeWithSchedule = (
@@ -245,13 +230,17 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
         (liveGame ? scheduleGameFromEspn(liveGame) : null) ??
         (scheduleGames
           ? findEligibleScheduleGame(canonical, scheduleGames)
-          : null) ??
-        (allowPlayerFallback ? playerOnlyScheduleFallback(canonical, market) : null);
-      if (!scheduleGame) continue;
+          : null);
+      if (
+        !scheduleGame &&
+        !(allowPlayerFallback && isCurrentUpcomingPlayerMarket(canonical, market))
+      ) {
+        continue;
+      }
 
       if (
         !liveGame &&
-        scheduleGames &&
+        scheduleGame &&
         new Date(scheduleGame.kickoffAt).getTime() <= Date.now()
       ) {
         continue;
