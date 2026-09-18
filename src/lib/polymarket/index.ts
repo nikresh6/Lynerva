@@ -67,10 +67,16 @@ function parseStringArray(value: string | string[] | null | undefined) {
 export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
   const fetchedAt = new Date().toISOString();
   try {
+    const now = Date.now();
+    const windowStart = now - 8 * 60 * 60 * 1_000;
+    const windowEnd = now + 8 * 24 * 60 * 60 * 1_000;
     const url = new URL(`${GAMMA_BASE}/events`);
     url.searchParams.set("series_id", "10187");
+    url.searchParams.set("tag_id", "100639");
     url.searchParams.set("active", "true");
     url.searchParams.set("closed", "false");
+    url.searchParams.set("start_time_min", new Date(windowStart).toISOString());
+    url.searchParams.set("start_time_max", new Date(windowEnd).toISOString());
     url.searchParams.set("limit", "40");
     url.searchParams.set("order", "startTime");
     url.searchParams.set("ascending", "true");
@@ -80,9 +86,6 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
       eventsSchema,
       { cache: "no-store" },
     );
-    const now = Date.now();
-    const windowStart = now - 8 * 60 * 60 * 1_000;
-    const windowEnd = now + 8 * 24 * 60 * 60 * 1_000;
     const nflEvents = events
       .map((event) => ({
         ...event,
