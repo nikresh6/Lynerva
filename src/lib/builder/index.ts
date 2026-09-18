@@ -27,7 +27,7 @@ export function buildCombination(
   opportunities: MarketOpportunity[],
   options: BuilderOptions,
 ): BuiltCombination | null {
-  const eligible = opportunities
+  const ranked = opportunities
     .filter((market) => {
       if (
         market.executablePriceBps === null ||
@@ -46,8 +46,18 @@ export function buildCombination(
       (a, b) =>
         (b.opportunityScore ?? -Infinity) -
         (a.opportunityScore ?? -Infinity),
-    )
-    .slice(0, 18);
+    );
+
+  const eligible: MarketOpportunity[] = [];
+  const perGame = new Map<string, number>();
+  for (const market of ranked) {
+    const key = gameKey(market);
+    const count = perGame.get(key) ?? 0;
+    if (count >= 3) continue;
+    eligible.push(market);
+    perGame.set(key, count + 1);
+    if (eligible.length >= 24) break;
+  }
 
   let best: BuiltCombination | null = null;
   const visit = (start: number, legs: MarketOpportunity[]) => {
