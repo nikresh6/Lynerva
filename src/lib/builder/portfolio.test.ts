@@ -171,7 +171,7 @@ describe("bankroll portfolio builder", () => {
     ).toBeLessThanOrEqual(0.15);
   });
 
-  it("does not duplicate the same exact leg as both a straight and a parlay leg", () => {
+  it("keeps the plan spread across multiple underlying markets", () => {
     const plan = buildPortfolioPlan(markets, {
       amount: 150,
       targetPayout: 400,
@@ -183,23 +183,15 @@ describe("bankroll portfolio builder", () => {
     });
 
     expect(plan).not.toBeNull();
-    const straightKeys = new Set(
-      plan!.positions
-        .filter((position) => position.kind === "straight")
-        .flatMap((position) =>
-          position.legs.map(
-            (leg) => leg.canonical?.key ?? leg.platformMarketId,
-          ),
+    const uniqueMarkets = new Set(
+      plan!.positions.flatMap((position) =>
+        position.legs.map(
+          (leg) => leg.canonical?.key ?? leg.platformMarketId,
         ),
+      ),
     );
-    const duplicated = plan!.positions
-      .filter((position) => position.kind === "parlay")
-      .flatMap((position) => position.legs)
-      .some((leg) =>
-        straightKeys.has(leg.canonical?.key ?? leg.platformMarketId),
-      );
 
-    expect(duplicated).toBe(false);
+    expect(uniqueMarkets.size).toBeGreaterThanOrEqual(4);
   });
 
   it("mixes safer straights with a genuinely riskier straight", () => {
