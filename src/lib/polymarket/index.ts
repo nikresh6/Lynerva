@@ -52,6 +52,10 @@ const eventSchema = z
   .passthrough();
 
 const eventsSchema = z.array(eventSchema);
+const keysetEventsSchema = z.object({
+  events: z.array(eventSchema),
+  next_cursor: z.string().nullish(),
+});
 
 function parseStringArray(value: string | string[] | null | undefined) {
   if (Array.isArray(value)) return value;
@@ -70,19 +74,19 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
     const now = Date.now();
     const windowStart = now - 8 * 60 * 60 * 1_000;
     const windowEnd = now + 8 * 24 * 60 * 60 * 1_000;
-    const url = new URL(`${GAMMA_BASE}/events`);
-    url.searchParams.set("tag_slug", "nfl");
-    url.searchParams.set("active", "true");
+    const url = new URL(`${GAMMA_BASE}/events/keyset`);
     url.searchParams.set("closed", "false");
+    url.searchParams.set("tag_slug", "nfl");
     url.searchParams.set("start_date_min", new Date(windowStart).toISOString());
     url.searchParams.set("start_date_max", new Date(windowEnd).toISOString());
     url.searchParams.set("limit", "100");
-    const events = await fetchValidated(
+    const eventPage = await fetchValidated(
       "Polymarket Gamma",
       url.toString(),
-      eventsSchema,
+      keysetEventsSchema,
       { cache: "no-store" },
     );
+    const events = eventPage.events;
     const nflEvents = events
       .map((event) => ({
         ...event,
@@ -163,42 +167,6 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
           sourceUrl: `https://polymarket.com/event/${event.slug}`,
         });
       }
-    }
-
-    console.info("Polymarket NFL discovery summary", {
-      events: events.length,
-      eligibleEvents: nflEvents.length,
-      markets: markets.length,
-      samples: markets.slice(0, 5).map((market) => ({
-        id: market.platformMarketId,
-        eventTitle: market.eventTitle,
-        marketTitle: market.marketTitle,
-        closesAt: market.closesAt,
-        yesAskBps: market.yesAskBps,
-        noAskBps: market.noAskBps,
-      })),
-    });
-
-    if (markets.length === 0) {
-      console.warn("Polymarket NFL discovery produced zero markets", {
-        events: events.length,
-        eligibleEvents: nflEvents.length,
-        samples: events.slice(0, 4).map((event) => ({
-          title: event.title,
-          endDate: event.endDate,
-          marketCount: event.markets.length,
-          firstMarket: event.markets[0]
-            ? {
-                question: event.markets[0].question,
-                gameStartTime: event.markets[0].gameStartTime,
-                endDate: event.markets[0].endDate,
-                active: event.markets[0].active,
-                closed: event.markets[0].closed,
-                acceptingOrders: event.markets[0].acceptingOrders,
-              }
-            : null,
-        })),
-      });
     }
 
     return { provider: "polymarket", markets, fetchedAt, error: null };
