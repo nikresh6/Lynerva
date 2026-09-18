@@ -30,7 +30,7 @@ export async function fetchValidated<T extends z.ZodType>(
       "User-Agent": "Lynerva/1.0 market-research",
       ...init?.headers,
     },
-    signal: AbortSignal.timeout(5_000),
+    signal: AbortSignal.timeout(2_500),
   });
 
   if (!response.ok) {

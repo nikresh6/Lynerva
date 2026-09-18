@@ -67,17 +67,19 @@ function FeedStatus() {
         <span key={provider.provider} className="inline-flex items-center gap-1.5">
           <span
             className={
-              provider.error
+              provider.error || provider.count === 0
                 ? "size-1.5 rounded-full bg-warning"
                 : "size-1.5 rounded-full bg-positive"
             }
           />
           <span className="capitalize">{provider.provider}</span>
-          <span className="text-faint">{provider.count} current contracts</span>
+          <span className="text-faint">{provider.count ? `${provider.count} markets` : "unavailable"}</span>
         </span>
       ))}
       <span className="text-faint">
-        {refreshing ? "Refreshing…" : `${ratedCount} rated · top ${displayedCount} loaded`}
+        {displayedCount === 0 && refreshing
+          ? "Loading current odds…"
+          : `${ratedCount} markets checked · showing top ${displayedCount}`}
       </span>
       {error ? <span className="text-negative">{error}</span> : null}
     </div>
@@ -86,24 +88,19 @@ function FeedStatus() {
 
 function LoadingTable() {
   return (
-    <div className="overflow-hidden rounded-xl border bg-surface">
-      <div className="grid grid-cols-[2fr_1fr_1fr_1fr] gap-5 border-b bg-surface-raised px-4 py-3">
-        {[0, 1, 2, 3].map((value) => (
-          <div
-            key={value}
-            className="h-2.5 animate-pulse rounded-full bg-border"
-          />
-        ))}
-      </div>
-      {[0, 1, 2, 3, 4, 5].map((row) => (
-        <div
-          key={row}
-          className="grid grid-cols-[2fr_1fr_1fr_1fr] gap-5 border-b px-4 py-4 last:border-0"
-        >
-          <div className="h-3 animate-pulse rounded-full bg-border" />
-          <div className="h-3 animate-pulse rounded-full bg-border" />
-          <div className="h-3 animate-pulse rounded-full bg-border" />
-          <div className="h-3 animate-pulse rounded-full bg-border" />
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {[0, 1, 2].map((value) => (
+        <div key={value} className="rounded-2xl border bg-surface p-4">
+          <div className="flex items-start gap-3">
+            <div className="size-12 animate-pulse rounded-xl bg-border" />
+            <div className="flex-1 space-y-2">
+              <div className="h-3 w-20 animate-pulse rounded bg-border" />
+              <div className="h-4 w-4/5 animate-pulse rounded bg-border" />
+              <div className="h-3 w-1/2 animate-pulse rounded bg-border" />
+            </div>
+            <div className="size-14 animate-pulse rounded-full bg-border" />
+          </div>
+          <div className="mt-4 h-16 animate-pulse rounded-xl bg-background" />
         </div>
       ))}
     </div>
@@ -216,20 +213,6 @@ export function MarketExplorer({
             <option value="touchdowns">Touchdowns</option>
           </Select>
 
-          <Select
-            value={filters.sort}
-            onChange={(value) =>
-              update("sort", value as MarketFilters["sort"])
-            }
-            label="Sort"
-          >
-            <option value="best">Lynerva score</option>
-            <option value="edge">Highest edge</option>
-            <option value="probability">Model probability</option>
-            <option value="risk_return">Risk : return</option>
-            <option value="liquidity">Liquidity</option>
-          </Select>
-
           <button
             type="button"
             onClick={() => setAdvancedOpen((value) => !value)}
@@ -248,9 +231,9 @@ export function MarketExplorer({
         {advancedOpen ? (
           <div className="mt-2 grid gap-2 border-t pt-2 sm:grid-cols-4">
             {[
-              ["minModelBps", "Min model %"],
-              ["minEdgeBps", "Min edge pp"],
-              ["minLiquidityCents", "Min liquidity $"],
+              ["minModelBps", "Min Lynerva chance %"],
+              ["minEdgeBps", "Min advantage %"],
+              ["minLiquidityCents", "Min market activity $"],
               ["minHitRateBps", "Min hit rate %"],
             ].map(([key, label]) => {
               const typedKey = key as

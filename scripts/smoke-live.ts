@@ -66,7 +66,6 @@ async function main() {
   const apiElapsedMs = Date.now() - apiStarted;
   const payload = (await marketsResponse.json()) as MarketsPayload;
   const livePayload = (await liveResponse.json()) as { games: LiveGame[] };
-
   const warmStarted = Date.now();
   const warmResponse = await fetch(`${baseUrl}/api/markets`, {
     cache: "no-store",
@@ -195,6 +194,8 @@ async function main() {
           currentEspnMatchup === null ? null : matchups.has(currentEspnMatchup),
         samples: picks.slice(0, 10).map((pick) => ({
           platform: pick.platform,
+          id: pick.platformMarketId,
+          eventTitle: pick.eventTitle,
           title: pick.marketTitle,
           matchup: pick.canonical?.matchup,
           family: pick.canonical?.family,
@@ -273,6 +274,11 @@ async function main() {
   }
   for (const provider of payload.providers) {
     if (provider.count === 0) {
+      if (provider.provider === "polymarket" && !provider.error) {
+        throw new Error(
+          "Live smoke failed: Polymarket returned zero accepted NFL markets without a provider error.",
+        );
+      }
       console.warn(
         `Live smoke warning: ${provider.provider} returned zero accepted markets for this snapshot.`,
       );

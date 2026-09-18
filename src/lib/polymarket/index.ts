@@ -2,7 +2,6 @@ import "server-only";
 
 import { z } from "zod";
 import type { ProviderMarket, ProviderResult } from "@/lib/markets/types";
-import { isNflText } from "@/lib/markets/normalize";
 import {
   dollarsToBps,
   dollarsToCents,
@@ -68,24 +67,23 @@ function parseStringArray(value: string | string[] | null | undefined) {
 export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
   const fetchedAt = new Date().toISOString();
   try {
+    const now = Date.now();
+    const windowStart = now - 8 * 60 * 60 * 1_000;
+    const windowEnd = now + 8 * 24 * 60 * 60 * 1_000;
     const url = new URL(`${GAMMA_BASE}/events`);
     url.searchParams.set("tag_slug", "nfl");
     url.searchParams.set("active", "true");
     url.searchParams.set("closed", "false");
-    url.searchParams.set("limit", "30");
+    url.searchParams.set("start_date_min", new Date(windowStart).toISOString());
+    url.searchParams.set("start_date_max", new Date(windowEnd).toISOString());
+    url.searchParams.set("limit", "100");
     const events = await fetchValidated(
       "Polymarket Gamma",
       url.toString(),
       eventsSchema,
       { cache: "no-store" },
     );
-    const now = Date.now();
-    const windowStart = now - 8 * 60 * 60 * 1_000;
-    const windowEnd = now + 8 * 24 * 60 * 60 * 1_000;
     const nflEvents = events
-      .filter((event) =>
-        isNflText(event.title, event.slug, event.description),
-      )
       .map((event) => ({
         ...event,
         markets: event.markets.filter((market) => {
