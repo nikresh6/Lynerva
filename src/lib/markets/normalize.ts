@@ -68,6 +68,23 @@ const TEAM_ALIASES: Record<string, string> = {
   commanders: "WAS",
 };
 
+const TEAM_CODES = [...new Set(Object.values(TEAM_ALIASES))].toSorted(
+  (first, second) => second.length - first.length,
+);
+
+function findTickerTeams(value: string) {
+  const upper = value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  for (const first of TEAM_CODES) {
+    for (const second of TEAM_CODES) {
+      if (first === second) continue;
+      if (upper.includes(`${first}${second}`)) {
+        return [first, second];
+      }
+    }
+  }
+  return [] as string[];
+}
+
 const STAT_PATTERNS: Array<{
   family: MarketFamily;
   statistic: string;
@@ -166,11 +183,23 @@ function regulationOnly(rules: string | null) {
 }
 
 export function normalizeMarket(market: ProviderMarket): CanonicalMarket | null {
-  const combined = `${market.eventTitle} ${market.marketTitle} ${market.outcomeLabel}`;
+  const combined = [
+    market.eventTitle,
+    market.marketTitle,
+    market.outcomeLabel,
+    market.resolutionRules,
+    market.platformMarketId,
+  ]
+    .filter(Boolean)
+    .join(" ");
   const contractText = `${market.marketTitle} ${market.outcomeLabel}`;
   const { family, statistic } = familyFrom(combined);
   if (family === "other") return null;
-  const teams = findTeams(combined);
+  const textTeams = findTeams(combined);
+  const tickerTeams = findTickerTeams(
+    `${market.platformMarketId} ${market.eventTitle}`,
+  );
+  const teams = [...new Set([...textTeams, ...tickerTeams])];
   const contractTeams = findTeams(contractText);
   const threshold = findThreshold(contractText);
   const direction = findDirection(contractText);
