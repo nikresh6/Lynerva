@@ -2,20 +2,12 @@ import "server-only";
 
 import type { CanonicalMarket } from "@/lib/markets/types";
 import { getLearnedSourceWeights } from "./source-learning";
-import { ACTIVE_PROJECTION_SOURCES } from "./source-weighting";
+import {
+  ACTIVE_PROJECTION_SOURCES,
+  type ActiveProjectionSource,
+} from "./source-weighting";
 
-export type ProjectionSource =
-  | "fantasypros"
-  | "numberfire"
-  | "espn"
-  | "cbs"
-  | "fftoday"
-  | "nfl"
-  | "covers"
-  | "dimers"
-  | "fourforfour"
-  | "rotoballer"
-  | "sleeper";
+export type ProjectionSource = ActiveProjectionSource;
 
 export interface ProjectionPoint {
   source: ProjectionSource;
@@ -188,7 +180,7 @@ function sourceValue(
 }
 
 function cachedSource(
-  source: ProjectionSource,
+  source: string,
   season: number,
   week: number,
   loader: () => Promise<ProjectionMap>,
@@ -1291,28 +1283,7 @@ async function sourceProjection(
   season: number,
   week: number,
 ): Promise<ProjectionPoint | null> {
-  if (source === "nfl") return nflMarketProjection(market, season, week);
-
-  const loader =
-    source === "fantasypros"
-      ? loadFantasyPros
-      : source === "numberfire"
-        ? loadNumberFire
-        : source === "espn"
-          ? loadEspn
-          : source === "cbs"
-            ? loadCbs
-            : source === "fftoday"
-              ? loadFfToday
-              : source === "rotoballer"
-                ? loadRotoBaller
-                : source === "sleeper"
-                  ? loadSleeper
-                  : source === "covers"
-                    ? loadCovers
-                    : loadDimers;
-
-  const map = await loader(season, week);
+  const map = await activeSourceMap(source, season, week);
   // Prefer an exact normalized player name. Abbreviated fallbacks are used
   // only when they identify exactly one player, so B. Robinson can never
   // silently map Brian Robinson Jr. to Bijan Robinson.
