@@ -716,8 +716,8 @@ async function ffTodayMarketProjection(
             };
           }
         }
-      } catch {
-        // Try another page.
+      } catch (error) {
+        console.error("FFToday projection fetch failed", position, page, error);
       }
     }
   }
@@ -765,8 +765,8 @@ async function nflMarketProjection(
           };
         }
       }
-    } catch {
-      // Try another position.
+    } catch (error) {
+      console.error("NFL.com projection fetch failed", position, error);
     }
   }
   return null;
