@@ -30,6 +30,7 @@ interface ProjectionStats {
   position?: "QB" | "RB" | "WR" | "TE";
   passingYards?: number;
   passingTouchdowns?: number;
+  passingInterceptions?: number;
   rushingYards?: number;
   rushingTouchdowns?: number;
   receptions?: number;
@@ -1349,7 +1350,7 @@ async function buildConsensus(
   season: number,
   week: number,
 ) {
-  const sources: readonly ProjectionSource[] = ACTIVE_PROJECTION_SOURCES;
+  const sources: readonly ActiveProjectionSource[] = ACTIVE_PROJECTION_SOURCES;
   const [settled, learned] = await Promise.all([
     Promise.allSettled(
       sources.map((source) => sourceProjection(source, market, season, week)),
