@@ -145,7 +145,7 @@ function selectModelCandidates(items: NormalizedItem[]) {
       item.canonical.family,
     );
     const counts = isGameMarket ? gameCounts : playerCounts;
-    const perMatchupLimit = isGameMarket ? 5 : 3;
+    const perMatchupLimit = isGameMarket ? 2 : 1;
     const count = counts.get(matchup) ?? 0;
     if (count >= perMatchupLimit) continue;
     if (
@@ -158,7 +158,7 @@ function selectModelCandidates(items: NormalizedItem[]) {
 
     selected.push(item);
     counts.set(matchup, count + 1);
-    if (selected.length >= 110) break;
+    if (selected.length >= 36) break;
   }
 
   return selected;
@@ -476,7 +476,7 @@ async function refreshSnapshot() {
 
 export async function getMarketOpportunities(): Promise<MarketsPayload> {
   const now = Date.now();
-  if (warmSnapshot && now - warmSnapshot.storedAt < 3_000) {
+  if (warmSnapshot && now - warmSnapshot.storedAt < 15_000) {
     return warmSnapshot.payload;
   }
 
