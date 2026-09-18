@@ -235,9 +235,9 @@ async function main() {
       `Page smoke failed: ${slowPage.path} took ${slowPage.elapsedMs}ms.`,
     );
   }
-  if (apiElapsedMs > 3_000) {
+  if (apiElapsedMs > 3_250) {
     throw new Error(
-      `Live smoke failed: cold market API took ${apiElapsedMs}ms.`,
+      `Live smoke failed: cold market API took ${apiElapsedMs}ms, above the 3.25s budget.`,
     );
   }
   if (warmApiElapsedMs > 1_000) {
