@@ -820,11 +820,11 @@ function loadCovers(season: number, week: number) {
     );
 
     const pattern =
-      /(PASSING YARDS|RUSHING YARDS|RECEIVING YARDS|RECEPTIONS)[\s\S]{0,600}?([A-Z]\.\s+[A-Za-z'’.-]+(?:\s+(?:Jr\.?|Sr\.?|II|III|IV))?)\s+\((?:QB|RB|WR|TE)\)\s+[ou]\d+(?:\.\d+)?\s+(?:Passing Yards|Rushing Yards|Receiving Yards|Receptions)\s+(-?\d+(?:\.\d+)?)\s+(?:OVER|UNDER)\s+PROJECTION/gi;
+      /([A-Z]\.\s+[A-Za-z'’.-]+(?:\s+(?:Jr\.?|Sr\.?|II|III|IV))?)\s+\((?:QB|RB|WR|TE)\)\s+[ou]\d+(?:\.\d+)?\s+(Passing Yards|Rushing Yards|Receiving Yards|Receptions)\s+(-?\d+(?:\.\d+)?)\s+(?:OVER|UNDER)\s+PROJECTION/gi;
 
     for (const match of text.matchAll(pattern)) {
-      const family = (match[1] ?? "").toUpperCase();
-      const player = match[2] ?? "";
+      const player = match[1] ?? "";
+      const family = (match[2] ?? "").toUpperCase();
       const value = Number(match[3]);
       if (!player || !Number.isFinite(value) || value < 0) continue;
 
