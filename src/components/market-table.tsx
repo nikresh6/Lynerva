@@ -45,7 +45,7 @@ function displayMarketTitle(market: MarketOpportunity) {
     ) {
       return `${canonical.subject} ${canonical.threshold}+ ${label}`;
     }
-    return `${canonical.subject} ${canonical.direction === "under" ? "Under" : "Over"} ${canonical.threshold} ${label}`;
+    return `${canonical.subject} ${canonical.threshold} ${label}`;
   }
 
   return market.marketTitle;
@@ -180,7 +180,7 @@ function SubjectVisual({ market }: { market: MarketOpportunity }) {
 function Metric({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
   return (
     <div>
-      <div className="text-[9px] font-semibold uppercase tracking-[0.1em] text-faint">{label}</div>
+      <div className="text-[10px] font-semibold uppercase leading-4 tracking-[0.06em] text-faint sm:whitespace-nowrap">{label}</div>
       <div className={cn("mt-1 text-sm font-semibold tabular", emphasis ? "text-positive" : "")}>{value}</div>
     </div>
   );
@@ -324,6 +324,139 @@ function WeatherCard({ market }: { market: MarketOpportunity }) {
   );
 }
 
+function pickFacingBps(
+  bps: number | null | undefined,
+  side: MarketOpportunity["recommendedSide"],
+) {
+  if (bps === null || bps === undefined) return null;
+  return side === "no" ? 10_000 - bps : bps;
+}
+
+function sourceLabel(source: string) {
+  if (source === "fantasypros") return "FantasyPros";
+  if (source === "numberfire") return "numberFire";
+  return titleCase(source);
+}
+
+function signedPercentFromBps(bps: number) {
+  const value = bps / 100;
+  return `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+function ModelInputs({ market }: { market: MarketOpportunity }) {
+  const components = market.model.components;
+  const sources = components?.projectionSources ?? [];
+  const consensusChance = pickFacingBps(
+    components?.consensusProbabilityBps,
+    market.recommendedSide,
+  );
+  const statisticalChance = pickFacingBps(
+    components?.statisticalProbabilityBps,
+    market.recommendedSide,
+  );
+  const contextAdjustment =
+    (components?.contextAdjustmentBps ?? 0) *
+    (market.recommendedSide === "no" ? -1 : 1);
+
+  return (
+    <section className="rounded-2xl border bg-background p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">Model inputs</h3>
+          <p className="mt-1 text-[11px] leading-5 text-muted">
+            The main signals Lynerva used for this specific line.
+          </p>
+        </div>
+        <span className="rounded-full border bg-surface px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] text-muted">
+          {Math.round(market.model.reliabilityBps / 100)}% reliability
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border bg-surface p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.06em] text-faint">
+            Projection consensus
+          </div>
+          <div className="mt-2 text-sm font-semibold">
+            {components?.consensusProjection === null ||
+            components?.consensusProjection === undefined
+              ? "Unavailable"
+              : components.consensusProjection.toFixed(2)}
+          </div>
+          <div className="mt-1 text-[11px] text-muted">
+            {consensusChance === null
+              ? "No independent projection probability"
+              : `${formatPercent(consensusChance)} pick-facing chance`}
+          </div>
+        </div>
+
+        <div className="rounded-xl border bg-surface p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.06em] text-faint">
+            4-game statistical model
+          </div>
+          <div className="mt-2 text-sm font-semibold">
+            {statisticalChance === null
+              ? "Not active yet"
+              : formatPercent(statisticalChance)}
+          </div>
+          <div className="mt-1 text-[11px] text-muted">
+            {market.model.evidence.sampleSize >= 4
+              ? `${market.model.evidence.sampleSize} current-season games`
+              : `${market.model.evidence.sampleSize} of 4 games available`}
+          </div>
+        </div>
+
+        <div className="rounded-xl border bg-surface p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.06em] text-faint">
+            Context adjustment
+          </div>
+          <div className="mt-2 text-sm font-semibold">
+            {signedPercentFromBps(contextAdjustment)}
+          </div>
+          <div className="mt-1 text-[11px] text-muted">
+            Weather and game environment
+          </div>
+        </div>
+
+        <div className="rounded-xl border bg-surface p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.06em] text-faint">
+            External sources
+          </div>
+          <div className="mt-2 text-sm font-semibold">
+            {sources.length ? `${sources.length} connected` : "No source response"}
+          </div>
+          <div className="mt-1 text-[11px] leading-5 text-muted">
+            {sources.length
+              ? sources
+                  .map(
+                    (source) =>
+                      `${sourceLabel(source.source)} ${source.value.toFixed(2)}`,
+                  )
+                  .join(" · ")
+              : "Low-confidence market baseline used"}
+          </div>
+        </div>
+      </div>
+
+      {market.model.factors.length ? (
+        <div className="mt-4 border-t pt-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.06em] text-faint">
+            Model notes
+          </div>
+          <div className="mt-2 space-y-1.5 text-[11px] leading-5 text-muted">
+            {market.model.factors.map((factor) => (
+              <div key={factor} className="flex gap-2">
+                <span className="mt-[7px] size-1 shrink-0 rounded-full bg-faint" />
+                <span>{factor}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function BetLab({ market, onClose }: { market: MarketOpportunity; onClose: () => void }) {
   const title = displayMarketTitle(market);
   const count = hitCount(market);
@@ -398,6 +531,7 @@ function BetLab({ market, onClose }: { market: MarketOpportunity; onClose: () =>
             </div>
           </section>
 
+          <ModelInputs market={market} />
           <PastPerformance market={market} />
           <WeatherCard market={market} />
 
@@ -493,7 +627,7 @@ export function MarketTable({
                       <PlatformMark platform={market.platform} />
                       {market.isLive ? <span className="live-badge rounded-full bg-negative-bg px-1.5 py-0.5 text-[9px] font-bold uppercase text-negative">Live</span> : null}
                     </div>
-                    <div className="mt-2 line-clamp-2 font-semibold leading-5">
+                    <div className="mt-2 line-clamp-2 text-[15px] font-semibold leading-6">
                       <span className="mr-1.5 text-positive">{displayPickSide(market)}</span>
                       {displayMarketTitle(market)}
                     </div>
@@ -502,14 +636,14 @@ export function MarketTable({
                   <ScoreRing score={market.lynervaScore} />
                 </div>
 
-                <div className="metric-strip mt-4 grid grid-cols-4 gap-2 rounded-xl border border-transparent bg-background p-3">
+                <div className="metric-strip mt-4 grid grid-cols-2 gap-x-5 gap-y-3 rounded-xl border border-transparent bg-background p-3.5 sm:grid-cols-4 sm:gap-3">
                   <Metric label="Market chance" value={formatPercent(market.executablePriceBps)} />
                   <Metric label="Lynerva chance" value={formatPercent(market.recommendedProbabilityBps)} emphasis />
                   <Metric label="Hit rate" value={rate === null ? "—" : `${rate}%`} />
                   <Metric label="$100 profit" value={profit === null ? "—" : `$${profit.toFixed(0)}`} />
                 </div>
 
-                <div className="mt-3 flex items-center justify-between text-[10px] text-muted">
+                <div className="mt-3.5 flex items-center justify-between gap-3 text-[10px] text-muted">
                   <span>{americanOdds(market.executablePriceBps)} equivalent</span>
                   <span>Open Bet Lab →</span>
                 </div>
@@ -543,7 +677,7 @@ export function MarketTable({
                             className="grid w-full grid-cols-[1fr_auto_auto] items-center gap-3 rounded-lg px-3 py-2 text-left text-[11px] hover:bg-surface-raised"
                           >
                             <div className="min-w-0">
-                              <div className="truncate font-medium">{displayPickSide(alt)} {displayMarketTitle(alt)}</div>
+                              <div className="truncate font-medium"><span className="mr-1 text-positive">{displayPickSide(alt)}</span>{displayMarketTitle(alt)}</div>
                               <div className="mt-0.5 text-faint">{formatPercent(alt.executablePriceBps)} market · {formatPercent(alt.recommendedProbabilityBps)} Lynerva</div>
                             </div>
                             <div className="text-right">
