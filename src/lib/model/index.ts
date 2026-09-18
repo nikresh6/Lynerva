@@ -351,7 +351,10 @@ export async function estimateMarket(
     const sample = history.values.slice(0, 20);
     const values = sample.map((row) => row.value);
 
-    if (!history.playerName || values.length < 1) {
+    // Current-season results stay informational until we have a real
+    // four-game sample. Before then they must not affect probability,
+    // ranking, score, or Builder eligibility.
+    if (!history.playerName || values.length < 4) {
       return {
         probabilityBps: null,
         reliabilityBps: 0,
@@ -359,7 +362,7 @@ export async function estimateMarket(
         evidence: { ...emptyEvidence, sampleSize: values.length },
         factors: [
           values.length
-            ? `Only ${values.length} current-season game${values.length === 1 ? "" : "s"} available.`
+            ? `Only ${values.length} current-season game${values.length === 1 ? "" : "s"} available; results stay display-only until 4 games.`
             : "No verified current-season history matches this player prop.",
         ],
       };
