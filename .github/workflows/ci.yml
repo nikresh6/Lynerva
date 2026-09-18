@@ -27,6 +27,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Probe live providers
+        run: NODE_OPTIONS=--conditions=react-server npx tsx scripts/probe-live.ts
       - name: Verify real live NFL data
         env:
           USE_MARKET_FIXTURES: "false"
