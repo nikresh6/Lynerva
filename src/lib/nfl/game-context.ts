@@ -106,10 +106,32 @@ const loadSchedule = unstable_cache(
 function kickoff(row: CsvRow) {
   if (!row.gameday) return null;
   const time = row.gametime || "13:00";
-  // nflverse gametime is published in US Eastern time. The active NFL season
-  // is predominantly in daylight time; a one-hour forecast offset has minimal
-  // effect and weather is only used as a conservative context adjustment.
-  const value = new Date(`${row.gameday}T${time}:00-04:00`);
+  const [year, month, day] = row.gameday.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  if (![year, month, day, hour, minute].every(Number.isFinite)) return null;
+
+  const desiredLocalAsUtc = Date.UTC(year, month - 1, day, hour, minute);
+  const guess = new Date(desiredLocalAsUtc);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(guess);
+  const valueOf = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value);
+  const representedUtc = Date.UTC(
+    valueOf("year"),
+    valueOf("month") - 1,
+    valueOf("day"),
+    valueOf("hour"),
+    valueOf("minute"),
+  );
+  const easternOffset = representedUtc - guess.getTime();
+  const value = new Date(desiredLocalAsUtc - easternOffset);
   return Number.isNaN(value.getTime()) ? null : value;
 }
 
