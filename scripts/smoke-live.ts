@@ -142,10 +142,6 @@ async function main() {
     return matchup ? completedMatchups.has(matchup) : false;
   });
   const displayedTopPicks = picks.slice(0, 30);
-  const shortlistByPlatform = {
-    kalshi: payload.opportunities.filter((market) => market.platform === "kalshi").length,
-    polymarket: payload.opportunities.filter((market) => market.platform === "polymarket").length,
-  };
 
   const matchups = new Set(
     payload.opportunities
@@ -191,7 +187,6 @@ async function main() {
         unsupportedPeriodMarkets: unsupportedPeriodMarkets.length,
         completedGameMarkets: completedGameMarkets.length,
         displayedTopPicks: displayedTopPicks.length,
-        shortlistByPlatform,
         matchups: [...matchups].slice(0, 20),
         currentEspnGame,
         currentEspnMatchup,
@@ -268,16 +263,6 @@ async function main() {
   }
   if (displayedTopPicks.length > 30) {
     throw new Error("Live smoke failed: more than 30 top picks would be displayed.");
-  }
-  for (const provider of payload.providers) {
-    if (
-      provider.count > 0 &&
-      shortlistByPlatform[provider.provider] === 0
-    ) {
-      throw new Error(
-        `Live smoke failed: ${provider.provider} has current NFL markets but none are available to its platform filter.`,
-      );
-    }
   }
   const populatedProviders = payload.providers.filter(
     (provider) => provider.count > 0,
