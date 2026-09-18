@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { AccountMenu } from "./account-menu";
 import { ThemeToggle } from "./theme-toggle";
 
-const links = [["Markets", "/"], ["Live", "/live"], ["Builder", "/builder"], ["Tracker", "/tracker"]] as const;
+const links = [["Markets", "/"], ["Live", "/live"], ["Builder", "/builder"], ["Sources", "/sources"], ["Tracker", "/tracker"]] as const;
 
 export function SiteHeader() {
   const pathname = usePathname();
@@ -44,7 +44,7 @@ export function SiteHeader() {
         </div>
       </div>
       <nav
-        className="grid h-11 grid-cols-4 border-t px-2 sm:hidden"
+        className="grid h-11 grid-cols-5 border-t px-2 sm:hidden"
         aria-label="Primary navigation"
       >
         {links.map(([label, href]) => (

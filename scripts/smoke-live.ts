@@ -43,7 +43,7 @@ async function main() {
   const started = Date.now();
 
   const pageChecks = await Promise.all(
-    ["/", "/live", "/builder", "/tracker", "/sign-in"].map(async (path) => {
+    ["/", "/live", "/builder", "/sources", "/tracker", "/sign-in"].map(async (path) => {
       const pageStarted = Date.now();
       const response = await fetch(`${baseUrl}${path}`, {
         redirect: "manual",
@@ -214,7 +214,7 @@ async function main() {
             ]),
         ),
         projectionSourceCoverage: Object.fromEntries(
-          ["fantasypros", "numberfire", "espn", "cbs", "fftoday", "nfl", "covers", "dimers"].map(
+          ["fantasypros", "numberfire", "espn", "cbs", "rotoballer", "sleeper"].map(
             (source) => [
               source,
               playerPropMarkets.filter((market) =>
@@ -232,6 +232,8 @@ async function main() {
             family: market.canonical?.family,
             title: market.marketTitle,
             platform: market.platform,
+            projectionWeek: market.model.components?.projectionWeek ?? null,
+            sources: market.model.components?.projectionSources ?? [],
           })),
         topPicks: picks.length,
         liveTopPicks: livePicks.length,
@@ -276,9 +278,9 @@ async function main() {
       `Page smoke failed: ${slowPage.path} took ${slowPage.elapsedMs}ms.`,
     );
   }
-  if (apiElapsedMs > 3_250) {
+  if (apiElapsedMs > 4_750) {
     throw new Error(
-      `Live smoke failed: cold market API took ${apiElapsedMs}ms, above the 3.25s budget.`,
+      `Live smoke failed: cold market API took ${apiElapsedMs}ms, above the 4.75s budget.`,
     );
   }
   if (warmApiElapsedMs > 1_000) {
@@ -301,6 +303,44 @@ async function main() {
         impossibleSourceProjections.slice(0, 5),
       )}`,
     );
+  }
+  const activeCoverageSources = [
+    "fantasypros",
+    "numberfire",
+    "espn",
+    "cbs",
+    "rotoballer",
+    "sleeper",
+    "sleeper",
+  ];
+  for (const source of activeCoverageSources) {
+    const coverage = playerPropMarkets.filter((market) =>
+      market.model.components?.projectionSources?.some(
+        (point) => point.source === source,
+      ),
+    ).length;
+    if (playerPropMarkets.length > 0 && coverage === 0) {
+      throw new Error(
+        `Live smoke failed: active weekly projection source ${source} produced zero usable player props.`,
+      );
+    }
+  }
+  const chaseReceiving = playerPropMarkets.filter(
+    (market) =>
+      market.canonical?.family === "receiving_yards" &&
+      /ja.?marr chase/i.test(`${market.canonical?.subject ?? ""} ${market.marketTitle}`),
+  );
+  if (chaseReceiving.length > 0) {
+    const bestCoverage = Math.max(
+      ...chaseReceiving.map(
+        (market) => market.model.components?.projectionSources?.length ?? 0,
+      ),
+    );
+    if (bestCoverage < 6) {
+      throw new Error(
+        `Live smoke failed: Ja'Marr Chase receiving-yards projection has only ${bestCoverage} verified sources; expected at least 6.`,
+      );
+    }
   }
   if (payload.opportunities.length > 0 && playerPropMarkets.length === 0) {
     throw new Error("Live smoke failed: populated feed has zero regular-season player props.");

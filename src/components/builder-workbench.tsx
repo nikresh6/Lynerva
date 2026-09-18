@@ -8,6 +8,40 @@ import { formatPercent } from "@/lib/utils";
 import { PlatformMark } from "./platform-mark";
 import { useMarketData } from "./market-data-provider";
 
+function builderPickLabel(market: MarketOpportunity) {
+  const canonical = market.canonical;
+  const threshold = canonical?.threshold;
+  const direction = canonical?.direction;
+  if (!canonical || threshold === null || threshold === undefined || !direction) {
+    return market.recommendedSide === "no"
+      ? `NO: ${market.marketTitle}`
+      : market.marketTitle;
+  }
+
+  const takingContract = market.recommendedSide !== "no";
+  const pickDirection = takingContract
+    ? direction
+    : direction === "over"
+      ? "under"
+      : "over";
+  const label =
+    canonical.family === "receiving_yards"
+      ? "receiving yards"
+      : canonical.family === "rushing_yards"
+        ? "rushing yards"
+        : canonical.family === "passing_yards"
+          ? "passing yards"
+          : canonical.family === "receptions"
+            ? "receptions"
+            : canonical.family === "passing_touchdowns"
+              ? "passing TDs"
+              : canonical.family === "touchdowns"
+                ? "TDs"
+                : canonical.family.replaceAll("_", " ");
+
+  return `${canonical.subject}: ${pickDirection === "over" ? "Over" : "Under"} ${threshold} ${label}`;
+}
+
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <span className="mb-1.5 block text-[11px] font-medium text-muted">{children}</span>;
 }
@@ -49,7 +83,7 @@ export function BuilderWorkbench() {
         ) : (
           <>
             <div className="border-b px-5 py-4"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-[11px] font-medium uppercase tracking-[0.1em] text-faint">Lynerva custom build</p><p className="mt-1 text-xl font-semibold tabular">$100 would return about ${Math.round(combination.grossReturn * 100)}</p></div><div className="grid grid-cols-3 gap-5 text-right"><div><p className="text-[10px] text-faint">Est. chance</p><p className="mt-1 font-medium tabular">{formatPercent(Math.round(combination.estimatedProbability * 10_000), 1)}</p></div><div><p className="text-[10px] text-faint">Market chance</p><p className="mt-1 font-medium tabular">{formatPercent(Math.round(combination.impliedProbability * 10_000), 1)}</p></div><div><p className="text-[10px] text-faint">EV / $100</p><p className="mt-1 font-medium tabular">{combination.expectedProfitOn100 >= 0 ? "+" : ""}${Math.round(combination.expectedProfitOn100)}</p></div></div></div></div>
-            <ol className="divide-y">{combination.legs.map((leg, index) => <li key={`${leg.platform}:${leg.platformMarketId}`} className="grid grid-cols-[28px_1fr_auto] gap-3 px-5 py-4"><span className="grid size-6 place-items-center rounded-full border text-[10px] text-muted">{index + 1}</span><div><p className="font-medium leading-5">{leg.marketTitle}</p><div className="mt-1 flex items-center gap-2"><PlatformMark platform={leg.platform} /><span className="rounded-full border px-1.5 py-0.5 text-[9px] font-semibold">Score {leg.lynervaScore ?? "—"}</span></div></div><div className="text-right"><p className="font-medium tabular">{formatPercent(leg.executablePriceBps)}</p><p className="mt-1 text-[11px] text-muted tabular">Model {formatPercent(leg.recommendedProbabilityBps)}</p></div></li>)}</ol>
+            <ol className="divide-y">{combination.legs.map((leg, index) => <li key={`${leg.platform}:${leg.platformMarketId}`} className="grid grid-cols-[28px_1fr_auto] gap-3 px-5 py-4"><span className="grid size-6 place-items-center rounded-full border text-[10px] text-muted">{index + 1}</span><div><p className="font-medium leading-5">{builderPickLabel(leg)}</p><div className="mt-1 flex items-center gap-2"><PlatformMark platform={leg.platform} /><span className="rounded-full border px-1.5 py-0.5 text-[9px] font-semibold">Score {leg.lynervaScore ?? "—"}</span></div></div><div className="text-right"><p className="font-medium tabular">{formatPercent(leg.executablePriceBps)}</p><p className="mt-1 text-[11px] text-muted tabular">Model {formatPercent(leg.recommendedProbabilityBps)}</p></div></li>)}</ol>
             <div className="border-t bg-surface-raised px-5 py-4 text-xs leading-5 text-muted"><strong className="font-medium text-foreground">Built as one parlay, not a list of top picks.</strong> Lynerva searches the eligible legs together, shrinks each model probability toward the market based on reliability, and chooses the most likely combination inside your return target. {combination.correlationWarning ? " Some legs come from the same game, so the true combined chance may differ because correlation is not fully modeled." : " The legs come from different games, so multiplying the adjusted leg probabilities is a cleaner approximation."}</div>
           </>
         )}

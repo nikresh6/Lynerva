@@ -12,7 +12,10 @@ export type ProjectionSource =
   | "fftoday"
   | "nfl"
   | "covers"
-  | "dimers";
+  | "dimers"
+  | "fourforfour"
+  | "rotoballer"
+  | "sleeper";
 
 export interface ProjectionPoint {
   source: ProjectionSource;
@@ -35,7 +38,7 @@ type ProjectionMap = Map<string, ProjectionStats>;
 const PAGE_TTL_MS = 20 * 60_000;
 const FAILURE_TTL_MS = 30_000;
 const CONSENSUS_TTL_MS = 20 * 60_000;
-const SOURCE_TIMEOUT_MS = 1_200;
+const SOURCE_TIMEOUT_MS = 2_200;
 
 const pageCache = new Map<
   string,
@@ -193,12 +196,17 @@ function cachedSource(
   const cached = sourceCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.promise;
 
-  const promise = loader().catch(() => new Map<string, ProjectionStats>());
-  sourceCache.set(key, {
+  const entry = {
     expiresAt: Date.now() + PAGE_TTL_MS,
-    promise,
+    promise: loader(),
+  };
+  sourceCache.set(key, entry);
+
+  return entry.promise.catch(() => {
+    const current = sourceCache.get(key);
+    if (current === entry) current.expiresAt = Date.now() + FAILURE_TTL_MS;
+    return new Map<string, ProjectionStats>();
   });
-  return promise;
 }
 
 function fantasyProsStats(position: string, cells: string[]): ProjectionStats {
@@ -234,28 +242,32 @@ function loadFantasyPros(season: number, week: number) {
     const map: ProjectionMap = new Map();
     await Promise.all(
       ["qb", "rb", "wr", "te"].map(async (position) => {
-        const urls = [
-          `https://www.fantasypros.com/nfl/projections/${position}.php?week=${week}`,
-          `https://www.fantasypros.com/nfl/projections/${position}.php`,
-        ];
-        for (const url of urls) {
-          try {
-            const rows = rowsFromHtml(await fetchText(url));
-            let found = 0;
-            for (const cells of rows) {
-              if (cells.length < 3) continue;
-              const player = cells[0]?.replace(/\s+[A-Z]{2,3}\s*$/i, "").trim();
-              if (!player) continue;
-              const stats = fantasyProsStats(position, cells);
-              if (Object.values(stats).some((value) => value !== undefined)) {
-                mergeStats(map, player, stats);
-                found += 1;
-              }
-            }
-            if (found) break;
-          } catch {
-            // Try the fallback page.
+        const url =
+          `https://www.fantasypros.com/nfl/projections/${position}.php?week=${week}`;
+        try {
+          const html = await fetchText(url);
+          if (
+            !new RegExp(
+              `Fantasy\\s+Football\\s+Projections\\s*-?\\s*Week\\s+${week}\\b`,
+              "i",
+            ).test(decode(html))
+          ) {
+            return;
           }
+          const rows = rowsFromHtml(html);
+          for (const cells of rows) {
+            if (cells.length < 3) continue;
+            const player = cells[0]?.replace(/\s+[A-Z]{2,3}\s*$/i, "").trim();
+            if (!player) continue;
+            const stats = fantasyProsStats(position, cells);
+            if (Object.values(stats).some((value) => value !== undefined)) {
+              mergeStats(map, player, stats);
+            }
+          }
+        } catch {
+          // A missing weekly page must stay missing. Never fall back to the
+          // season/draft projections, because those values are not comparable
+          // to a single-game player prop.
         }
       }),
     );
@@ -269,11 +281,17 @@ function loadNumberFire(season: number, week: number) {
     await Promise.all(
       ["qb", "rb", "wr", "te"].map(async (position) => {
         try {
-          const rows = rowsFromHtml(
-            await fetchText(
-              `https://www.numberfire.com/external/widgets/top-players/${position}`,
-            ),
+          const html = await fetchText(
+            `https://www.numberfire.com/external/widgets/top-players/${position}`,
           );
+          if (
+            !new RegExp(`Top\\s+Fantasy\\s+Players\\s+for\\s+Week\\s+${week}\\b`, "i").test(
+              decode(html),
+            )
+          ) {
+            return;
+          }
+          const rows = rowsFromHtml(html);
           for (const cells of rows) {
             const playerIndex = cells.length >= 4 ? 1 : -1;
             if (playerIndex < 0) continue;
@@ -373,16 +391,12 @@ function loadEspn(season: number, week: number) {
     for (const entry of payload.players ?? []) {
       const player = entry.player;
       if (!player?.fullName) continue;
-      const projection =
-        player.stats?.find(
-          (stat) =>
-            stat.statSourceId === 1 &&
-            stat.statSplitTypeId === 1 &&
-            stat.scoringPeriodId === week,
-        ) ??
-        player.stats?.find(
-          (stat) => stat.statSourceId === 1 && stat.statSplitTypeId === 1,
-        );
+      const projection = player.stats?.find(
+        (stat) =>
+          stat.statSourceId === 1 &&
+          stat.statSplitTypeId === 1 &&
+          stat.scoringPeriodId === week,
+      );
       const stats = projection?.stats;
       if (!stats) continue;
       mergeStats(map, player.fullName, {
@@ -446,6 +460,13 @@ function loadCbs(season: number, week: number) {
           const html = await fetchText(
             `https://www.cbssports.com/fantasy/football/stats/${position}/${season}/${week}/projections/nonppr/`,
           );
+          if (
+            !new RegExp(`Week\\s+${week}\\s+Proj\\s+Fantasy\\s+Football`, "i").test(
+              decode(html),
+            )
+          ) {
+            return;
+          }
           for (const row of html.match(/<tr\b[^>]*TableBase-bodyTr[^>]*>[\s\S]*?<\/tr>/gi) ?? []) {
             const nameMatch = row.match(
               /CellPlayerName--long[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i,
@@ -466,75 +487,318 @@ function loadCbs(season: number, week: number) {
   });
 }
 
-function fftodayStats(position: string, cells: string[]): ProjectionStats {
-  const values = cells.slice(4).map(toNumber);
+function ffTodayRowStats(
+  position: string,
+  cells: string[],
+): ProjectionStats {
+  const numeric = cells
+    .map(toNumber)
+    .filter((value): value is number => value !== null);
+
   if (position === "QB") {
+    // FFToday QB rows end with:
+    // Cmp, Att, PassYds, PassTD, INT, RushAtt, RushYds, RushTD, FPts.
+    const values = numeric.slice(-9);
+    if (values.length < 9) return {};
     return {
-      passingYards: values[2] ?? undefined,
-      passingTouchdowns: values[3] ?? undefined,
-      rushingYards: values[6] ?? undefined,
-      rushingTouchdowns: values[7] ?? undefined,
+      passingYards: values[2],
+      passingTouchdowns: values[3],
+      rushingYards: values[6],
+      rushingTouchdowns: values[7],
     };
   }
-  if (position === "RB") {
-    return {
-      rushingYards: values[1] ?? undefined,
-      rushingTouchdowns: values[2] ?? undefined,
-      receptions: values[3] ?? undefined,
-      receivingYards: values[4] ?? undefined,
-      receivingTouchdowns: values[5] ?? undefined,
-    };
-  }
-  if (position === "WR") {
-    return {
-      receptions: values[0] ?? undefined,
-      receivingYards: values[1] ?? undefined,
-      receivingTouchdowns: values[2] ?? undefined,
-      rushingYards: values[4] ?? undefined,
-      rushingTouchdowns: values[5] ?? undefined,
-    };
-  }
+
+  // RB/WR/TE rows end with:
+  // RushAtt, RushYds, RushTD, Rec, RecYds, RecTD, FPts.
+  const values = numeric.slice(-7);
+  if (values.length < 7) return {};
   return {
-    receptions: values[0] ?? undefined,
-    receivingYards: values[1] ?? undefined,
-    receivingTouchdowns: values[2] ?? undefined,
+    rushingYards: values[1],
+    rushingTouchdowns: values[2],
+    receptions: values[3],
+    receivingYards: values[4],
+    receivingTouchdowns: values[5],
   };
+}
+
+function ffTodayPlayerFromRow(cells: string[]) {
+  const teams =
+    "(?:ARI|ATL|BAL|BUF|CAR|CHI|CIN|CLE|DAL|DEN|DET|GB|HOU|IND|JAX|KC|LV|LAC|LAR|MIA|MIN|NE|NO|NYG|NYJ|PHI|PIT|SF|SEA|TB|TEN|WAS)";
+
+  // Some FFToday responses put the team in its own cell.
+  for (let index = 0; index < cells.length - 1; index += 1) {
+    if (!new RegExp(`^${teams}$`, "i").test(cells[index + 1]?.trim() ?? "")) {
+      continue;
+    }
+    const candidate = (cells[index] ?? "")
+      .replace(/\s+(?:Risk|Upside):.*$/i, "")
+      .trim();
+    if (/^[A-Za-z][A-Za-z.'’ -]+\s+[A-Za-z][A-Za-z.'’ -]+$/.test(candidate)) {
+      return candidate;
+    }
+  }
+
+  // Other responses append the team code to the player cell.
+  const merged = cells
+    .map((cell) => cell.trim())
+    .map((cell) => {
+      const match = cell.match(
+        new RegExp(`^(.+?)\\s+${teams}$`, "i"),
+      );
+      return match?.[1]
+        ?.replace(/\s+(?:Risk|Upside):.*$/i, "")
+        .trim();
+    })
+    .find((candidate) =>
+      Boolean(
+        candidate &&
+          /^[A-Za-z][A-Za-z.'’ -]+\s+[A-Za-z][A-Za-z.'’ -]+$/.test(
+            candidate,
+          ),
+      ),
+    );
+
+  return merged ?? null;
 }
 
 function loadFfToday(season: number, week: number) {
   return cachedSource("fftoday", season, week, async () => {
     const map: ProjectionMap = new Map();
     const positions = [
-      ["QB", 10],
-      ["RB", 20],
-      ["WR", 30],
-      ["TE", 40],
+      ["QB", 10, 1],
+      ["RB", 20, 1],
+      ["WR", 30, 1],
+      ["TE", 40, 1],
     ] as const;
+
     await Promise.all(
-      positions.map(async ([position, posId]) => {
+      positions.flatMap(([position, posId, pageCount]) =>
+        Array.from({ length: pageCount }, (_, page) =>
+          (async () => {
+            try {
+              const html = await fetchText(
+                `https://www.fftoday.com/rankings/playerwkproj.php?GameWeek=${week}&LeagueID=&PosID=${posId}&Season=${season}&order_by=FFPts&sort_order=DESC&cur_page=${page}`,
+              );
+              if (
+                !new RegExp(`${season}\\s+Week\\s+${week}`, "i").test(
+                  decode(html),
+                )
+              ) {
+                return;
+              }
+
+              const text = decode(html);
+              const team =
+                "(?:ARI|ATL|BAL|BUF|CAR|CHI|CIN|CLE|DAL|DEN|DET|GB|HOU|IND|JAX|KC|LV|LAC|LAR|MIA|MIN|NE|NO|NYG|NYJ|PHI|PIT|SF|SEA|TB|TEN|WAS)";
+              const name =
+                "([A-Z][A-Za-z'’.-]+(?:\\s+[A-Z][A-Za-z'’.-]+){1,3}(?:\\s+(?:Jr\\.?|Sr\\.?|II|III|IV))?)";
+              const note =
+                "(?:\\s+(?:Image:\\s*)?(?:Risk|Upside):[^0-9]{0,180})?";
+
+              if (position === "QB") {
+                const pattern = new RegExp(
+                  name +
+                    note +
+                    "\\s+" +
+                    team +
+                    "\\s+@?" +
+                    team +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)",
+                  "g",
+                );
+                for (const match of text.matchAll(pattern)) {
+                  mergeStats(map, match[1] ?? "", {
+                    passingYards: toNumber(match[4]) ?? undefined,
+                    passingTouchdowns: toNumber(match[5]) ?? undefined,
+                    rushingYards: toNumber(match[8]) ?? undefined,
+                    rushingTouchdowns: toNumber(match[9]) ?? undefined,
+                  });
+                }
+              } else {
+                const pattern = new RegExp(
+                  name +
+                    note +
+                    "\\s+" +
+                    team +
+                    "\\s+@?" +
+                    team +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)",
+                  "g",
+                );
+                for (const match of text.matchAll(pattern)) {
+                  mergeStats(map, match[1] ?? "", {
+                    rushingYards: toNumber(match[3]) ?? undefined,
+                    rushingTouchdowns: toNumber(match[4]) ?? undefined,
+                    receptions: toNumber(match[5]) ?? undefined,
+                    receivingYards: toNumber(match[6]) ?? undefined,
+                    receivingTouchdowns: toNumber(match[7]) ?? undefined,
+                  });
+                }
+              }
+            } catch {
+              // Weekly source is optional. A failed page is retried after the
+              // short failure TTL rather than replaced with non-weekly data.
+            }
+          })(),
+        ),
+      ),
+    );
+
+    return map;
+  });
+}
+
+function loadRotoBaller(season: number, week: number) {
+  return cachedSource("rotoballer", season, week, async () => {
+    const map: ProjectionMap = new Map();
+    const categoryUrl =
+      "https://www.rotoballer.com/category/nfl/fantasy-football-advice-analysis/fantasy-football-projections-articles-analysis";
+    const categoryHtml = await fetchText(categoryUrl);
+
+    const hrefs = [
+      ...categoryHtml.matchAll(/href=["'](https:\/\/www\.rotoballer\.com\/[^"'<>]+)["']/gi),
+    ]
+      .map((match) => decode(match[1] ?? ""))
+      .filter((href) => {
+        const normalized = href.toLowerCase();
+        return (
+          normalized.includes(`week-${week}`) &&
+          normalized.includes(String(season)) &&
+          normalized.includes("fantasy-football-projections")
+        );
+      });
+
+    const articleUrl =
+      hrefs.find((href) =>
+        href.toLowerCase().includes(
+          `fantasy-football-projections-for-week-${week}`,
+        ),
+      ) ??
+      hrefs.find((href) =>
+        href.toLowerCase().includes(
+          `updated-fantasy-football-projections-for-week-${week}`,
+        ),
+      ) ??
+      hrefs[0];
+
+    if (!articleUrl) return map;
+
+    const html = await fetchText(articleUrl);
+    const pageText = decode(html);
+    if (
+      !new RegExp(`Week\\s+${week}\\s+Fantasy\\s+Football\\s+Projections`, "i").test(
+        pageText,
+      ) ||
+      !pageText.includes(String(season))
+    ) {
+      return map;
+    }
+
+    for (const cells of rowsFromHtml(html)) {
+      // Player, Team, Pos, Fan Points, Pass Yards, Pass TDs, INTs,
+      // Rush, Rush Yards, Rush TDs, Rec, Rec Yards, Rec TDs.
+      if (cells.length < 13) continue;
+      const player = cells[0]?.trim();
+      const position = cells[2]?.trim().toUpperCase();
+      if (!player || !["QB", "RB", "WR", "TE"].includes(position ?? "")) {
+        continue;
+      }
+
+      mergeStats(map, player, {
+        passingYards: toNumber(cells[4]) ?? undefined,
+        passingTouchdowns: toNumber(cells[5]) ?? undefined,
+        rushingYards: toNumber(cells[8]) ?? undefined,
+        rushingTouchdowns: toNumber(cells[9]) ?? undefined,
+        receptions: toNumber(cells[10]) ?? undefined,
+        receivingYards: toNumber(cells[11]) ?? undefined,
+        receivingTouchdowns: toNumber(cells[12]) ?? undefined,
+      });
+    }
+
+    return map;
+  });
+}
+
+function loadSleeper(season: number, week: number) {
+  return cachedSource("sleeper", season, week, async () => {
+    const map: ProjectionMap = new Map();
+
+    await Promise.all(
+      ["QB", "RB", "WR", "TE"].map(async (position) => {
         try {
-          const html = await fetchText(
-            `https://www.fftoday.com/rankings/playerwkproj.php?Season=${season}&GameWeek=${week}&PosID=${posId}&LeagueID=1&order_by=FFPts&sort_order=DESC&cur_page=0`,
-          );
-          for (const row of html.match(/<tr\b[\s\S]*?<\/tr>/gi) ?? []) {
-            if (!/smallbody/i.test(row)) continue;
-            const rawCells = [
-              ...row.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi),
-            ];
-            if (rawCells.length < 6) continue;
-            const playerMatch = row.match(
-              /stats\/players\/\d+\/[^"'<>]*["'][^>]*>([\s\S]*?)<\/a>/i,
-            );
-            const player = playerMatch ? decode(playerMatch[1] ?? "") : "";
+          const payload = (await fetchJson(
+            `sleeper:${season}:${week}:${position}`,
+            `https://api.sleeper.com/projections/nfl/${season}/${week}?season_type=regular&position=${position}&order_by=pts_ppr`,
+            {
+              Accept: "application/json",
+              "User-Agent": "Lynerva/1.0",
+            },
+          )) as Array<{
+            player_id?: string;
+            week?: number;
+            season?: string | number;
+            season_type?: string;
+            category?: string;
+            game_id?: string | null;
+            stats?: Record<string, number>;
+            player?: {
+              first_name?: string | null;
+              last_name?: string | null;
+              position?: string | null;
+            } | null;
+          }>;
+
+          if (!Array.isArray(payload)) return;
+
+          for (const row of payload) {
+            if (
+              row.week !== week ||
+              String(row.season ?? "") !== String(season) ||
+              row.season_type !== "regular" ||
+              row.category !== "proj" ||
+              !row.game_id ||
+              !row.stats ||
+              typeof row.stats.pts_ppr !== "number"
+            ) {
+              continue;
+            }
+
+            const first = row.player?.first_name?.trim() ?? "";
+            const last = row.player?.last_name?.trim() ?? "";
+            const player = `${first} ${last}`.trim();
             if (!player) continue;
-            const cells = rawCells.map((match) => decode(match[1] ?? ""));
-            mergeStats(map, player, fftodayStats(position, cells));
+
+            mergeStats(map, player, {
+              passingYards: toNumber(row.stats.pass_yd) ?? undefined,
+              passingTouchdowns: toNumber(row.stats.pass_td) ?? undefined,
+              rushingYards: toNumber(row.stats.rush_yd) ?? undefined,
+              rushingTouchdowns: toNumber(row.stats.rush_td) ?? undefined,
+              receptions: toNumber(row.stats.rec) ?? undefined,
+              receivingYards: toNumber(row.stats.rec_yd) ?? undefined,
+              receivingTouchdowns: toNumber(row.stats.rec_td) ?? undefined,
+            });
           }
         } catch {
-          // Source remains optional.
+          // Sleeper's projections endpoint is public but undocumented.
+          // Treat a failed batch as missing data and retry after the failure TTL.
         }
       }),
     );
+
     return map;
   });
 }
@@ -794,20 +1058,19 @@ function namesMatch(candidate: string, target: string) {
   if (!left.length || !right.length) return false;
   const leftFull = left.join(" ");
   const rightFull = right.join(" ");
-  if (
-    leftFull === rightFull ||
-    leftFull.startsWith(rightFull) ||
-    rightFull.startsWith(leftFull)
-  ) {
-    return true;
-  }
-  const leftLast = left.at(-1);
-  const rightLast = right.at(-1);
-  return (
-    leftLast === rightLast &&
-    left[0]?.[0] !== undefined &&
-    left[0]?.[0] === right[0]?.[0]
-  );
+  if (leftFull === rightFull) return true;
+
+  // Only allow a first-initial + last-name abbreviation, e.g. "B Robinson"
+  // matching "Brian Robinson". Never use broad prefix matching, because
+  // "Brian Robinson" and "Bijan Robinson" share enough characters to collide.
+  const abbreviated = (shorter: string[], longer: string[]) =>
+    shorter.length === 2 &&
+    longer.length >= 2 &&
+    shorter[0]?.length === 1 &&
+    shorter[0] === longer[0]?.[0] &&
+    shorter.at(-1) === longer.at(-1);
+
+  return abbreviated(left, right) || abbreviated(right, left);
 }
 
 function loadCovers(season: number, week: number) {
@@ -874,15 +1137,24 @@ function loadDimers(season: number, week: number) {
   });
 }
 
+export function resolveProjectionPlayer<T>(
+  entries: Array<[string, T]>,
+  subject: string,
+) {
+  const target = normalizePerson(subject);
+  const exact = entries.find(([name]) => normalizePerson(name) === target);
+  if (exact) return exact[1];
+
+  const matches = entries.filter(([name]) => namesMatch(name, subject));
+  return matches.length === 1 ? matches[0]?.[1] ?? null : null;
+}
+
 async function sourceProjection(
   source: ProjectionSource,
   market: CanonicalMarket,
   season: number,
   week: number,
 ): Promise<ProjectionPoint | null> {
-  if (source === "fftoday") {
-    return ffTodayMarketProjection(market, season, week);
-  }
   if (source === "nfl") return nflMarketProjection(market, season, week);
 
   const loader =
@@ -894,15 +1166,22 @@ async function sourceProjection(
           ? loadEspn
           : source === "cbs"
             ? loadCbs
-            : source === "covers"
-              ? loadCovers
-              : loadDimers;
+            : source === "fftoday"
+              ? loadFfToday
+              : source === "rotoballer"
+                ? loadRotoBaller
+                : source === "sleeper"
+                  ? loadSleeper
+                  : source === "covers"
+                    ? loadCovers
+                    : loadDimers;
 
   const map = await loader(season, week);
-  const found = [...map.entries()].find(([name]) =>
-    namesMatch(name, market.subject),
-  )?.[1];
-  const value = sourceValue(found, market.family);
+  // Prefer an exact normalized player name. Abbreviated fallbacks are used
+  // only when they identify exactly one player, so B. Robinson can never
+  // silently map Brian Robinson Jr. to Bijan Robinson.
+  const found = resolveProjectionPlayer([...map.entries()], market.subject);
+  const value = sourceValue(found ?? undefined, market.family);
   if (value === null || !Number.isFinite(value) || value < 0) return null;
 
   return {
@@ -926,6 +1205,27 @@ function plausibleProjection(
   return true;
 }
 
+function robustProjectionPoints(
+  family: CanonicalMarket["family"],
+  points: ProjectionPoint[],
+) {
+  const plausible = points.filter((point) =>
+    plausibleProjection(family, point.value),
+  );
+  if (plausible.length < 3) return plausible;
+
+  const sorted = plausible.map((point) => point.value).toSorted((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+  if (median <= 0) return plausible;
+
+  // A parser/name failure can still produce a numerically plausible value.
+  // Reject a lone source that is wildly separated from a multi-source cluster.
+  return plausible.filter((point) => {
+    const ratio = point.value / median;
+    return ratio >= 0.45 && ratio <= 2.2;
+  });
+}
+
 async function buildConsensus(
   market: CanonicalMarket,
   season: number,
@@ -939,16 +1239,16 @@ async function buildConsensus(
     getLearnedSourceWeights(market.family, season, week),
   ]);
 
-  const points = settled
+  const uniquePoints = settled
     .flatMap((result) =>
       result.status === "fulfilled" && result.value ? [result.value] : [],
     )
-    .filter((point) => plausibleProjection(market.family, point.value))
     .filter(
       (point, index, all) =>
         all.findIndex((candidate) => candidate.source === point.source) ===
         index,
     );
+  const points = robustProjectionPoints(market.family, uniquePoints);
 
   if (!points.length) {
     return {
