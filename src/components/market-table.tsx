@@ -99,6 +99,12 @@ function hitRate(market: MarketOpportunity) {
   return count ? Math.round((count.hits / count.games) * 100) : null;
 }
 
+function scoreTone(score: number | null) {
+  if ((score ?? 0) >= 72) return "pick-card-good";
+  if ((score ?? 0) >= 52) return "pick-card-watch";
+  return "pick-card-low";
+}
+
 function didPickHit(market: MarketOpportunity, value: number) {
   const threshold = market.canonical?.threshold;
   const direction = market.canonical?.direction;
@@ -110,16 +116,17 @@ function didPickHit(market: MarketOpportunity, value: number) {
 
 function ScoreRing({ score, size = 58 }: { score: number | null; size?: number }) {
   const value = Math.max(0, Math.min(100, score ?? 0));
+  const filled = value * 3.6;
   return (
     <div
-      className="relative grid shrink-0 place-items-center rounded-full"
+      className="score-ring relative grid shrink-0 place-items-center rounded-full"
       style={{
         width: size,
         height: size,
-        background: `conic-gradient(var(--positive) ${value * 3.6}deg, var(--border) 0deg)`,
+        background: `conic-gradient(from -90deg, transparent 0deg ${filled}deg, var(--border) ${filled}deg 360deg), conic-gradient(from -90deg, #ef5b5b 0deg, #f2b84b 180deg, #29b875 360deg)`,
       }}
     >
-      <div className="grid size-[82%] place-items-center rounded-full bg-surface">
+      <div className="grid size-[80%] place-items-center rounded-full bg-surface shadow-[inset_0_0_0_1px_var(--border)]">
         <div className="text-center leading-none">
           <div className="text-base font-bold tabular">{score ?? "—"}</div>
           <div className="mt-0.5 text-[8px] uppercase tracking-[0.12em] text-faint">score</div>
@@ -469,18 +476,22 @@ export function MarketTable({
           return (
             <div
               key={key}
-              className="rounded-2xl border bg-surface text-left transition-[transform,border-color,box-shadow] hover:border-border-strong hover:shadow-[0_8px_24px_rgb(0_0_0/0.06)]"
+              className={cn(
+                "pick-card pick-card-enter rounded-2xl border bg-surface text-left",
+                scoreTone(market.lynervaScore),
+              )}
+              style={{ animationDelay: `${Math.min(index, 10) * 35}ms` }}
             >
               <button type="button" onClick={() => setSelected(market)} className="w-full p-4 text-left">
                 <div className="flex items-start gap-3">
                   <div className="relative">
                     <SubjectVisual market={market} />
-                    <span className="absolute -left-1.5 -top-1.5 grid size-5 place-items-center rounded-full bg-foreground text-[9px] font-bold text-background">{index + 1}</span>
+                    <span className="rank-badge absolute -left-1.5 -top-1.5 grid size-5 place-items-center rounded-full text-[9px] font-bold">{index + 1}</span>
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <PlatformMark platform={market.platform} />
-                      {market.isLive ? <span className="rounded-full bg-negative-bg px-1.5 py-0.5 text-[9px] font-bold uppercase text-negative">Live</span> : null}
+                      {market.isLive ? <span className="live-badge rounded-full bg-negative-bg px-1.5 py-0.5 text-[9px] font-bold uppercase text-negative">Live</span> : null}
                     </div>
                     <div className="mt-2 line-clamp-2 font-semibold leading-5">
                       <span className="mr-1.5 text-positive">{displayPickSide(market)}</span>
@@ -491,7 +502,7 @@ export function MarketTable({
                   <ScoreRing score={market.lynervaScore} />
                 </div>
 
-                <div className="mt-4 grid grid-cols-4 gap-2 rounded-xl bg-background p-3">
+                <div className="metric-strip mt-4 grid grid-cols-4 gap-2 rounded-xl border border-transparent bg-background p-3">
                   <Metric label="Market chance" value={formatPercent(market.executablePriceBps)} />
                   <Metric label="Lynerva chance" value={formatPercent(market.recommendedProbabilityBps)} emphasis />
                   <Metric label="Hit rate" value={rate === null ? "—" : `${rate}%`} />
@@ -514,7 +525,7 @@ export function MarketTable({
                       else next.add(key);
                       return next;
                     })}
-                    className="flex w-full items-center justify-between px-4 py-3 text-xs font-medium text-muted hover:text-foreground"
+                    className="flex w-full items-center justify-between px-4 py-3 text-xs font-medium text-muted transition-colors hover:bg-surface-raised hover:text-foreground"
                   >
                     <span>{alternates.length} alternate line{alternates.length === 1 ? "" : "s"}</span>
                     <ChevronDown size={14} className={cn("transition-transform", isExpanded ? "rotate-180" : "")} />
