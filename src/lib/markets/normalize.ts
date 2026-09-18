@@ -218,11 +218,18 @@ export function normalizeMarket(market: ProviderMarket): CanonicalMarket | null 
   const contractText = `${market.marketTitle} ${market.outcomeLabel}`;
   const { family, statistic } = familyFrom(combined);
   if (family === "other") return null;
-  const textTeams = findTeams(combined);
   const tickerTeams = findTickerTeams(
     `${market.platformMarketId} ${market.eventTitle}`,
   );
-  const teams = [...new Set([...textTeams, ...tickerTeams])];
+  const eventTeams = findTeams(
+    `${market.eventTitle} ${market.marketTitle}`,
+  );
+  const teams =
+    tickerTeams.length >= 2
+      ? [...new Set(tickerTeams)]
+      : eventTeams.length >= 2
+        ? [...new Set(eventTeams)]
+        : [];
   const contractTeams = findTeams(contractText);
   const rawThreshold = findThreshold(contractText);
   const threshold =
