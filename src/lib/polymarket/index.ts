@@ -70,19 +70,25 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
     const now = Date.now();
     const windowStart = now - 8 * 60 * 60 * 1_000;
     const windowEnd = now + 8 * 24 * 60 * 60 * 1_000;
-    const url = new URL(`${GAMMA_BASE}/events`);
-    url.searchParams.set("tag_slug", "nfl");
-    url.searchParams.set("active", "true");
-    url.searchParams.set("closed", "false");
-    url.searchParams.set("start_date_min", new Date(windowStart).toISOString());
-    url.searchParams.set("start_date_max", new Date(windowEnd).toISOString());
-    url.searchParams.set("limit", "100");
-    const events = await fetchValidated(
-      "Polymarket Gamma",
-      url.toString(),
-      eventsSchema,
-      { cache: "no-store" },
-    );
+    const events: z.infer<typeof eventSchema>[] = [];
+    const pageSize = 500;
+    for (let offset = 0; offset < 2_500; offset += pageSize) {
+      const url = new URL(`${GAMMA_BASE}/events`);
+      url.searchParams.set("tag_slug", "nfl");
+      url.searchParams.set("active", "true");
+      url.searchParams.set("closed", "false");
+      url.searchParams.set("limit", String(pageSize));
+      url.searchParams.set("offset", String(offset));
+      const page = await fetchValidated(
+        "Polymarket Gamma",
+        url.toString(),
+        eventsSchema,
+        { cache: "no-store" },
+      );
+      events.push(...page);
+      if (page.length < pageSize) break;
+    }
+
     const nflEvents = events
       .map((event) => ({
         ...event,
