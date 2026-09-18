@@ -3,7 +3,7 @@ import { isPricedOpportunity } from "@/lib/markets/eligibility";
 import type { MarketOpportunity } from "@/lib/markets/types";
 
 export const runtime = "nodejs";
-export const revalidate = 15;
+export const dynamic = "force-dynamic";
 
 function marketKey(market: MarketOpportunity) {
   return `${market.platform}:${market.platformMarketId}:${market.platformOutcomeId ?? "yes"}`;
