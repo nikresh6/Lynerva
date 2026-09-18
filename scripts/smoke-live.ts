@@ -232,6 +232,8 @@ async function main() {
             family: market.canonical?.family,
             title: market.marketTitle,
             platform: market.platform,
+            projectionWeek: market.model.components?.projectionWeek ?? null,
+            sources: market.model.components?.projectionSources ?? [],
           })),
         topPicks: picks.length,
         liveTopPicks: livePicks.length,
@@ -301,6 +303,23 @@ async function main() {
         impossibleSourceProjections.slice(0, 5),
       )}`,
     );
+  }
+  const chaseReceiving = playerPropMarkets.filter(
+    (market) =>
+      market.canonical?.family === "receiving_yards" &&
+      /ja.?marr chase/i.test(`${market.canonical?.subject ?? ""} ${market.marketTitle}`),
+  );
+  if (chaseReceiving.length > 0) {
+    const bestCoverage = Math.max(
+      ...chaseReceiving.map(
+        (market) => market.model.components?.projectionSources?.length ?? 0,
+      ),
+    );
+    if (bestCoverage < 4) {
+      throw new Error(
+        `Live smoke failed: Ja'Marr Chase receiving-yards projection has only ${bestCoverage} verified sources; expected at least 4.`,
+      );
+    }
   }
   if (payload.opportunities.length > 0 && playerPropMarkets.length === 0) {
     throw new Error("Live smoke failed: populated feed has zero regular-season player props.");
