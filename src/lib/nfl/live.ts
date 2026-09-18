@@ -21,6 +21,13 @@ const eventSchema = z
     id: z.string(),
     name: z.string(),
     date: z.string(),
+    season: z
+      .object({
+        year: z.number(),
+        type: z.number(),
+      })
+      .optional(),
+    week: z.object({ number: z.number() }).optional(),
     status: z.object({
       type: z.object({
         state: z.string(),
@@ -42,6 +49,9 @@ export interface LiveNflGame {
   id: string;
   name: string;
   startsAt: string;
+  seasonYear: number | null;
+  seasonType: number | null;
+  week: number | null;
   state: string;
   status: string;
   period: number;
@@ -74,6 +84,9 @@ export class EspnLiveNflProvider implements LiveNflProvider {
         id: event.id,
         name: event.name,
         startsAt: event.date,
+        seasonYear: event.season?.year ?? null,
+        seasonType: event.season?.type ?? null,
+        week: event.week?.number ?? null,
         state: event.status.type.state,
         status: event.status.type.detail,
         period: event.status.period,
