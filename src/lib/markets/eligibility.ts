@@ -32,6 +32,7 @@ export function isSingleLegNflProviderMarket(market: ProviderMarket) {
     return false;
   }
   if (
+    market.platform !== "polymarket" &&
     !isNflText(
       market.eventTitle,
       market.marketTitle,
