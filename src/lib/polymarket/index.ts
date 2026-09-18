@@ -81,7 +81,7 @@ function extrema(entries: Array<{ price: string }>, mode: "min" | "max") {
 
 async function fetchBooks(tokenIds: string[]) {
   const map = new Map<string, z.infer<typeof bookSchema>>();
-  const unique = [...new Set(tokenIds)].slice(0, 400);
+  const unique = [...new Set(tokenIds)].slice(0, 120);
   const chunks: string[][] = [];
   for (let index = 0; index < unique.length; index += 100) {
     chunks.push(unique.slice(index, index + 100));
@@ -123,7 +123,7 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
     url.searchParams.set("tag_slug", "nfl");
     url.searchParams.set("active", "true");
     url.searchParams.set("closed", "false");
-    url.searchParams.set("limit", "120");
+    url.searchParams.set("limit", "30");
     const events = await fetchValidated(
       "Polymarket Gamma",
       url.toString(),
