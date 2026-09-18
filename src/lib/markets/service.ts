@@ -353,6 +353,8 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
         reliabilityBps: model.reliabilityBps,
         seasonHits: model.evidence.seasonHits,
         seasonGames: model.evidence.seasonGames,
+        last10Hits: model.evidence.last10Hits,
+        sampleSize: model.evidence.sampleSize,
         recommendedSide: side.side,
         liquidityCents: market.liquidityCents,
         volumeCents: market.volumeCents,
