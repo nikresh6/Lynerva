@@ -139,7 +139,7 @@ export function MarketExplorer({
     return filterAndSortMarkets(
       eligible,
       activeFilters,
-    ).slice(0, topOnly ? 60 : 120);
+    ).slice(0, topOnly ? 30 : 120);
   }, [deferredQuery, filters, forceStatus, opportunities, topOnly]);
 
   const activeAdvanced = [
