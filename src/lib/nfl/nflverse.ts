@@ -2,6 +2,7 @@ import "server-only";
 
 import { getDb } from "@/db";
 import { nflGames, nflPlayers, playerGameStats } from "@/db/schema";
+import { runSourceLearningLoop } from "@/lib/model/source-learning";
 
 type CsvRow = Record<string, string>;
 
@@ -184,5 +185,12 @@ export async function ingestNflverseSeason(season: number) {
       statsStored += 1;
     }));
   }
-  return { season, gamesStored, playersStored, statsStored };
+  const learning = await runSourceLearningLoop(season);
+  return {
+    season,
+    gamesStored,
+    playersStored,
+    statsStored,
+    learning,
+  };
 }

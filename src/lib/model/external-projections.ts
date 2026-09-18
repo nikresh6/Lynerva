@@ -1,6 +1,8 @@
 import "server-only";
 
 import type { CanonicalMarket } from "@/lib/markets/types";
+import { getLearnedSourceWeights } from "./source-learning";
+import { ACTIVE_PROJECTION_SOURCES } from "./source-weighting";
 
 export type ProjectionSource =
   | "fantasypros"
@@ -55,6 +57,8 @@ const consensusCache = new Map<
       projection: number | null;
       points: ProjectionPoint[];
       dispersion: number | null;
+      sourceWeights: Record<string, number> | null;
+      weightWeek: number | null;
     }>;
   }
 >();
@@ -395,15 +399,43 @@ function loadEspn(season: number, week: number) {
   });
 }
 
-const CBS_STAT_LABELS = {
-  passingYards: /passing yards/i,
-  passingTouchdowns: /touchdowns passes|passing touchdowns/i,
-  rushingYards: /rushing yards/i,
-  rushingTouchdowns: /rushing touchdowns/i,
-  receptions: /^receptions$|\breceptions\b/i,
-  receivingYards: /receiving yards/i,
-  receivingTouchdowns: /receiving touchdowns/i,
-} satisfies Record<keyof ProjectionStats, RegExp>;
+function cbsStats(position: string, cells: string[]): ProjectionStats {
+  // CBS uses stable, position-specific projection tables. Cell 0 is the player.
+  if (position === "QB") {
+    return {
+      passingYards: toNumber(cells[4]) ?? undefined,
+      passingTouchdowns: toNumber(cells[6]) ?? undefined,
+      rushingYards: toNumber(cells[10]) ?? undefined,
+      rushingTouchdowns: toNumber(cells[12]) ?? undefined,
+    };
+  }
+
+  if (position === "RB") {
+    return {
+      rushingYards: toNumber(cells[3]) ?? undefined,
+      rushingTouchdowns: toNumber(cells[5]) ?? undefined,
+      receptions: toNumber(cells[7]) ?? undefined,
+      receivingYards: toNumber(cells[8]) ?? undefined,
+      receivingTouchdowns: toNumber(cells[11]) ?? undefined,
+    };
+  }
+
+  if (position === "WR") {
+    return {
+      receptions: toNumber(cells[3]) ?? undefined,
+      receivingYards: toNumber(cells[4]) ?? undefined,
+      receivingTouchdowns: toNumber(cells[7]) ?? undefined,
+      rushingYards: toNumber(cells[9]) ?? undefined,
+      rushingTouchdowns: toNumber(cells[11]) ?? undefined,
+    };
+  }
+
+  return {
+    receptions: toNumber(cells[3]) ?? undefined,
+    receivingYards: toNumber(cells[4]) ?? undefined,
+    receivingTouchdowns: toNumber(cells[7]) ?? undefined,
+  };
+}
 
 function loadCbs(season: number, week: number) {
   return cachedSource("cbs", season, week, async () => {
@@ -414,17 +446,6 @@ function loadCbs(season: number, week: number) {
           const html = await fetchText(
             `https://www.cbssports.com/fantasy/football/stats/${position}/${season}/${week}/projections/nonppr/`,
           );
-          const thead = html.match(/<thead\b[\s\S]*?<\/thead>/i)?.[0] ?? "";
-          const headers = [
-            ...thead.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/gi),
-          ].map((match) => decode(match[1] ?? ""));
-          const indices = Object.fromEntries(
-            Object.entries(CBS_STAT_LABELS).map(([key, regex]) => [
-              key,
-              headers.findIndex((header) => regex.test(header)),
-            ]),
-          ) as Record<keyof ProjectionStats, number>;
-
           for (const row of html.match(/<tr\b[^>]*TableBase-bodyTr[^>]*>[\s\S]*?<\/tr>/gi) ?? []) {
             const nameMatch = row.match(
               /CellPlayerName--long[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i,
@@ -434,15 +455,7 @@ function loadCbs(season: number, week: number) {
             const cells = [
               ...row.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi),
             ].map((match) => decode(match[1] ?? ""));
-            const stats: ProjectionStats = {};
-            for (const key of Object.keys(indices) as Array<keyof ProjectionStats>) {
-              const index = indices[key];
-              if (index >= 0) {
-                const value = toNumber(cells[index]);
-                if (value !== null) stats[key] = value;
-              }
-            }
-            mergeStats(map, player, stats);
+            mergeStats(map, player, cbsStats(position, cells));
           }
         } catch {
           // Source remains optional.
@@ -775,91 +788,90 @@ function abbreviatedName(name: string) {
   return `${parts[0]?.[0] ?? ""}. ${parts.at(-1) ?? ""}`;
 }
 
-async function coversProjection(
-  market: CanonicalMarket,
-): Promise<ProjectionPoint | null> {
-  try {
-    const html = await fetchText(
-      "https://www.covers.com/sport/football/nfl/player-props",
-    );
-    const text = decode(html);
-    const shortName = abbreviatedName(market.subject);
-    const lastName = market.subject.split(/\s+/).at(-1) ?? market.subject;
-    const familyLabel: Partial<Record<CanonicalMarket["family"], string>> = {
-      passing_yards: "Passing Yards",
-      rushing_yards: "Rushing Yards",
-      receiving_yards: "Receiving Yards",
-      receptions: "Receptions",
-      touchdowns: "Touchdowns",
-      passing_touchdowns: "Passing Touchdowns",
-    };
-    const label = familyLabel[market.family];
-    if (!label) return null;
-
-    const probes = [shortName, market.subject, lastName];
-    for (const probe of probes) {
-      const index = text.toLowerCase().indexOf(probe.toLowerCase());
-      if (index < 0) continue;
-      const segment = text.slice(index, index + 1_200);
-      if (!segment.toLowerCase().includes(label.toLowerCase())) continue;
-      const match = segment.match(/PROJECTION\s+(-?\d+(?:\.\d+)?)/i);
-      const value = match ? Number(match[1]) : NaN;
-      if (Number.isFinite(value) && value >= 0) {
-        return {
-          source: "covers",
-          value,
-          fetchedAt: new Date().toISOString(),
-        };
-      }
-    }
-  } catch {
-    // Optional source.
+function namesMatch(candidate: string, target: string) {
+  const left = normalizePerson(candidate).split(" ").filter(Boolean);
+  const right = normalizePerson(target).split(" ").filter(Boolean);
+  if (!left.length || !right.length) return false;
+  const leftFull = left.join(" ");
+  const rightFull = right.join(" ");
+  if (
+    leftFull === rightFull ||
+    leftFull.startsWith(rightFull) ||
+    rightFull.startsWith(leftFull)
+  ) {
+    return true;
   }
-  return null;
+  const leftLast = left.at(-1);
+  const rightLast = right.at(-1);
+  return (
+    leftLast === rightLast &&
+    left[0]?.[0] !== undefined &&
+    left[0]?.[0] === right[0]?.[0]
+  );
 }
 
-async function dimersProjection(
-  market: CanonicalMarket,
-): Promise<ProjectionPoint | null> {
-  try {
-    const html = await fetchText("https://www.dimers.com/nfl/player-projections");
-    const rows = rowsFromHtml(html);
-    const target = normalizePerson(market.subject);
-    const shortTarget = normalizePerson(abbreviatedName(market.subject));
-    for (const cells of rows) {
-      if (cells.length < 11) continue;
-      const player = normalizePerson(cells[0] ?? "");
-      if (
-        !player.includes(target) &&
-        !player.includes(shortTarget) &&
-        !target.includes(player)
-      ) {
-        continue;
-      }
+function loadCovers(season: number, week: number) {
+  return cachedSource("covers", season, week, async () => {
+    const map: ProjectionMap = new Map();
+    const text = decode(
+      await fetchText(
+        "https://www.covers.com/sport/football/nfl/player-props",
+      ),
+    );
 
-      let value: number | null = null;
-      if (market.family === "passing_yards") value = toNumber(cells[7]);
-      if (market.family === "rushing_yards") value = toNumber(cells[8]);
-      if (market.family === "receptions") value = toNumber(cells[9]);
-      if (market.family === "receiving_yards") value = toNumber(cells[10]);
-      if (market.family === "touchdowns") {
-        const p1 = toNumber(cells[11]);
-        if (p1 !== null && p1 > 0 && p1 < 100) {
-          value = -Math.log(1 - p1 / 100);
-        }
-      }
-      if (value !== null && Number.isFinite(value) && value >= 0) {
-        return {
-          source: "dimers",
-          value,
-          fetchedAt: new Date().toISOString(),
-        };
+    const pattern =
+      /([A-Z]\.\s+[A-Za-z'’.-]+(?:\s+(?:Jr\.?|Sr\.?|II|III|IV))?)\s+\((?:QB|RB|WR|TE)\)\s+[ou]\d+(?:\.\d+)?\s+(Passing Yards|Rushing Yards|Receiving Yards|Receptions)\s+(-?\d+(?:\.\d+)?)\s+(?:OVER|UNDER)\s+PROJECTION/gi;
+
+    for (const match of text.matchAll(pattern)) {
+      const player = match[1] ?? "";
+      const family = (match[2] ?? "").toUpperCase();
+      const value = Number(match[3]);
+      if (!player || !Number.isFinite(value) || value < 0) continue;
+
+      if (family === "PASSING YARDS") {
+        mergeStats(map, player, { passingYards: value });
+      } else if (family === "RUSHING YARDS") {
+        mergeStats(map, player, { rushingYards: value });
+      } else if (family === "RECEIVING YARDS") {
+        mergeStats(map, player, { receivingYards: value });
+      } else if (family === "RECEPTIONS") {
+        mergeStats(map, player, { receptions: value });
       }
     }
-  } catch {
-    // Optional source.
-  }
-  return null;
+
+    return map;
+  });
+}
+
+function loadDimers(season: number, week: number) {
+  return cachedSource("dimers", season, week, async () => {
+    const map: ProjectionMap = new Map();
+    const rows = rowsFromHtml(
+      await fetchText("https://www.dimers.com/nfl/player-projections"),
+    );
+
+    for (const cells of rows) {
+      if (cells.length < 11) continue;
+      const player = cells[0] ?? "";
+      if (!player || /^player$/i.test(player)) continue;
+
+      const touchdownChance = toNumber(cells[11]);
+      mergeStats(map, player, {
+        passingYards: toNumber(cells[7]) ?? undefined,
+        rushingYards: toNumber(cells[8]) ?? undefined,
+        receptions: toNumber(cells[9]) ?? undefined,
+        receivingYards: toNumber(cells[10]) ?? undefined,
+        receivingTouchdowns:
+          touchdownChance !== null &&
+          touchdownChance > 0 &&
+          touchdownChance < 100
+            ? -Math.log(1 - touchdownChance / 100)
+            : undefined,
+      });
+    }
+
+    return map;
+  });
 }
 
 async function sourceProjection(
@@ -868,7 +880,6 @@ async function sourceProjection(
   season: number,
   week: number,
 ): Promise<ProjectionPoint | null> {
-  if (source === "numberfire") return numberFireMarketProjection(market);
   if (source === "fftoday") {
     return ffTodayMarketProjection(market, season, week);
   }
@@ -877,20 +888,23 @@ async function sourceProjection(
   const loader =
     source === "fantasypros"
       ? loadFantasyPros
-      : source === "espn"
-        ? loadEspn
-        : loadCbs;
+      : source === "numberfire"
+        ? loadNumberFire
+        : source === "espn"
+          ? loadEspn
+          : source === "cbs"
+            ? loadCbs
+            : source === "covers"
+              ? loadCovers
+              : loadDimers;
 
   const map = await loader(season, week);
-  const target = normalizePerson(market.subject);
-  const direct = map.get(target);
-  const fuzzy =
-    direct ??
-    [...map.entries()].find(
-      ([name]) => name.startsWith(target) || target.startsWith(name),
-    )?.[1];
-  const value = sourceValue(fuzzy, market.family);
+  const found = [...map.entries()].find(([name]) =>
+    namesMatch(name, market.subject),
+  )?.[1];
+  const value = sourceValue(found, market.family);
   if (value === null || !Number.isFinite(value) || value < 0) return null;
+
   return {
     source,
     value,
@@ -898,27 +912,38 @@ async function sourceProjection(
   };
 }
 
+function plausibleProjection(
+  family: CanonicalMarket["family"],
+  value: number,
+) {
+  if (!Number.isFinite(value) || value < 0) return false;
+  if (family === "passing_yards") return value <= 600;
+  if (family === "passing_touchdowns") return value <= 6;
+  if (family === "rushing_yards") return value <= 300;
+  if (family === "receiving_yards") return value <= 300;
+  if (family === "receptions") return value <= 20;
+  if (family === "touchdowns") return value <= 3;
+  return true;
+}
+
 async function buildConsensus(
   market: CanonicalMarket,
   season: number,
   week: number,
 ) {
-  const sources: ProjectionSource[] = [
-    "fantasypros",
-    "numberfire",
-    "espn",
-    "cbs",
-    "covers",
-    "dimers",
-  ];
-  const settled = await Promise.allSettled(
-    sources.map((source) => sourceProjection(source, market, season, week)),
-  );
+  const sources: readonly ProjectionSource[] = ACTIVE_PROJECTION_SOURCES;
+  const [settled, learned] = await Promise.all([
+    Promise.allSettled(
+      sources.map((source) => sourceProjection(source, market, season, week)),
+    ),
+    getLearnedSourceWeights(market.family, season, week),
+  ]);
 
   const points = settled
     .flatMap((result) =>
       result.status === "fulfilled" && result.value ? [result.value] : [],
     )
+    .filter((point) => plausibleProjection(market.family, point.value))
     .filter(
       (point, index, all) =>
         all.findIndex((candidate) => candidate.source === point.source) ===
@@ -930,21 +955,35 @@ async function buildConsensus(
       projection: null,
       points: [] as ProjectionPoint[],
       dispersion: null,
+      sourceWeights: learned?.weights ?? null,
+      weightWeek: learned?.effectiveWeek ?? null,
     };
   }
 
-  const projection =
-    points.reduce((sum, point) => sum + point.value, 0) / points.length;
-  const variance =
-    points.reduce(
-      (sum, point) => sum + (point.value - projection) ** 2,
-      0,
-    ) / points.length;
+  const availableWeights = points.map((point) => ({
+    point,
+    weight: learned?.weights[point.source] ?? 1,
+  }));
+  const weightTotal =
+    availableWeights.reduce((sum, item) => sum + item.weight, 0) || 1;
+  const projection = availableWeights.reduce(
+    (sum, item) => sum + item.point.value * (item.weight / weightTotal),
+    0,
+  );
+  const variance = availableWeights.reduce(
+    (sum, item) =>
+      sum +
+      (item.weight / weightTotal) *
+        (item.point.value - projection) ** 2,
+    0,
+  );
 
   return {
     projection,
     points,
     dispersion: points.length > 1 ? Math.sqrt(variance) : null,
+    sourceWeights: learned?.weights ?? null,
+    weightWeek: learned?.effectiveWeek ?? null,
   };
 }
 

@@ -89,6 +89,9 @@ export interface ModelEstimate {
       source: string;
       value: number;
     }>;
+    projectionSeason?: number | null;
+    projectionWeek?: number | null;
+    learnedSourceWeightWeek?: number | null;
     learnedCalibrationSample: number;
     learnedCalibrationActive: boolean;
   };

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   marketEvents,
@@ -11,14 +11,17 @@ import {
   normalizedMarkets,
   predictions,
   sourceHealth,
+  sourceProjections,
 } from "@/db/schema";
+import { ensureSourceLearningSchema } from "@/lib/model/source-learning";
+import { normalizeLearningPlayer } from "@/lib/model/source-weighting";
 import type { MarketsPayload } from "./service";
 
 function stableId(prefix: string, value: string) {
   return `${prefix}_${createHash("sha256").update(value).digest("hex").slice(0, 24)}`;
 }
 
-const MODEL_ID = "model_hybrid_consensus_context_v2";
+const MODEL_ID = "model_hybrid_consensus_learning_v3";
 
 export async function persistMarkets(payload: MarketsPayload) {
   const db = getDb();
@@ -26,25 +29,100 @@ export async function persistMarkets(payload: MarketsPayload) {
   let listingsStored = 0;
   let snapshotsStored = 0;
   let predictionsStored = 0;
+  let sourceProjectionsStored = 0;
 
   await db
     .insert(modelVersions)
     .values({
       id: MODEL_ID,
       name: "Lynerva hybrid player prop model",
-      version: "hybrid-consensus-context-v2",
+      version: "hybrid-consensus-learning-v3",
       family: "player_props",
       coefficients: {
         consensusWeightEarly: 1,
         statisticalWeightAtFourGames: 0.30,
         statisticalWeightMax: 0.55,
         onlineCalibrationMinBucketSamples: 20,
+        sourceLearningMinSamples: 20,
+        sourceLearningMaxWeight: 0.75,
       },
       calibrationNotes:
-        "Independent projection consensus plus game/weather context. Current-season statistical history activates at four games. Settled outcomes calibrate future probabilities by prediction bucket.",
+        "Independent projection ensemble with stat-specific source weights learned from settled player outcomes, plus game/weather context. Current-season statistical history activates at four games. Settled outcomes calibrate future probabilities by prediction bucket.",
       active: true,
     })
     .onConflictDoNothing({ target: modelVersions.id });
+
+  const projectionSnapshots = new Map<
+    string,
+    {
+      id: string;
+      season: number;
+      week: number;
+      playerName: string;
+      playerKey: string;
+      statistic: string;
+      source: string;
+      projectedValue: number;
+      capturedAt: Date;
+    }
+  >();
+
+  for (const opportunity of payload.opportunities) {
+    const components = opportunity.model.components;
+    const season = components?.projectionSeason;
+    const week = components?.projectionWeek;
+    if (
+      !opportunity.canonical ||
+      !season ||
+      !week ||
+      !components?.projectionSources?.length
+    ) {
+      continue;
+    }
+
+    const playerName = opportunity.canonical.subject;
+    const playerKey = normalizeLearningPlayer(playerName);
+    if (!playerKey) continue;
+    const statistic = opportunity.canonical.family;
+
+    for (const point of components.projectionSources) {
+      const id = stableId(
+        "source_projection",
+        `${season}:${week}:${playerKey}:${statistic}:${point.source}`,
+      );
+      projectionSnapshots.set(id, {
+        id,
+        season,
+        week,
+        playerName,
+        playerKey,
+        statistic,
+        source: point.source,
+        projectedValue: point.value,
+        capturedAt: now,
+      });
+    }
+  }
+
+  const projectionRows = [...projectionSnapshots.values()];
+  if (projectionRows.length) {
+    await ensureSourceLearningSchema();
+  }
+  for (let index = 0; index < projectionRows.length; index += 100) {
+    const chunk = projectionRows.slice(index, index + 100);
+    await db
+      .insert(sourceProjections)
+      .values(chunk)
+      .onConflictDoUpdate({
+        target: sourceProjections.id,
+        set: {
+          projectedValue: sql`excluded.projected_value`,
+          capturedAt: sql`excluded.captured_at`,
+          updatedAt: now,
+        },
+      });
+    sourceProjectionsStored += chunk.length;
+  }
 
   for (const provider of payload.providers) {
     await db
@@ -226,5 +304,10 @@ export async function persistMarkets(payload: MarketsPayload) {
       predictionsStored += 1;
     }
   }
-  return { listingsStored, snapshotsStored, predictionsStored };
+  return {
+    listingsStored,
+    snapshotsStored,
+    predictionsStored,
+    sourceProjectionsStored,
+  };
 }

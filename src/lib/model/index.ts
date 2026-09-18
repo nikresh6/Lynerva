@@ -16,7 +16,7 @@ import type {
   ModelEstimate,
 } from "@/lib/markets/types";
 
-const MODEL_VERSION = "hybrid-consensus-context-v2";
+const MODEL_VERSION = "hybrid-consensus-learning-v3";
 
 const emptyEvidence: HistoricalEvidence = {
   last5Hits: null,
@@ -553,6 +553,11 @@ export async function estimateMarket(
         `Context layer adjusted probability by ${(contextAdjustment * 100).toFixed(1)} percentage points.`,
       );
     }
+    if (external.weightWeek !== null) {
+      factors.push(
+        `Source weights learned from settled player-stat results are active from Week ${external.weightWeek}.`,
+      );
+    }
     if (calibrated.learned) {
       factors.push(
         `Self-calibration active using ${calibrated.sampleSize} settled predictions in this probability bucket.`,
@@ -591,6 +596,9 @@ export async function estimateMarket(
           source: point.source,
           value: point.value,
         })),
+        projectionSeason: scheduleGame?.season ?? null,
+        projectionWeek: scheduleGame?.week ?? null,
+        learnedSourceWeightWeek: external.weightWeek,
         learnedCalibrationSample: calibrated.sampleSize,
         learnedCalibrationActive: calibrated.learned,
       },

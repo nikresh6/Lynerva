@@ -382,6 +382,84 @@ export const predictionResults = sqliteTable(
   (table) => [index("prediction_results_settled_idx").on(table.settledAt)],
 );
 
+export const sourceProjections = sqliteTable(
+  "source_projections",
+  {
+    id: text("id").primaryKey(),
+    season: integer("season").notNull(),
+    week: integer("week").notNull(),
+    playerName: text("player_name").notNull(),
+    playerKey: text("player_key").notNull(),
+    statistic: text("statistic").notNull(),
+    source: text("source").notNull(),
+    projectedValue: real("projected_value").notNull(),
+    capturedAt: integer("captured_at", { mode: "timestamp" }).notNull(),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    uniqueIndex("source_projection_unique").on(
+      table.season,
+      table.week,
+      table.playerKey,
+      table.statistic,
+      table.source,
+    ),
+    index("source_projection_stat_week_idx").on(
+      table.season,
+      table.week,
+      table.statistic,
+    ),
+  ],
+);
+
+export const sourceProjectionGrades = sqliteTable(
+  "source_projection_grades",
+  {
+    projectionId: text("projection_id")
+      .primaryKey()
+      .references(() => sourceProjections.id, { onDelete: "cascade" }),
+    actualValue: real("actual_value").notNull(),
+    absoluteError: real("absolute_error").notNull(),
+    squaredError: real("squared_error").notNull(),
+    gradedAt: integer("graded_at", { mode: "timestamp" }).notNull(),
+    createdAt,
+  },
+  (table) => [
+    index("source_projection_grades_time_idx").on(table.gradedAt),
+  ],
+);
+
+export const sourceWeightHistory = sqliteTable(
+  "source_weight_history",
+  {
+    id: text("id").primaryKey(),
+    season: integer("season").notNull(),
+    effectiveWeek: integer("effective_week").notNull(),
+    statistic: text("statistic").notNull(),
+    source: text("source").notNull(),
+    weight: real("weight").notNull(),
+    sampleSize: integer("sample_size").notNull(),
+    mae: real("mae"),
+    recentMae: real("recent_mae"),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    uniqueIndex("source_weight_unique").on(
+      table.season,
+      table.effectiveWeek,
+      table.statistic,
+      table.source,
+    ),
+    index("source_weight_lookup_idx").on(
+      table.season,
+      table.statistic,
+      table.effectiveWeek,
+    ),
+  ],
+);
+
 export const weatherSnapshots = sqliteTable(
   "weather_snapshots",
   {
