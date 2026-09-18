@@ -458,28 +458,34 @@ export function buildPortfolioPlan(
       ? (targetReturn - straightReturn) /
         (primaryParlay.grossReturn - straightReturn)
       : config.maxParlayShare;
-  const parlayShare = clamp(
+  const preliminaryParlayShare = clamp(
     requiredParlayShare,
     config.minParlayShare,
     config.maxParlayShare,
   );
-  const straightShare = 1 - parlayShare;
+  const preliminaryStraightShare = 1 - preliminaryParlayShare;
 
   const parlayCount = Math.min(
     config.maxParlays,
     parlays.length,
-    Math.max(1, Math.ceil(parlayShare / config.maxPositionShare)),
+    Math.max(1, Math.ceil(preliminaryParlayShare / config.maxPositionShare)),
   );
   const straightCount = Math.min(
     config.maxStraights,
     straights.length,
-    Math.max(2, Math.ceil(straightShare / config.maxPositionShare)),
+    Math.max(2, Math.ceil(preliminaryStraightShare / config.maxPositionShare)),
   );
 
+  const partnerPool = parlays.filter(
+    (row) =>
+      row.id !== primaryParlay.id &&
+      row.grossReturn >= primaryParlay.grossReturn * 0.6 &&
+      row.grossReturn <= primaryParlay.grossReturn * 1.65,
+  );
   const selectedParlays = [
     primaryParlay,
     ...pickDiverse(
-      parlays.filter((row) => row.id !== primaryParlay.id),
+      partnerPool.length ? partnerPool : parlays.filter((row) => row.id !== primaryParlay.id),
       Math.max(0, parlayCount - 1),
       [primaryParlay],
     ),
@@ -491,6 +497,20 @@ export function buildPortfolioPlan(
   );
 
   if (!selectedStraights.length || !selectedParlays.length) return null;
+
+  const selectedStraightReturn = averageReturn(selectedStraights);
+  const selectedParlayReturn = averageReturn(selectedParlays);
+  const finalRequiredParlayShare =
+    selectedParlayReturn > selectedStraightReturn
+      ? (targetReturn - selectedStraightReturn) /
+        (selectedParlayReturn - selectedStraightReturn)
+      : config.maxParlayShare;
+  const parlayShare = clamp(
+    finalRequiredParlayShare,
+    config.minParlayShare,
+    config.maxParlayShare,
+  );
+  const straightShare = 1 - parlayShare;
 
   const straightAmounts = allocateAmounts(
     options.amount,
@@ -546,6 +566,10 @@ export function buildPortfolioPlan(
     (sum, position) => sum + position.payoutIfWin,
     0,
   );
+  const targetDistance =
+    Math.abs(allWinPayout - options.targetPayout) /
+    Math.max(options.targetPayout, 1);
+  if (targetDistance > 0.4) return null;
   const expectedPayout = positions.reduce(
     (sum, position) =>
       sum +
