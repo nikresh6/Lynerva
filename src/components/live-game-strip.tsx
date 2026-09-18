@@ -64,15 +64,15 @@ export function LiveGameStrip({ games }: { games: LiveNflGame[] }) {
   if (!visible.length) return null;
 
   return (
-    <div className="scrollbar-subtle mb-4 flex gap-2 overflow-x-auto pb-1">
+    <div className="scrollbar-subtle -mx-1 mb-4 flex snap-x gap-2 overflow-x-auto px-1 pb-2">
       {visible.map((game) => (
         <div
           key={game.id}
-          className="min-w-[220px] rounded-xl border bg-surface px-3.5 py-3"
+          className="min-w-[220px] snap-start rounded-2xl border bg-surface px-4 py-3.5 shadow-[0_8px_24px_rgb(0_0_0/0.025)] sm:min-w-[240px]"
         >
           <div className="mb-2 flex items-center justify-between text-[10px] text-muted">
             <span>{gameLabel(game)}</span>
-            <span>{game.state === "in" ? game.clock : "NFL"}</span>
+            <span className={game.state === "in" ? "rounded-full bg-negative-bg px-2 py-0.5 font-semibold text-negative" : ""}>{game.state === "in" ? game.clock : "NFL"}</span>
           </div>
           <div className="flex items-center justify-between font-medium tabular">
             <span>{game.away.team}</span>

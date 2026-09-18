@@ -9,7 +9,7 @@ export default function BuilderPage() {
     <>
       <PageHeading
         title="Builder"
-        description="Choose a target return. Lynerva instantly builds from the same live, model-backed NFL picks."
+        description="Choose the structure, payout range, and risk style. Lynerva searches the live NFL market for the strongest combination."
       />
       <BuilderWorkbench />
     </>

@@ -39,12 +39,12 @@ function Select({
   label: string;
 }) {
   return (
-    <label className="relative">
+    <label className="relative min-w-0 flex-1 sm:flex-none">
       <span className="sr-only">{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-10 appearance-none rounded-lg border bg-surface py-1 pl-3 pr-8 text-xs text-foreground outline-none transition-colors hover:border-border-strong focus:border-foreground"
+        className="h-10 w-full appearance-none rounded-lg border bg-surface py-1 pl-3 pr-8 text-xs text-foreground outline-none transition-colors hover:border-border-strong focus:border-foreground sm:w-auto"
       >
         {children}
       </select>
@@ -59,7 +59,7 @@ function FeedStatus() {
   const { providers, refreshing, error, ratedCount, displayedCount } = useMarketData();
 
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-2 text-[10px]">
+    <div className="scrollbar-subtle -mx-1 mb-4 flex flex-nowrap items-center gap-2 overflow-x-auto px-1 pb-1 text-[10px] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
       {providers.map((provider) => {
         const offline = Boolean(provider.error);
         return (
@@ -163,9 +163,9 @@ export function MarketExplorer({
 
   return (
     <>
-      <div className="filter-dock sticky top-14 z-30 mb-3 rounded-2xl border bg-[var(--header)] p-2.5 backdrop-blur-xl">
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="relative min-w-[220px] flex-1">
+      <div className="filter-dock sticky top-[100px] z-30 mb-3 rounded-2xl border bg-[var(--header)] p-2.5 backdrop-blur-xl sm:top-14">
+        <div className="grid grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
+          <label className="relative col-span-2 min-w-0 sm:col-span-1 sm:min-w-[220px] sm:flex-1">
             <Search
               size={15}
               className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-faint"
@@ -224,7 +224,7 @@ export function MarketExplorer({
           <button
             type="button"
             onClick={() => setAdvancedOpen((value) => !value)}
-            className="inline-flex h-10 items-center gap-1.5 rounded-lg border bg-surface px-3 text-xs transition-colors hover:border-border-strong hover:bg-surface-raised"
+            className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-lg border bg-surface px-3 text-xs transition-colors hover:border-border-strong hover:bg-surface-raised sm:w-auto"
           >
             <SlidersHorizontal size={13} />
             More
@@ -237,7 +237,7 @@ export function MarketExplorer({
         </div>
 
         {advancedOpen ? (
-          <div className="mt-2 grid gap-2 border-t pt-2 sm:grid-cols-4">
+          <div className="mt-2 grid grid-cols-2 gap-2 border-t pt-2 sm:grid-cols-4">
             {[
               ["minModelBps", "Min Lynerva chance %"],
               ["minEdgeBps", "Min advantage %"],

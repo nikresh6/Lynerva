@@ -133,7 +133,8 @@ async function main() {
     maxLegs: 4,
     platform: "either",
     live: "all",
-    excludeSameGame: true,
+    mode: "multi_game",
+    objective: "balanced",
   });
   const pregameBuild = buildBestAvailableCombination(builderMarkets, {
     minReturn: 3,
@@ -141,7 +142,8 @@ async function main() {
     maxLegs: 4,
     platform: "either",
     live: "pregame",
-    excludeSameGame: true,
+    mode: "multi_game",
+    objective: "balanced",
   });
   const unsupportedPeriodMarkets = payload.opportunities.filter((market) =>
     /\b(?:1q|2q|3q|4q|1h|2h|first quarter|second quarter|third quarter|fourth quarter|first half|second half)\b/i.test(
