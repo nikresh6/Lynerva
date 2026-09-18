@@ -177,6 +177,22 @@ async function main() {
         opportunities: payload.opportunities.length,
         gameMarkets: gameMarkets.length,
         playerPropMarkets: playerPropMarkets.length,
+        familyCounts: Object.fromEntries(
+          [...new Set(playerPropMarkets.map((market) => market.canonical?.family ?? "unknown"))]
+            .sort()
+            .map((family) => [
+              family,
+              playerPropMarkets.filter((market) => (market.canonical?.family ?? "unknown") === family).length,
+            ]),
+        ),
+        chaseMarkets: playerPropMarkets
+          .filter((market) => /ja.?marr chase/i.test(`${market.canonical?.subject ?? ""} ${market.marketTitle}`))
+          .slice(0, 30)
+          .map((market) => ({
+            family: market.canonical?.family,
+            title: market.marketTitle,
+            platform: market.platform,
+          })),
         topPicks: picks.length,
         liveTopPicks: livePicks.length,
         livePricedMarkets: livePricedMarkets.length,
