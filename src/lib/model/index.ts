@@ -2,6 +2,9 @@ import "server-only";
 
 import { clamp } from "@/lib/utils";
 import { findPublicPlayerHistory } from "@/lib/nfl/history";
+import { getMatchupProjection } from "@/lib/nfl/team-history";
+import type { NflScheduleGame } from "@/lib/nfl/schedule-match";
+import type { LiveNflGame } from "@/lib/nfl/live";
 import { getGameWeatherContext } from "@/lib/nfl/game-context";
 import { weatherProbabilityAdjustment } from "./weather-adjustment";
 import type {
@@ -10,7 +13,7 @@ import type {
   ModelEstimate,
 } from "@/lib/markets/types";
 
-const MODEL_VERSION = "history-weather-v3";
+const MODEL_VERSION = "regular-season-v4";
 
 const emptyEvidence: HistoricalEvidence = {
   last5Hits: null,
@@ -46,14 +49,203 @@ function hits(values: number[], threshold: number, direction: string) {
   );
 }
 
+function erf(value: number) {
+  const sign = value < 0 ? -1 : 1;
+  const x = Math.abs(value);
+  const a1 = 0.254829592;
+  const a2 = -0.284496736;
+  const a3 = 1.421413741;
+  const a4 = -1.453152027;
+  const a5 = 1.061405429;
+  const p = 0.3275911;
+  const t = 1 / (1 + p * x);
+  const y =
+    1 -
+    (((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t) *
+      Math.exp(-x * x);
+  return sign * y;
+}
+
+function normalCdf(value: number, mean: number, stdDev: number) {
+  return 0.5 * (1 + erf((value - mean) / (stdDev * Math.sqrt(2))));
+}
+
+function remainingGameFraction(game: LiveNflGame | null | undefined) {
+  if (!game || game.state !== "in") return 1;
+  if (game.period > 4) return 0.04;
+  const [minutesRaw, secondsRaw] = game.clock.split(":");
+  const clockSeconds =
+    Number(minutesRaw || 0) * 60 + Number(secondsRaw || 0);
+  const elapsed = Math.max(
+    0,
+    (Math.max(game.period, 1) - 1) * 900 + (900 - clockSeconds),
+  );
+  return clamp((3600 - elapsed) / 3600, 0.02, 1);
+}
+
+async function estimateGameMarket(
+  canonical: CanonicalMarket,
+  scheduleGame: NflScheduleGame,
+  liveGame?: LiveNflGame | null,
+): Promise<ModelEstimate> {
+  const projection = await getMatchupProjection(
+    scheduleGame.homeTeam,
+    scheduleGame.awayTeam,
+  );
+  if (!projection) {
+    return {
+      probabilityBps: null,
+      reliabilityBps: 0,
+      version: MODEL_VERSION,
+      evidence: emptyEvidence,
+      factors: ["Not enough regular-season team history for this matchup."],
+    };
+  }
+
+  const live = liveGame?.state === "in" ? liveGame : null;
+  const remaining = remainingGameFraction(live);
+  const currentHome = live?.home.score ?? 0;
+  const currentAway = live?.away.score ?? 0;
+  const currentMargin = currentHome - currentAway;
+  const currentTotal = currentHome + currentAway;
+
+  const meanHomeMargin = live
+    ? currentMargin + projection.projectedHomeMargin * remaining
+    : projection.projectedHomeMargin;
+  const meanTotal = live
+    ? currentTotal + projection.projectedTotal * remaining
+    : projection.projectedTotal;
+  const marginStdDev = Math.max(
+    2.5,
+    projection.marginStdDev * Math.sqrt(remaining),
+  );
+  const totalStdDev = Math.max(
+    3,
+    projection.totalStdDev * Math.sqrt(remaining),
+  );
+
+  let probability: number | null = null;
+  const factors = [
+    `Regular-season-only sample: ${projection.home.games} ${scheduleGame.homeTeam} games and ${projection.away.games} ${scheduleGame.awayTeam} games.`,
+    `Pregame projection: ${projection.homePoints.toFixed(1)}-${projection.awayPoints.toFixed(1)} (${projection.projectedTotal.toFixed(1)} total).`,
+  ];
+
+  if (live) {
+    factors.push(
+      `Live state: ${live.away.team} ${live.away.score}, ${live.home.team} ${live.home.score}, ${live.status} ${live.clock}.`,
+    );
+  }
+
+  if (canonical.family === "moneyline") {
+    const subjectIsHome = canonical.subject === scheduleGame.homeTeam;
+    const subjectIsAway = canonical.subject === scheduleGame.awayTeam;
+    if (!subjectIsHome && !subjectIsAway) {
+      return {
+        probabilityBps: null,
+        reliabilityBps: 0,
+        version: MODEL_VERSION,
+        evidence: emptyEvidence,
+        factors: ["Could not identify the team represented by this moneyline."],
+      };
+    }
+    const subjectMarginMean = subjectIsHome ? meanHomeMargin : -meanHomeMargin;
+    probability = 1 - normalCdf(0, subjectMarginMean, marginStdDev);
+    factors.push(
+      `Projected ${canonical.subject} scoring margin: ${subjectMarginMean >= 0 ? "+" : ""}${subjectMarginMean.toFixed(1)}.`,
+    );
+  } else if (canonical.family === "spread" && canonical.threshold !== null) {
+    const subjectIsHome = canonical.subject === scheduleGame.homeTeam;
+    const subjectIsAway = canonical.subject === scheduleGame.awayTeam;
+    if (!subjectIsHome && !subjectIsAway) {
+      return {
+        probabilityBps: null,
+        reliabilityBps: 0,
+        version: MODEL_VERSION,
+        evidence: emptyEvidence,
+        factors: ["Could not identify the team represented by this spread."],
+      };
+    }
+    const subjectMarginMean = subjectIsHome ? meanHomeMargin : -meanHomeMargin;
+    probability =
+      1 -
+      normalCdf(
+        canonical.threshold,
+        subjectMarginMean,
+        marginStdDev,
+      );
+    factors.push(
+      `Model margin for ${canonical.subject}: ${subjectMarginMean >= 0 ? "+" : ""}${subjectMarginMean.toFixed(1)} versus a ${canonical.threshold >= 0 ? "+" : ""}${canonical.threshold.toFixed(1)} requirement.`,
+    );
+  } else if (
+    canonical.family === "game_total" &&
+    canonical.threshold !== null
+  ) {
+    const overProbability =
+      1 - normalCdf(canonical.threshold, meanTotal, totalStdDev);
+    probability =
+      canonical.direction === "under" ? 1 - overProbability : overProbability;
+    factors.push(
+      `Projected final total: ${meanTotal.toFixed(1)} versus ${canonical.threshold.toFixed(1)}.`,
+    );
+  }
+
+  if (probability === null) {
+    return {
+      probabilityBps: null,
+      reliabilityBps: 0,
+      version: MODEL_VERSION,
+      evidence: emptyEvidence,
+      factors: ["This game market could not be priced reliably."],
+    };
+  }
+
+  const sampleSize = Math.min(
+    projection.home.games,
+    projection.away.games,
+  );
+  const reliability = clamp(
+    0.52 + sampleSize / 100 + (live ? 0.08 : 0),
+    0.5,
+    0.84,
+  );
+
+  return {
+    probabilityBps: Math.round(clamp(probability, 0.02, 0.98) * 10_000),
+    reliabilityBps: Math.round(reliability * 10_000),
+    version: MODEL_VERSION,
+    evidence: {
+      ...emptyEvidence,
+      sampleSize,
+    },
+    factors,
+  };
+}
+
 export async function estimateMarket(
   canonical: CanonicalMarket | null,
+  scheduleGame?: NflScheduleGame | null,
+  liveGame?: LiveNflGame | null,
 ): Promise<ModelEstimate> {
+  if (!canonical) {
+    return {
+      probabilityBps: null,
+      reliabilityBps: 0,
+      version: MODEL_VERSION,
+      evidence: emptyEvidence,
+      factors: ["This market could not be normalized."],
+    };
+  }
+
   if (
-    !canonical ||
+    ["moneyline", "spread", "game_total"].includes(canonical.family) &&
+    scheduleGame
+  ) {
+    return estimateGameMarket(canonical, scheduleGame, liveGame);
+  }
+
+  if (
     canonical.threshold === null ||
-    canonical.statistic === null ||
-    ["moneyline", "spread", "game_total"].includes(canonical.family)
+    canonical.statistic === null
   ) {
     return {
       probabilityBps: null,
@@ -111,7 +303,7 @@ export async function estimateMarket(
     const reliability = clamp(values.length / 17, 0, 1) * 0.78;
     const factors = [
       `${history.playerName} cleared this line in ${recentHits} of the last 5 games.`,
-      `20-game sample: ${historicalHits} of ${values.length} at this threshold.`,
+      `Regular-season sample: ${historicalHits} of ${values.length} at this threshold.`,
       `Last-5 average: ${average.toFixed(1)} versus a ${threshold} line.`,
     ];
 
