@@ -54,6 +54,78 @@ export function opportunityScore(input: {
   return roi * reliability * liquidity * spread * freshness;
 }
 
+
+export function lynervaScore(input: {
+  probabilityBps: number | null;
+  edgeBps: number | null;
+  priceBps: number | null;
+  expectedRoi: number | null;
+  reliabilityBps: number;
+  seasonHits: number | null;
+  seasonGames: number | null;
+  recommendedSide: "yes" | "no" | null;
+  liquidityCents: number | null;
+  volumeCents: number | null;
+  spreadBps: number | null;
+  ageSeconds: number;
+}) {
+  if (
+    input.probabilityBps === null ||
+    input.edgeBps === null ||
+    input.priceBps === null ||
+    input.expectedRoi === null ||
+    input.recommendedSide === null
+  ) {
+    return null;
+  }
+
+  const probability = clamp(input.probabilityBps / 100, 0, 100);
+  const value = clamp((1 - Math.exp(-Math.max(input.expectedRoi, 0) * 1.35)) * 100, 0, 100);
+  const edge = clamp((Math.max(input.edgeBps, 0) / 2_000) * 100, 0, 100);
+  const reliability = clamp(input.reliabilityBps / 100, 0, 100);
+
+  let hitRate = probability;
+  if (input.seasonHits !== null && input.seasonGames && input.seasonGames > 0) {
+    const hits =
+      input.recommendedSide === "no"
+        ? input.seasonGames - input.seasonHits
+        : input.seasonHits;
+    hitRate = clamp((hits / input.seasonGames) * 100, 0, 100);
+  }
+
+  const dollars =
+    Math.max(input.liquidityCents ?? 0, input.volumeCents ?? 0) / 100;
+  const liquidity = dollars > 0
+    ? clamp((Math.log10(dollars + 1) / 5) * 100, 0, 100)
+    : 20;
+  const spread = clamp(100 - ((input.spreadBps ?? 1_000) / 20), 0, 100);
+  const freshness = clamp(100 - input.ageSeconds / 36, 20, 100);
+  const marketQuality =
+    liquidity * 0.35 +
+    spread * 0.45 +
+    freshness * 0.2;
+
+  const score =
+    value * 0.32 +
+    hitRate * 0.20 +
+    probability * 0.14 +
+    reliability * 0.14 +
+    edge * 0.10 +
+    marketQuality * 0.10;
+
+  return {
+    score: Math.round(clamp(score, 0, 100)),
+    breakdown: {
+      value: Math.round(value),
+      hitRate: Math.round(hitRate),
+      probability: Math.round(probability),
+      reliability: Math.round(reliability),
+      edge: Math.round(edge),
+      marketQuality: Math.round(marketQuality),
+    },
+  };
+}
+
 export function freshnessFrom(updatedAt: string, now = Date.now()) {
   const age = now - new Date(updatedAt).getTime();
   if (!Number.isFinite(age)) return "unavailable" as const;
