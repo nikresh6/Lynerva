@@ -27,16 +27,15 @@ function displayMarketTitle(market: MarketOpportunity) {
     canonical.threshold !== null &&
     ["passing_yards", "passing_touchdowns", "rushing_yards", "receiving_yards", "receptions", "touchdowns"].includes(canonical.family)
   ) {
-    const direction =
-      canonical.direction === "under"
-        ? "Under"
-        : canonical.family === "touchdowns" &&
-            Number.isInteger(canonical.threshold)
-          ? `${canonical.threshold}+`
-          : "Over";
-    return `${canonical.subject} ${direction} ${canonical.threshold}${direction.endsWith("+") ? "" : ` ${label}`}${
-      direction.endsWith("+") ? ` ${label}` : ""
-    }`;
+    if (
+      canonical.family === "touchdowns" &&
+      canonical.direction === "over" &&
+      Number.isInteger(canonical.threshold)
+    ) {
+      return `${canonical.subject} ${canonical.threshold}+ ${label}`;
+    }
+    const direction = canonical.direction === "under" ? "Under" : "Over";
+    return `${canonical.subject} ${direction} ${canonical.threshold} ${label}`;
   }
 
   return market.marketTitle;
