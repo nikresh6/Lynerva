@@ -42,7 +42,7 @@ describe("combination builder", () => {
     ).toHaveLength(1);
   });
 
-  it("falls back to live markets without changing a 3x-5x target", () => {
+  it("never silently relaxes the requested market state", () => {
     const live = {
       ...opportunity("LIVE", "BUF-DET", 2_100, 2_538),
       isLive: true,
@@ -58,10 +58,7 @@ describe("combination builder", () => {
         excludeSameGame: true,
       },
     );
-    expect(result).not.toBeNull();
-    expect(result?.grossReturn).toBeGreaterThanOrEqual(3);
-    expect(result?.grossReturn).toBeLessThanOrEqual(5);
-    expect(result?.relaxedConstraints.length).toBeGreaterThan(0);
+    expect(result).toBeNull();
   });
 
   it("excludes same-game legs when correlation is unknown", () => {
