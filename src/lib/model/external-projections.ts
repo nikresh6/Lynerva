@@ -94,11 +94,12 @@ async function fantasyProsProjection(
 async function coversProjection(market: CanonicalMarket): Promise<ProjectionPoint | null> {
   try {
     const html = await fetchText("https://www.covers.com/sport/football/nfl/player-props");
+    const decoded = decode(html);
     const target = market.subject.toLowerCase();
-    const lower = html.toLowerCase();
+    const lower = decoded.toLowerCase();
     const index = lower.indexOf(target);
     if (index < 0) return null;
-    const segment = decode(html.slice(Math.max(0, index - 1500), index + 7000));
+    const segment = decoded.slice(Math.max(0, index - 1500), index + 7000);
     const familyLabel: Partial<Record<CanonicalMarket["family"], RegExp>> = {
       passing_yards: /passing yards/i,
       passing_touchdowns: /passing (?:tds|touchdowns)/i,
