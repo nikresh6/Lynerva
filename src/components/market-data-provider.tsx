@@ -35,12 +35,12 @@ interface MarketDataContextValue extends MarketClientPayload {
 
 const MarketDataContext = createContext<MarketDataContextValue | null>(null);
 
-const STORAGE_KEY = "lynerva-market-snapshot-v5";
+const STORAGE_KEY = "lynerva-market-snapshot-v6";
 const STORAGE_MAX_AGE = 30 * 60 * 1_000;
 
 function readStored(): MarketClientPayload | null {
   try {
-    for (const key of [STORAGE_KEY, "lynerva-market-snapshot-v4"]) {
+    for (const key of [STORAGE_KEY, "lynerva-market-snapshot-v5", "lynerva-market-snapshot-v4"]) {
       const raw = localStorage.getItem(key);
       if (!raw) continue;
       const parsed = JSON.parse(raw) as MarketClientPayload & {
@@ -96,7 +96,7 @@ export function MarketDataProvider({
       setRefreshing(true);
       try {
         const controller = new AbortController();
-        const timeout = window.setTimeout(() => controller.abort(), 5_000);
+        const timeout = window.setTimeout(() => controller.abort(), 8_000);
         let response: Response;
         try {
           response = await fetch("/api/markets", {
@@ -116,7 +116,7 @@ export function MarketDataProvider({
       } catch (caught) {
         setError(
           caught instanceof DOMException && caught.name === "AbortError"
-            ? "Fresh odds are taking too long. Showing the latest saved picks."
+            ? "Live refresh delayed. Showing the last verified snapshot while Lynerva retries."
             : caught instanceof Error
               ? caught.message
               : "Market feed unavailable",
