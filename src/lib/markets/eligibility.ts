@@ -75,6 +75,16 @@ export function isBuilderEligibleOpportunity(market: MarketOpportunity) {
   ) {
     return false;
   }
+  const isPlayerProp = Boolean(
+    market.canonical &&
+      !["moneyline", "spread", "game_total"].includes(market.canonical.family),
+  );
+  if (
+    isPlayerProp &&
+    (market.model.components?.projectionSourceCount ?? 0) < 3
+  ) {
+    return false;
+  }
   if (market.model.reliabilityBps < 4_500) return false;
   if ((market.edgeBps ?? 0) <= 0) return false;
   if (market.spreadBps !== null && market.spreadBps > 1_500) return false;
