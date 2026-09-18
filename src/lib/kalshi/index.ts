@@ -34,6 +34,8 @@ const marketSchema = z
     updated_time: z.string().nullish(),
     rules_primary: z.string().nullish(),
     rules_secondary: z.string().nullish(),
+    mve_collection_ticker: z.string().nullish(),
+    mve_selected_legs: z.array(z.unknown()).nullish(),
   })
   .passthrough();
 
@@ -104,6 +106,13 @@ export async function fetchKalshiNflMarkets(): Promise<ProviderResult> {
         { cache: "no-store" },
       );
       for (const market of payload.markets) {
+        if (
+          market.mve_collection_ticker ||
+          (market.mve_selected_legs?.length ?? 0) > 0 ||
+          /KXMVE|CROSSCATEGORY/i.test(`${market.ticker} ${market.event_ticker}`)
+        ) {
+          continue;
+        }
         if (
           isNflText(
             market.ticker,
