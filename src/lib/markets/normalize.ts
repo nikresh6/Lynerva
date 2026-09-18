@@ -164,7 +164,7 @@ function familyFrom(value: string): { family: MarketFamily; statistic: string | 
   for (const item of STAT_PATTERNS) {
     if (item.regex.test(value)) return item;
   }
-  if (/spread|win by|margin/i.test(value)) return { family: "spread", statistic: "point_margin" };
+  if (/spread|wins? by|margin/i.test(value)) return { family: "spread", statistic: "point_margin" };
   if (/total points|game total|combined score|o\/u/i.test(value)) {
     return { family: "game_total", statistic: "game_points" };
   }
@@ -223,7 +223,7 @@ export function normalizeMarket(market: ProviderMarket): CanonicalMarket | null 
   const rawThreshold = findThreshold(contractText);
   const threshold =
     family === "spread" && rawThreshold !== null
-      ? /win by|margin/i.test(contractText)
+      ? /wins? by|margin/i.test(contractText)
         ? Math.abs(rawThreshold)
         : -rawThreshold
       : rawThreshold;
