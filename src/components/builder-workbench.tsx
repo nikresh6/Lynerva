@@ -155,7 +155,7 @@ export function BuilderWorkbench() {
 
   const [minReturn, setMinReturn] = useState(3);
   const [maxReturn, setMaxReturn] = useState(6);
-  const [maxLegs, setMaxLegs] = useState(5);
+  const [maxLegs, setMaxLegs] = useState(6);
   const [platform, setPlatform] = useState<
     "either" | "kalshi" | "polymarket"
   >("either");
@@ -366,6 +366,8 @@ export function BuilderWorkbench() {
               <option value="4">4 legs</option>
               <option value="5">5 legs</option>
               <option value="6">6 legs</option>
+              <option value="7">7 legs</option>
+              <option value="8">8 legs</option>
             </select>
           </label>
 
@@ -587,9 +589,10 @@ export function BuilderWorkbench() {
                   The builder now scores the whole combination.
                 </strong>{" "}
                 It weighs hit rate, expected value, target payout, and how much
-                each leg contributes to the final odds. One longshot can still
-                be used when its model edge is unusually strong, but ordinary
-                builds are penalized when one leg carries most of the payout.
+                each leg contributes to the final odds. For larger parlays,
+                ordinary builds are rejected when one leg carries most of the
+                payout. A true longshot only gets through when the reliability-adjusted
+                model edge is exceptional.
                 {combination.correlationWarning
                   ? " Same-game legs may be correlated, so the displayed combined chance is only an approximation."
                   : ""}

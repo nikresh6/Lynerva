@@ -93,10 +93,23 @@ function oddsContributionShares(legs: RankedCandidate[]) {
   return { maxShare, balanceScore };
 }
 
-function hasExceptionalLongshotValue(legs: RankedCandidate[]) {
-  const { maxShare } = oddsContributionShares(legs);
-  if (maxShare < 0.72) return true;
+function maxAllowedOddsContribution(legCount: number) {
+  if (legCount <= 2) return 0.72;
+  if (legCount === 3) return 0.58;
+  if (legCount === 4) return 0.48;
+  if (legCount === 5) return 0.42;
+  return 0.38;
+}
 
+function preferredOddsContribution(legCount: number) {
+  if (legCount <= 2) return 0.6;
+  if (legCount === 3) return 0.48;
+  if (legCount === 4) return 0.39;
+  if (legCount === 5) return 0.34;
+  return 0.3;
+}
+
+function hasExceptionalLongshotValue(legs: RankedCandidate[]) {
   const totalContribution = legs.reduce(
     (sum, leg) => sum - Math.log(Math.max(leg.price, 0.001)),
     0,
@@ -112,11 +125,29 @@ function hasExceptionalLongshotValue(legs: RankedCandidate[]) {
 
   if (!largest) return false;
 
-  return (
-    largest.leg.valueMultiplier >= 1.35 ||
-    largest.leg.edge >= 0.12 ||
-    (largest.leg.price <= 0.25 && largest.leg.adjustedProbability >= 0.34)
+  const reliability = clamp(
+    largest.leg.market.model.reliabilityBps / 10_000,
+    0,
+    1,
   );
+
+  return (
+    largest.leg.valueMultiplier >= 1.8 &&
+    largest.leg.edge >= 0.12 &&
+    reliability >= 0.7
+  );
+}
+
+function isAcceptablePayoutShape(legs: RankedCandidate[]) {
+  const { maxShare } = oddsContributionShares(legs);
+  const normalLimit = maxAllowedOddsContribution(legs.length);
+
+  if (maxShare <= normalLimit) return true;
+  if (!hasExceptionalLongshotValue(legs)) return false;
+
+  const exceptionalCeiling =
+    legs.length <= 2 ? 0.9 : legs.length === 3 ? 0.8 : 0.68;
+  return maxShare <= exceptionalCeiling;
 }
 
 function candidatePool(
@@ -237,9 +268,11 @@ function combinationScore(
   const returnDistance = Math.abs(
     Math.log(Math.max(combination.grossReturn, 1) / targetReturn),
   );
-  const concentration =
-    Math.max(0, combination.maxOddsContributionShare - 0.55) +
-    2 * Math.max(0, combination.maxOddsContributionShare - 0.72);
+  const preferredShare = preferredOddsContribution(combination.legs.length);
+  const concentration = Math.max(
+    0,
+    combination.maxOddsContributionShare - preferredShare,
+  );
 
   if (objective === "safer") {
     return (
@@ -247,8 +280,8 @@ function combinationScore(
       0.35 * ev +
       0.08 * edgeRatio -
       0.12 * returnDistance -
-      1.1 * concentration +
-      0.08 * combination.balanceScore
+      2.4 * concentration +
+      0.1 * combination.balanceScore
     );
   }
 
@@ -258,8 +291,8 @@ function combinationScore(
       1.25 * ev +
       0.18 * edgeRatio -
       0.08 * returnDistance -
-      0.7 * concentration +
-      0.04 * combination.balanceScore
+      1.7 * concentration +
+      0.06 * combination.balanceScore
     );
   }
 
@@ -268,8 +301,8 @@ function combinationScore(
     0.72 * ev +
     0.12 * edgeRatio -
     0.16 * returnDistance -
-    1.45 * concentration +
-    0.12 * combination.balanceScore
+    2.8 * concentration +
+    0.14 * combination.balanceScore
   );
 }
 
@@ -307,7 +340,8 @@ function stateSearchValue(
   const expectedValueMultiplier =
     state.probabilityProduct / state.priceProduct;
   const { maxShare, balanceScore } = oddsContributionShares(state.legs);
-  const concentration = Math.max(0, maxShare - 0.58);
+  const preferredShare = preferredOddsContribution(state.legs.length);
+  const concentration = Math.max(0, maxShare - preferredShare);
 
   const probabilityWeight =
     objective === "safer" ? 1.25 : objective === "max_ev" ? 0.6 : 0.95;
@@ -319,8 +353,8 @@ function stateSearchValue(
       Math.log(Math.max(state.probabilityProduct, 1e-12)) +
     evWeight * Math.log(Math.max(expectedValueMultiplier, 1e-12)) -
     0.12 * returnDistance -
-    0.8 * concentration +
-    0.08 * balanceScore
+    1.8 * concentration +
+    0.1 * balanceScore
   );
 }
 
@@ -435,11 +469,7 @@ export function buildCombination(
           grossReturn >= options.minReturn &&
           grossReturn <= options.maxReturn
         ) {
-          const { maxShare } = oddsContributionShares(nextState.legs);
-          const tooConcentrated =
-            maxShare > 0.8 && !hasExceptionalLongshotValue(nextState.legs);
-
-          if (!tooConcentrated) {
+          if (isAcceptablePayoutShape(nextState.legs)) {
             const built = buildFromState(nextState);
             if (
               isBetterCombination(
