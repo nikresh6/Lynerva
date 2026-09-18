@@ -370,8 +370,8 @@ function BetLab({ market, onClose }: { market: MarketOpportunity; onClose: () =>
           <section className="rounded-2xl border bg-background p-4">
             <h3 className="text-sm font-semibold">At a glance</h3>
             <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <Metric label="Market odds" value={formatPercent(market.executablePriceBps)} />
-              <Metric label="Model chance" value={formatPercent(market.recommendedProbabilityBps)} emphasis />
+              <Metric label="Market chance" value={formatPercent(market.executablePriceBps)} />
+              <Metric label="Lynerva chance" value={formatPercent(market.recommendedProbabilityBps)} emphasis />
               <Metric label="Recent hit rate" value={count ? `${Math.round((count.hits / count.games) * 100)}%` : "—"} />
               <Metric label="$100 win profit" value={profit === null ? "—" : `$${profit.toFixed(0)}`} />
             </div>
@@ -477,8 +477,8 @@ export function MarketTable({
               </div>
 
               <div className="mt-4 grid grid-cols-4 gap-2 rounded-xl bg-background p-3">
-                <Metric label="Market" value={formatPercent(market.executablePriceBps)} />
-                <Metric label="Model" value={formatPercent(market.recommendedProbabilityBps)} emphasis />
+                <Metric label="Market chance" value={formatPercent(market.executablePriceBps)} />
+                <Metric label="Lynerva chance" value={formatPercent(market.recommendedProbabilityBps)} emphasis />
                 <Metric label="Hit rate" value={rate === null ? "—" : `${rate}%`} />
                 <Metric label="$100 profit" value={profit === null ? "—" : `$${profit.toFixed(0)}`} />
               </div>
