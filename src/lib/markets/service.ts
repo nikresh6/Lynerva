@@ -4,6 +4,7 @@ import { fetchKalshiNflMarkets } from "@/lib/kalshi";
 import { fetchPolymarketNflMarkets } from "@/lib/polymarket";
 import { estimateMarket } from "@/lib/model";
 import { getLiveNflGames, type LiveNflGame } from "@/lib/nfl/live";
+import { findCurrentRegularSeasonGame } from "@/lib/nfl/current-game";
 import type { NflScheduleGame } from "@/lib/nfl/schedule-match";
 import { marketFixtures } from "./fixtures";
 import { isSingleLegNflProviderMarket } from "./eligibility";
@@ -116,22 +117,6 @@ function scheduleGameFromEspn(game: LiveNflGame): NflScheduleGame | null {
   };
 }
 
-function currentGameForCanonical(
-  canonical: NonNullable<ReturnType<typeof normalizeMarket>>,
-  games: LiveNflGame[],
-) {
-  if (!canonical.matchup) return null;
-  return (
-    games.find(
-      (game) =>
-        game.seasonType === 2 &&
-        (game.state === "pre" || game.state === "in") &&
-        [game.home.team, game.away.team].toSorted().join("-") ===
-          canonical.matchup,
-    ) ?? null
-  );
-}
-
 function bestExecutableSide(input: {
   probabilityBps: number | null;
   yesAskBps: number | null;
@@ -234,7 +219,10 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
   for (const market of coarseProviders.flatMap((provider) => provider.markets)) {
     const canonical = normalizeMarket(market);
     if (!canonical) continue;
-    const liveGame = currentGameForCanonical(canonical, liveGames);
+    const liveGame = findCurrentRegularSeasonGame(
+      canonical.matchup,
+      liveGames,
+    );
     if (!liveGame) continue;
     const scheduleGame = scheduleGameFromEspn(liveGame);
     if (!scheduleGame) continue;
