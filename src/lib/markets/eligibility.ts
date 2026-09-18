@@ -25,7 +25,7 @@ export function isSingleLegNflProviderMarket(market: ProviderMarket) {
   if (isProviderComboMarket(market)) return false;
   const identity = `${market.eventTitle} ${market.marketTitle} ${market.resolutionRules ?? ""}`;
   if (
-    /\b(?:1q|2q|3q|4q|1h|2h|first quarter|second quarter|third quarter|fourth quarter|first half|second half)\b/i.test(
+    /\b(?:1q|2q|3q|4q|1h|2h|first quarter|second quarter|third quarter|fourth quarter|first half|second half|team total|team_totals)\b/i.test(
       identity,
     )
   ) {
