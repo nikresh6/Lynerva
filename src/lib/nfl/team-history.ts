@@ -86,17 +86,18 @@ const espnScoreboardSchema = z.object({
     .default([]),
 });
 
-async function fetchEspnSeason(season: number) {
+async function fetchEspnWeek(season: number, week: number) {
   try {
     const url = new URL(
       "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard",
     );
-    url.searchParams.set("dates", String(season));
+    url.searchParams.set("season", String(season));
+    url.searchParams.set("week", String(week));
     url.searchParams.set("seasontype", "2");
-    url.searchParams.set("limit", "1000");
+    url.searchParams.set("limit", "100");
     const response = await fetch(url, {
       headers: { "User-Agent": "Lynerva/1.0 team-history" },
-      signal: AbortSignal.timeout(6_000),
+      signal: AbortSignal.timeout(4_000),
       cache: "no-store",
     });
     if (!response.ok) return [] as TeamGame[];
@@ -122,7 +123,7 @@ async function fetchEspnSeason(season: number) {
       if (!Number.isFinite(homeScore) || !Number.isFinite(awayScore)) continue;
 
       const eventSeason = event.season?.year ?? season;
-      const eventWeek = event.week?.number ?? 0;
+      const eventWeek = event.week?.number ?? week;
       games.push(
         {
           season: eventSeason,
@@ -146,17 +147,30 @@ async function fetchEspnSeason(season: number) {
     }
     return games;
   } catch (error) {
-    console.warn(`ESPN regular-season history unavailable for ${season}`, error);
+    console.warn(
+      `ESPN regular-season week unavailable for ${season} W${week}`,
+      error,
+    );
     return [] as TeamGame[];
   }
 }
 
-async function fetchEspnRegularSeasonHistory() {
-  const currentSeason = new Date().getUTCFullYear();
-  const results = await Promise.all([
-    fetchEspnSeason(currentSeason),
-    fetchEspnSeason(currentSeason - 1),
-  ]);
+async function fetchEspnRegularSeasonHistory(
+  currentSeason: number,
+  currentWeek: number,
+) {
+  const requests: Array<[number, number]> = [];
+
+  for (let week = 9; week <= 18; week += 1) {
+    requests.push([currentSeason - 1, week]);
+  }
+  for (let week = 1; week < currentWeek; week += 1) {
+    requests.push([currentSeason, week]);
+  }
+
+  const results = await Promise.all(
+    requests.map(([season, week]) => fetchEspnWeek(season, week)),
+  );
   return results.flat();
 }
 
@@ -176,13 +190,21 @@ function stdDev(values: number[]) {
 }
 
 const loadRegularSeasonTeamGames = unstable_cache(
-  async (): Promise<TeamGame[]> => fetchEspnRegularSeasonHistory(),
-  ["lynerva-regular-season-team-history-v3"],
+  async (
+    currentSeason: number,
+    currentWeek: number,
+  ): Promise<TeamGame[]> =>
+    fetchEspnRegularSeasonHistory(currentSeason, currentWeek),
+  ["lynerva-regular-season-team-history-v4"],
   { revalidate: 6 * 60 * 60 },
 );
 
-export async function getTeamProfile(team: string): Promise<TeamProfile | null> {
-  const games = (await loadRegularSeasonTeamGames())
+export async function getTeamProfile(
+  team: string,
+  currentSeason: number,
+  currentWeek: number,
+): Promise<TeamProfile | null> {
+  const games = (await loadRegularSeasonTeamGames(currentSeason, currentWeek))
     .filter((game) => game.team === team)
     .toSorted((a, b) => b.season - a.season || b.week - a.week)
     .slice(0, 24);
@@ -205,10 +227,15 @@ export async function getTeamProfile(team: string): Promise<TeamProfile | null> 
   };
 }
 
-export async function getMatchupProjection(homeTeam: string, awayTeam: string) {
+export async function getMatchupProjection(
+  homeTeam: string,
+  awayTeam: string,
+  currentSeason: number,
+  currentWeek: number,
+) {
   const [home, away] = await Promise.all([
-    getTeamProfile(homeTeam),
-    getTeamProfile(awayTeam),
+    getTeamProfile(homeTeam, currentSeason, currentWeek),
+    getTeamProfile(awayTeam, currentSeason, currentWeek),
   ]);
   if (!home || !away) return null;
 
