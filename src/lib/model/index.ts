@@ -12,7 +12,7 @@ import type {
   ModelEstimate,
 } from "@/lib/markets/types";
 
-const MODEL_VERSION = "regular-season-v4";
+const MODEL_VERSION = "current-season-2026-v1";
 
 const emptyEvidence: HistoricalEvidence = {
   last5Hits: null,
@@ -351,16 +351,16 @@ export async function estimateMarket(
     const sample = history.values.slice(0, 20);
     const values = sample.map((row) => row.value);
 
-    if (!history.playerName || values.length < 5) {
+    if (!history.playerName || values.length < 1) {
       return {
         probabilityBps: null,
-        reliabilityBps: Math.round((values.length / 10) * 4_000),
+        reliabilityBps: 0,
         version: MODEL_VERSION,
         evidence: { ...emptyEvidence, sampleSize: values.length },
         factors: [
           values.length
-            ? `Only ${values.length} comparable games are available; at least 5 are required.`
-            : "No verified nflverse history matches this player prop.",
+            ? `Only ${values.length} current-season game is available.`
+            : "No verified current-season history matches this player prop.",
         ],
       };
     }
@@ -387,10 +387,12 @@ export async function estimateMarket(
       recentPerformanceRatio: threshold === 0 ? 1 : average / threshold,
       sampleSize: values.length,
     });
-    const reliability = clamp(values.length / 17, 0, 1) * 0.78;
+    // Early-season estimates are intentionally low-confidence. We would
+    // rather show fewer picks than inflate confidence with last year's data.
+    const reliability = clamp(values.length / 10, 0, 1) * 0.78;
     const factors = [
       `${history.playerName} cleared this line in ${recentHits} of the last 5 games.`,
-      `Regular-season sample: ${historicalHits} of ${values.length} at this threshold.`,
+      `Current-season sample: ${historicalHits} of ${values.length} at this threshold.`,
       `Last-5 average: ${average.toFixed(1)} versus a ${threshold} line.`,
     ];
 
