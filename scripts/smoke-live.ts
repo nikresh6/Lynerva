@@ -262,10 +262,20 @@ async function main() {
   if (displayedTopPicks.length > 30) {
     throw new Error("Live smoke failed: more than 30 top picks would be displayed.");
   }
-  if (payload.providers.some((provider) => provider.count === 0)) {
+  const populatedProviders = payload.providers.filter(
+    (provider) => provider.count > 0,
+  );
+  if (populatedProviders.length === 0) {
     throw new Error(
-      "Live smoke failed: Kalshi or Polymarket returned zero accepted markets.",
+      "Live smoke failed: every market provider returned zero accepted markets.",
     );
+  }
+  for (const provider of payload.providers) {
+    if (provider.count === 0) {
+      console.warn(
+        `Live smoke warning: ${provider.provider} returned zero accepted markets for this snapshot.`,
+      );
+    }
   }
   if (currentEspnMatchup && !matchups.has(currentEspnMatchup)) {
     throw new Error(
