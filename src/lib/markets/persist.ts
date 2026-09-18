@@ -13,10 +13,8 @@ import {
   sourceHealth,
   sourceProjections,
 } from "@/db/schema";
-import {
-  ensureSourceLearningSchema,
-  normalizeLearningPlayer,
-} from "@/lib/model/source-learning";
+import { ensureSourceLearningSchema } from "@/lib/model/source-learning";
+import { normalizeLearningPlayer } from "@/lib/model/source-weighting";
 import type { MarketsPayload } from "./service";
 
 function stableId(prefix: string, value: string) {
