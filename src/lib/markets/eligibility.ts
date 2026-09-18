@@ -44,7 +44,7 @@ export function isSingleLegNflProviderMarket(market: ProviderMarket) {
   return true;
 }
 
-export function isModelBackedOpportunity(market: MarketOpportunity) {
+export function isPricedOpportunity(market: MarketOpportunity) {
   return (
     market.canonical !== null &&
     market.canonical.parseConfidence !== "low" &&
@@ -53,7 +53,13 @@ export function isModelBackedOpportunity(market: MarketOpportunity) {
     market.executablePriceBps !== null &&
     market.executablePriceBps > 0 &&
     market.executablePriceBps < 10_000 &&
-    market.freshness !== "stale" &&
+    market.freshness !== "stale"
+  );
+}
+
+export function isModelBackedOpportunity(market: MarketOpportunity) {
+  return (
+    isPricedOpportunity(market) &&
     market.edgeBps !== null &&
     market.edgeBps > 0
   );
