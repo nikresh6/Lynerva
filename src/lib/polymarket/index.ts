@@ -113,16 +113,44 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
     url.searchParams.set("tag_slug", "nfl");
     url.searchParams.set("active", "true");
     url.searchParams.set("closed", "false");
-    url.searchParams.set("limit", "200");
+    url.searchParams.set("limit", "120");
     const events = await fetchValidated(
       "Polymarket Gamma",
       url.toString(),
       eventsSchema,
       { cache: "no-store" },
     );
-    const nflEvents = events.filter((event) =>
-      isNflText(event.title, event.slug, event.description),
-    );
+    const now = Date.now();
+    const windowStart = now - 8 * 60 * 60 * 1_000;
+    const windowEnd = now + 8 * 24 * 60 * 60 * 1_000;
+    const nflEvents = events
+      .filter((event) =>
+        isNflText(event.title, event.slug, event.description),
+      )
+      .map((event) => ({
+        ...event,
+        markets: event.markets.filter((market) => {
+          if (!market.active || market.closed || !market.acceptingOrders) {
+            return false;
+          }
+          if (/\b(?:combo|parlay|same game parlay|sgp)\b/i.test(
+            `${market.question} ${event.title}`,
+          )) {
+            return false;
+          }
+          const dateValue =
+            market.gameStartTime ?? market.endDate ?? event.endDate;
+          if (!dateValue) return false;
+          const timestamp = new Date(dateValue).getTime();
+          return (
+            Number.isFinite(timestamp) &&
+            timestamp >= windowStart &&
+            timestamp <= windowEnd
+          );
+        }),
+      }))
+      .filter((event) => event.markets.length > 0);
+
     const allTokens = nflEvents.flatMap((event) =>
       event.markets.flatMap((market) => parseStringArray(market.clobTokenIds)),
     );
