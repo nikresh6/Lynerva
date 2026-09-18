@@ -15,7 +15,8 @@ export default function LivePage() {
       <LiveGameStrip games={[]} />
       <MarketExplorer
         forceStatus="live"
-        emptyMessage="The current game is visible above, but there is not a positive-edge live market in the latest snapshot."
+        topOnly={false}
+        emptyMessage="There are no executable modeled markets for the live game right now."
       />
     </>
   );
