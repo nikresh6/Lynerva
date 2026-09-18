@@ -1,16 +1,14 @@
 import "server-only";
 
-import { desc, eq, like } from "drizzle-orm";
-import { getDb } from "@/db";
-import { nflPlayers, playerGameStats } from "@/db/schema";
 import { clamp } from "@/lib/utils";
+import { findPublicPlayerHistory } from "@/lib/nfl/history";
 import type {
   CanonicalMarket,
   HistoricalEvidence,
   ModelEstimate,
 } from "@/lib/markets/types";
 
-const MODEL_VERSION = "baseline-logit-v1";
+const MODEL_VERSION = "history-logit-v2";
 
 const emptyEvidence: HistoricalEvidence = {
   last5Hits: null,
@@ -20,38 +18,19 @@ const emptyEvidence: HistoricalEvidence = {
   sampleSize: 0,
 };
 
-function statisticValue(
-  row: typeof playerGameStats.$inferSelect,
-  statistic: string | null,
-) {
-  if (!statistic) return null;
-  const mapping: Record<string, number | null> = {
-    passing_yards: row.passingYards,
-    passing_touchdowns: row.passingTouchdowns,
-    rushing_yards: row.rushingYards,
-    receiving_yards: row.receivingYards,
-    receptions: row.receptions,
-    touchdowns:
-      (row.passingTouchdowns ?? 0) +
-      (row.rushingTouchdowns ?? 0) +
-      (row.receivingTouchdowns ?? 0),
-  };
-  return mapping[statistic] ?? null;
-}
-
 function isHit(value: number, threshold: number, direction: string) {
   return direction === "under" ? value < threshold : value >= threshold;
 }
 
 export function calibratedLogisticProbability(input: {
-  seasonHitRate: number;
+  historicalHitRate: number;
   recentHitRate: number;
   recentPerformanceRatio: number;
   sampleSize: number;
 }) {
   const linear =
     -1.18 +
-    1.25 * input.seasonHitRate +
+    1.25 * input.historicalHitRate +
     0.95 * input.recentHitRate +
     0.42 * clamp(input.recentPerformanceRatio - 1, -1, 1) +
     0.018 * Math.min(input.sampleSize, 17);
@@ -79,74 +58,71 @@ export async function estimateMarket(
       reliabilityBps: 0,
       version: MODEL_VERSION,
       evidence: emptyEvidence,
-      factors: ["A model estimate is not available until comparable historical data is linked."],
+      factors: ["This market type does not yet have a model-backed probability."],
     };
   }
 
   try {
-    const db = getDb();
-    const playerName = canonical.subject.replace(/\b(nfl|will)\b/gi, "").trim();
-    const [player] = await db
-      .select({ id: nflPlayers.id, name: nflPlayers.fullName })
-      .from(nflPlayers)
-      .where(like(nflPlayers.fullName, `%${playerName}%`))
-      .limit(1);
-    if (!player) {
-      return {
-        probabilityBps: null,
-        reliabilityBps: 0,
-        version: MODEL_VERSION,
-        evidence: emptyEvidence,
-        factors: ["No verified historical player record matches this contract yet."],
-      };
-    }
-    const rows = await db
-      .select()
-      .from(playerGameStats)
-      .where(eq(playerGameStats.playerId, player.id))
-      .orderBy(desc(playerGameStats.gameId))
-      .limit(20);
-    const values = rows
-      .map((row) => statisticValue(row, canonical.statistic))
-      .filter((value): value is number => value !== null);
-    if (values.length < 5) {
+    const history = await findPublicPlayerHistory(
+      canonical.subject,
+      canonical.statistic,
+    );
+    const sample = history.values.slice(0, 20);
+    const values = sample.map((row) => row.value);
+
+    if (!history.playerName || values.length < 5) {
       return {
         probabilityBps: null,
         reliabilityBps: Math.round((values.length / 10) * 4_000),
         version: MODEL_VERSION,
         evidence: { ...emptyEvidence, sampleSize: values.length },
-        factors: [`Only ${values.length} comparable games are available; at least 5 are required.`],
+        factors: [
+          values.length
+            ? `Only ${values.length} comparable games are available; at least 5 are required.`
+            : "No verified nflverse history matches this player prop.",
+        ],
       };
     }
 
+    const threshold = canonical.threshold;
     const last5 = values.slice(0, 5);
     const last10 = values.slice(0, 10);
-    const threshold = canonical.threshold;
-    const seasonHitCount = hits(values, threshold, canonical.direction);
-    const recentHitCount = hits(last5, threshold, canonical.direction);
+    const historicalHits = hits(values, threshold, canonical.direction);
+    const recentHits = hits(last5, threshold, canonical.direction);
     const average = last5.reduce((sum, value) => sum + value, 0) / last5.length;
+    const currentSeason = new Date().getUTCFullYear();
+    const seasonValues = sample
+      .filter((row) => row.season === currentSeason)
+      .map((row) => row.value);
+    const seasonHitCount = hits(
+      seasonValues,
+      threshold,
+      canonical.direction,
+    );
+
     const probability = calibratedLogisticProbability({
-      seasonHitRate: seasonHitCount / values.length,
-      recentHitRate: recentHitCount / last5.length,
+      historicalHitRate: historicalHits / values.length,
+      recentHitRate: recentHits / last5.length,
       recentPerformanceRatio: threshold === 0 ? 1 : average / threshold,
       sampleSize: values.length,
     });
     const reliability = clamp(values.length / 17, 0, 1) * 0.78;
+
     return {
       probabilityBps: Math.round(clamp(probability, 0.03, 0.97) * 10_000),
       reliabilityBps: Math.round(reliability * 10_000),
       version: MODEL_VERSION,
       evidence: {
-        last5Hits: recentHitCount,
+        last5Hits: recentHits,
         last10Hits: hits(last10, threshold, canonical.direction),
-        seasonHits: seasonHitCount,
-        seasonGames: values.length,
+        seasonHits: seasonValues.length ? seasonHitCount : null,
+        seasonGames: seasonValues.length || null,
         sampleSize: values.length,
       },
       factors: [
-        `${player.name} cleared this threshold in ${recentHitCount} of the last 5 comparable games.`,
-        `Season sample: ${seasonHitCount} of ${values.length}.`,
-        `Last-5 average: ${average.toFixed(1)} against a ${threshold} threshold.`,
+        `${history.playerName} cleared this line in ${recentHits} of the last 5 games.`,
+        `20-game sample: ${historicalHits} of ${values.length} at this threshold.`,
+        `Last-5 average: ${average.toFixed(1)} versus a ${threshold} line.`,
       ],
     };
   } catch (error) {
