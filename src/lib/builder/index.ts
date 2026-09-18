@@ -145,7 +145,8 @@ function isAcceptablePayoutShape(legs: RankedCandidate[]) {
   if (maxShare <= normalLimit) return true;
   if (!hasExceptionalLongshotValue(legs)) return false;
 
-  const exceptionalCeiling = legs.length >= 4 ? 0.68 : 0.75;
+  const exceptionalCeiling =
+    legs.length <= 2 ? 0.9 : legs.length === 3 ? 0.8 : 0.68;
   return maxShare <= exceptionalCeiling;
 }
 
