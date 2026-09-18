@@ -478,6 +478,16 @@ export async function estimateMarket(
     probability = calibrated.probability;
 
     const sourceCount = external.points.length;
+
+    // A single external source is useful, but it is not enough evidence for
+    // near-certain probabilities before the four-game statistical model joins.
+    if (
+      sourceCount === 1 &&
+      statisticalProbability === null
+    ) {
+      probability = clamp(probability, 0.08, 0.92);
+    }
+
     const dispersionPenalty =
       external.dispersion === null || external.projection === null
         ? 0
