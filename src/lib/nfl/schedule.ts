@@ -1,6 +1,5 @@
 import "server-only";
 
-import { unstable_cache } from "next/cache";
 import type { NflScheduleGame } from "./schedule-match";
 
 type CsvRow = Record<string, string>;
@@ -72,13 +71,19 @@ function easternKickoff(gameday: string, gametime: string | undefined) {
   return Number.isNaN(value.getTime()) ? null : value;
 }
 
-export const loadNflSchedule = unstable_cache(
-  async (): Promise<NflScheduleGame[]> => {
+let scheduleCache: { games: NflScheduleGame[]; storedAt: number } | null = null;
+
+export async function loadNflSchedule(): Promise<NflScheduleGame[]> {
+  if (scheduleCache && Date.now() - scheduleCache.storedAt < 60 * 60 * 1_000) {
+    return scheduleCache.games;
+  }
+
+  const games = await (async (): Promise<NflScheduleGame[]> => {
     const response = await fetch(
       "https://cdn.jsdelivr.net/gh/nflverse/nfldata@master/data/games.csv",
       {
         headers: { "User-Agent": "Lynerva/1.0 schedule-validation" },
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(5_000),
       },
     );
     if (!response.ok) {
@@ -113,7 +118,8 @@ export const loadNflSchedule = unstable_cache(
       });
     }
     return games;
-  },
-  ["lynerva-nfl-schedule-v1"],
-  { revalidate: 60 * 60 },
-);
+  })();
+
+  scheduleCache = { games, storedAt: Date.now() };
+  return games;
+}
