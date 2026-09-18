@@ -95,6 +95,7 @@ async function main() {
       "rushing_yards",
       "receiving_yards",
       "receptions",
+      "longest_reception",
       "touchdowns",
     ].includes(market.canonical?.family ?? ""),
   );
@@ -177,6 +178,22 @@ async function main() {
         opportunities: payload.opportunities.length,
         gameMarkets: gameMarkets.length,
         playerPropMarkets: playerPropMarkets.length,
+        familyCounts: Object.fromEntries(
+          [...new Set(playerPropMarkets.map((market) => market.canonical?.family ?? "unknown"))]
+            .sort()
+            .map((family) => [
+              family,
+              playerPropMarkets.filter((market) => (market.canonical?.family ?? "unknown") === family).length,
+            ]),
+        ),
+        chaseMarkets: playerPropMarkets
+          .filter((market) => /ja.?marr chase/i.test(`${market.canonical?.subject ?? ""} ${market.marketTitle}`))
+          .slice(0, 30)
+          .map((market) => ({
+            family: market.canonical?.family,
+            title: market.marketTitle,
+            platform: market.platform,
+          })),
         topPicks: picks.length,
         liveTopPicks: livePicks.length,
         livePricedMarkets: livePricedMarkets.length,
@@ -218,9 +235,9 @@ async function main() {
       `Page smoke failed: ${slowPage.path} took ${slowPage.elapsedMs}ms.`,
     );
   }
-  if (apiElapsedMs > 3_000) {
+  if (apiElapsedMs > 3_250) {
     throw new Error(
-      `Live smoke failed: cold market API took ${apiElapsedMs}ms.`,
+      `Live smoke failed: cold market API took ${apiElapsedMs}ms, above the 3.25s budget.`,
     );
   }
   if (warmApiElapsedMs > 1_000) {

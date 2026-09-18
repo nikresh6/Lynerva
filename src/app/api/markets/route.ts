@@ -29,10 +29,10 @@ export async function GET() {
   const priced = rated.filter(isPricedOpportunity);
   const opportunities = priced.map((market) => ({
     ...market,
-    resolutionRules: market.resolutionRules?.slice(0, 240) ?? null,
+    resolutionRules: null,
     model: {
       ...market.model,
-      factors: market.model.factors.slice(0, 3),
+      factors: [],
     },
   }));
 
@@ -53,7 +53,7 @@ export async function GET() {
     },
     {
       headers: {
-        "Cache-Control": "public, s-maxage=15, stale-while-revalidate=60",
+        "Cache-Control": "public, s-maxage=15, stale-while-revalidate=120",
       },
     },
   );

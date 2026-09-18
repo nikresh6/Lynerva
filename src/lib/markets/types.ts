@@ -10,6 +10,7 @@ export const marketFamilies = [
   "rushing_yards",
   "receiving_yards",
   "receptions",
+  "longest_reception",
   "touchdowns",
   "other",
 ] as const;

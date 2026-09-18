@@ -480,6 +480,7 @@ export async function estimateMarket(
         "passing_touchdowns",
         "receiving_yards",
         "receptions",
+        "longest_reception",
         "touchdowns",
       ].includes(canonical.family);
       if (environmentSensitive && environment !== 0) {

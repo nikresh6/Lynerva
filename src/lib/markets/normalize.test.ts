@@ -128,3 +128,38 @@ describe("market normalization", () => {
     expect(first && second && settlementRulesMatch(first, second)).toBe(false);
   });
 });
+
+
+describe("additional weekly player prop normalization", () => {
+  it("recognizes longest reception markets before generic receptions", () => {
+    const normalized = normalizeMarket(
+      contract({
+        marketTitle: "Will Ja'Marr Chase record over 27.5 longest reception?",
+        platformMarketId: "KXNFLLONGREC-26SEP20CINHOU-JCHASE1-28",
+      }),
+    );
+    expect(normalized).toMatchObject({
+      family: "longest_reception",
+      statistic: "longest_reception",
+      direction: "over",
+      threshold: 27.5,
+      subject: "Ja'Marr Chase",
+    });
+  });
+
+  it("keeps rushing yards as a separate searchable family", () => {
+    const normalized = normalizeMarket(
+      contract({
+        marketTitle: "Will Ja'Marr Chase record over 9.5 rushing yards?",
+        platformMarketId: "KXNFLRUSHYDS-26SEP20CINHOU-JCHASE1-10",
+      }),
+    );
+    expect(normalized).toMatchObject({
+      family: "rushing_yards",
+      statistic: "rushing_yards",
+      direction: "over",
+      threshold: 9.5,
+      subject: "Ja'Marr Chase",
+    });
+  });
+});

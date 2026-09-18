@@ -51,27 +51,38 @@ const CORE_NFL_SERIES = [
   "KXNFLPASSTDS",
   "KXNFLRECYDS",
   "KXNFLREC",
-  "KXNFLRUSHYDS",
+  "KXNFLRSHYDS",
   "KXNFLTD",
+  "KXNFLLONGREC",
 ] as const;
 
 async function fetchSeriesMarkets(seriesTicker: string) {
+  const markets: z.infer<typeof marketSchema>[] = [];
+  let cursor = "";
+
   try {
-    const url = new URL(`${KALSHI_BASE}/markets`);
-    url.searchParams.set("status", "open");
-    url.searchParams.set("series_ticker", seriesTicker);
-    url.searchParams.set("mve_filter", "exclude");
-    url.searchParams.set("limit", "200");
-    const payload = await fetchValidated(
-      "Kalshi",
-      url.toString(),
-      marketsResponseSchema,
-      { cache: "no-store" },
-    );
-    return payload.markets;
+    do {
+      const url = new URL(`${KALSHI_BASE}/markets`);
+      url.searchParams.set("status", "open");
+      url.searchParams.set("series_ticker", seriesTicker);
+      url.searchParams.set("mve_filter", "exclude");
+      url.searchParams.set("limit", "1000");
+      if (cursor) url.searchParams.set("cursor", cursor);
+
+      const payload = await fetchValidated(
+        "Kalshi",
+        url.toString(),
+        marketsResponseSchema,
+        { cache: "no-store" },
+      );
+      markets.push(...payload.markets);
+      cursor = payload.cursor;
+    } while (cursor);
+
+    return markets;
   } catch (error) {
     console.error(`Kalshi series fetch failed for ${seriesTicker}`, error);
-    return [] as z.infer<typeof marketSchema>[];
+    return markets;
   }
 }
 

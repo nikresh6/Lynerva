@@ -116,6 +116,7 @@ const STAT_PATTERNS: Array<{
   { family: "passing_touchdowns", statistic: "passing_touchdowns", regex: /pass(?:ing)?\s+(?:tds?|touchdowns?)/i },
   { family: "rushing_yards", statistic: "rushing_yards", regex: /rush(?:ing)?\s+yards?/i },
   { family: "receiving_yards", statistic: "receiving_yards", regex: /receiv(?:ing)?\s+yards?/i },
+  { family: "longest_reception", statistic: "longest_reception", regex: /longest\s+(?:reception|catch)|(?:reception|catch)\s+length/i },
   { family: "receptions", statistic: "receptions", regex: /receptions?|catches/i },
   { family: "touchdowns", statistic: "touchdowns", regex: /(?:anytime\s+)?touchdowns?|\btds?\b/i },
 ];
