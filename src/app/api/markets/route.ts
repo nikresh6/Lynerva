@@ -38,7 +38,9 @@ export async function GET() {
       opportunities,
       providers: payload.providers.map((provider) => ({
         provider: provider.provider,
-        count: provider.markets.length,
+        count: opportunities.filter(
+          (market) => market.platform === provider.provider,
+        ).length,
         fetchedAt: provider.fetchedAt,
         error: provider.error,
       })),
@@ -46,7 +48,7 @@ export async function GET() {
     },
     {
       headers: {
-        "Cache-Control": "public, s-maxage=4, stale-while-revalidate=30",
+        "Cache-Control": "public, s-maxage=2, stale-while-revalidate=4",
       },
     },
   );
