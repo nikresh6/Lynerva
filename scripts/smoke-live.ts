@@ -43,7 +43,7 @@ async function main() {
   const started = Date.now();
 
   const pageChecks = await Promise.all(
-    ["/", "/live", "/builder", "/tracker", "/sign-in"].map(async (path) => {
+    ["/", "/live", "/builder", "/sources", "/tracker", "/sign-in"].map(async (path) => {
       const pageStarted = Date.now();
       const response = await fetch(`${baseUrl}${path}`, {
         redirect: "manual",
