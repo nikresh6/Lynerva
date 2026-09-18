@@ -1,7 +1,5 @@
 import "server-only";
 
-import { unstable_cache } from "next/cache";
-
 type CsvRow = Record<string, string>;
 
 export interface HistoricalValue {
@@ -59,37 +57,63 @@ function normalizePerson(value: string) {
     .replace(/\s+/g, " ");
 }
 
-const loadHistory = unstable_cache(
-  async () => {
-    const currentSeason = new Date().getUTCFullYear();
-    const seasons = [currentSeason, currentSeason - 1, currentSeason - 2];
-    const rows: CsvRow[] = [];
-    await Promise.all(
-      seasons.map(async (season) => {
-        const url =
-          `https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_${season}.csv`;
-        try {
-          const response = await fetch(url, {
-            headers: { "User-Agent": "Lynerva/1.0 model-history" },
-            signal: AbortSignal.timeout(30_000),
-          });
-          if (!response.ok) return;
-          for (const row of parseCsv(await response.text())) {
-            if ((row.season_type || row.seasonType || "").toUpperCase() !== "REG") {
-              continue;
-            }
-            rows.push({ ...row, __season: String(season) });
+let historySnapshot: { rows: CsvRow[]; loadedAt: number } | null = null;
+let historyInFlight: Promise<CsvRow[]> | null = null;
+
+async function fetchHistoryRows() {
+  const currentSeason = new Date().getUTCFullYear();
+  const seasons = [currentSeason, currentSeason - 1, currentSeason - 2];
+  const rows: CsvRow[] = [];
+
+  await Promise.all(
+    seasons.map(async (season) => {
+      const url =
+        `https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_${season}.csv`;
+      try {
+        const response = await fetch(url, {
+          headers: { "User-Agent": "Lynerva/1.0 model-history" },
+          signal: AbortSignal.timeout(4_000),
+        });
+        if (!response.ok) return;
+        for (const row of parseCsv(await response.text())) {
+          if ((row.season_type || row.seasonType || "").toUpperCase() !== "REG") {
+            continue;
           }
-        } catch (error) {
-          console.error(`nflverse history fetch failed for ${season}`, error);
+          rows.push({ ...row, __season: String(season) });
         }
-      }),
-    );
-    return rows;
-  },
-  ["lynerva-nflverse-player-history-v2"],
-  { revalidate: 60 * 60 },
-);
+      } catch (error) {
+        console.error(`nflverse history fetch failed for ${season}`, error);
+      }
+    }),
+  );
+
+  return rows;
+}
+
+async function loadHistory() {
+  const now = Date.now();
+  if (
+    historySnapshot &&
+    now - historySnapshot.loadedAt < 60 * 60 * 1_000
+  ) {
+    return historySnapshot.rows;
+  }
+  if (historyInFlight) return historyInFlight;
+
+  historyInFlight = fetchHistoryRows()
+    .then((rows) => {
+      historySnapshot = {
+        rows,
+        loadedAt: rows.length ? Date.now() : Date.now() - 59 * 60 * 1_000,
+      };
+      return rows;
+    })
+    .finally(() => {
+      historyInFlight = null;
+    });
+
+  return historyInFlight;
+}
 
 function statisticValue(row: CsvRow, statistic: string) {
   switch (statistic) {
