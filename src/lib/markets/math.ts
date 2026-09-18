@@ -114,13 +114,14 @@ export function lynervaScore(input: {
     spread * 0.45 +
     freshness * 0.2;
 
+  // Current-season hit rate is informational only for now. With such a
+  // small 2026 sample it belongs in Bet Lab, not in ranking.
   const score =
-    value * 0.32 +
-    hitRate * 0.20 +
-    probability * 0.14 +
-    reliability * 0.14 +
-    edge * 0.10 +
-    marketQuality * 0.10;
+    value * 0.40 +
+    probability * 0.18 +
+    reliability * 0.18 +
+    edge * 0.12 +
+    marketQuality * 0.12;
 
   return {
     score: Math.round(clamp(score, 0, 100)),
