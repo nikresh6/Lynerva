@@ -15,7 +15,7 @@ Lynerva is an NFL prediction-market research app. It normalizes live contracts f
 - Current nflverse schedule and weekly player-stat ingestion
 - Open-Meteo weather adapter and ESPN live-game adapter
 - Resend password-reset email support
-- Scheduled NFL ingestion and market snapshots through Vercel Cron
+- Scheduled NFL ingestion, source grading, and market snapshots through the Railway background scheduler
 
 ## Local setup
 
@@ -50,7 +50,7 @@ Do not commit `.env.local`; it is ignored by Git.
 
 The Markets page fetches current Kalshi and Polymarket data directly on the server and refreshes every 10 seconds while visible. The Live page refreshes every 5 seconds. Kalshi market reads, Polymarket Gamma/CLOB reads, and ESPN live-game reads bypass the Next.js data cache.
 
-The database is not used as the source of truth for current prices. It stores history, model inputs, predictions, and tracker data. Vercel Cron updates the current NFL season from nflverse daily and records a daily market snapshot as a fallback. Additional snapshots can be persisted when the application is actively used.
+The database is not used as the source of truth for current prices. It stores history, model inputs, predictions, and tracker data. The long-lived Railway process runs Lynerva's background scheduler for market snapshots, nflverse refreshes, projection capture, grading, and source-weight learning.
 
 ## Data and scheduled jobs
 
@@ -73,7 +73,7 @@ To import a specific historical season:
 npm run data:nflverse -- 2025
 ```
 
-The nflverse ingestion route defaults to the current year. Vercel invokes `/api/cron/nflverse` and `/api/cron/markets` daily. Both require the Vercel cron authorization header backed by `CRON_SECRET`.
+The nflverse ingestion route defaults to the current year. On Railway, the background scheduler runs inside the long-lived Node process, so no external cron provider is required.
 
 ## Verification
 
@@ -86,6 +86,6 @@ npm run build
 
 ## Deployment
 
-Import the GitHub repository into Vercel, add every variable from `.env.example`, set `BETTER_AUTH_URL` to the production domain, and deploy. The public market pages can build without database secrets, but authentication, the private tracker, historical ingestion, and model persistence require Turso at runtime.
+Deploy the GitHub `main` branch to Railway, add every runtime variable from `.env.example`, and set `BETTER_AUTH_URL=https://lynerva-production.up.railway.app`. Railway also exposes `RAILWAY_PUBLIC_DOMAIN`, which Lynerva trusts automatically. The production start command applies pending Drizzle migrations before Next.js starts. Public market pages can build without database secrets, but authentication, the private tracker, historical ingestion, and model persistence require `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `BETTER_AUTH_SECRET` at runtime.
 
 Lynerva is a research tool, not financial advice. It does not place trades or hold funds.
