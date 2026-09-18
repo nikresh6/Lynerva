@@ -3,6 +3,13 @@ import "server-only";
 import { z } from "zod";
 import { fetchValidated } from "@/lib/providers/http";
 
+const geocodeSchema = z.object({
+  results: z.array(z.object({
+    latitude: z.number(),
+    longitude: z.number(),
+  })).optional(),
+});
+
 const forecastSchema = z.object({
   hourly: z.object({
     time: z.array(z.string()),
@@ -79,5 +86,49 @@ export class OpenMeteoProvider implements WeatherProvider {
         precipitationProbability >= 80 ||
         [95, 96, 99].includes(weatherCode),
     };
+  }
+}
+
+
+const gameWeatherCache = new Map<string, { at: number; weather: WeatherPoint | null }>();
+
+export async function getGameWeather(input: {
+  stadium: string | null | undefined;
+  kickoffAt: string | Date;
+}) {
+  if (!input.stadium) return null;
+  const kickoff = input.kickoffAt instanceof Date ? input.kickoffAt : new Date(input.kickoffAt);
+  if (Number.isNaN(kickoff.getTime())) return null;
+  const key = `${input.stadium}:${kickoff.toISOString().slice(0, 13)}`;
+  const cached = gameWeatherCache.get(key);
+  if (cached && Date.now() - cached.at < 30 * 60_000) return cached.weather;
+
+  try {
+    const geocodeUrl = new URL("https://geocoding-api.open-meteo.com/v1/search");
+    geocodeUrl.searchParams.set("name", input.stadium);
+    geocodeUrl.searchParams.set("count", "1");
+    geocodeUrl.searchParams.set("language", "en");
+    geocodeUrl.searchParams.set("format", "json");
+    const place = await fetchValidated(
+      "Open-Meteo geocoding",
+      geocodeUrl.toString(),
+      geocodeSchema,
+    );
+    const result = place.results?.[0];
+    if (!result) {
+      gameWeatherCache.set(key, { at: Date.now(), weather: null });
+      return null;
+    }
+    const weather = await new OpenMeteoProvider().getForecast({
+      latitude: result.latitude,
+      longitude: result.longitude,
+      kickoffAt: kickoff,
+    });
+    gameWeatherCache.set(key, { at: Date.now(), weather });
+    return weather;
+  } catch (error) {
+    console.error("Game weather unavailable", error);
+    gameWeatherCache.set(key, { at: Date.now(), weather: null });
+    return null;
   }
 }
