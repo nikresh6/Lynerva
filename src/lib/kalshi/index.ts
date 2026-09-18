@@ -162,7 +162,7 @@ function toProviderMarket(
       ? Math.round(volumeContracts * 100)
       : null,
     closesAt: market.close_time ?? market.expiration_time ?? null,
-    updatedAt: safeIso(market.updated_time, fetchedAt),
+    updatedAt: fetchedAt,
     sourceUrl: `https://kalshi.com/markets/${market.ticker.toLowerCase()}`,
   };
 }
