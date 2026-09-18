@@ -607,6 +607,14 @@ export function buildPortfolioPlan(
   const straights = straightCandidates(opportunities, options);
   const parlays = parlayCandidates(opportunities, options);
 
+  if (process.env.NODE_ENV === "test") {
+    console.log("portfolio-debug:candidates", {
+      straights: straights.length,
+      parlays: parlays.length,
+      parlayReturns: parlays.map((row) => Number(row.grossReturn.toFixed(2))),
+    });
+  }
+
   if (!straights.length || !parlays.length) return null;
 
   const selected = selectPortfolioCandidates(
@@ -615,6 +623,17 @@ export function buildPortfolioPlan(
     options.risk,
     targetReturn,
   );
+
+  if (process.env.NODE_ENV === "test") {
+    console.log(
+      "portfolio-debug:selected",
+      selected.map((row) => ({
+        role: row.role,
+        probability: Number(row.probability.toFixed(3)),
+        grossReturn: Number(row.grossReturn.toFixed(2)),
+      })),
+    );
+  }
 
   const selectedStraights = selected.filter(
     (candidate) => candidate.kind === "straight",
@@ -626,6 +645,12 @@ export function buildPortfolioPlan(
   if (selectedStraights.length < 2 || selectedParlays.length < 1) return null;
 
   const shares = targetShares(selected, options.risk, targetReturn);
+  if (process.env.NODE_ENV === "test") {
+    console.log("portfolio-debug:shares", {
+      targetReturn,
+      shares,
+    });
+  }
   if (!shares) return null;
 
   const positions = selected.map((candidate, index) =>
@@ -675,6 +700,13 @@ export function buildPortfolioPlan(
     Math.abs(allWinPayout - options.targetPayout) /
     Math.max(options.targetPayout, 1);
 
+  if (process.env.NODE_ENV === "test") {
+    console.log("portfolio-debug:payout", {
+      allWinPayout,
+      targetPayout: options.targetPayout,
+      targetDistance,
+    });
+  }
   if (targetDistance > 0.15) return null;
 
   const expectedPayout = nonZeroPositions.reduce(
