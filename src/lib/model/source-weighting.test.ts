@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateSourceWeights } from "./source-weighting";
+import { ACTIVE_PROJECTION_SOURCES, calculateSourceWeights } from "./source-weighting";
 
 function samples(
   source: string,
@@ -15,6 +15,12 @@ function samples(
 }
 
 describe("source weighting", () => {
+  it("keeps the active source list unique", () => {
+    expect(new Set(ACTIVE_PROJECTION_SOURCES).size).toBe(
+      ACTIVE_PROJECTION_SOURCES.length,
+    );
+  });
+
   it("keeps tiny samples at equal weights", () => {
     const weights = calculateSourceWeights(
       [
