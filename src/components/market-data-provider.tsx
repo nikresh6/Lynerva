@@ -40,19 +40,21 @@ const STORAGE_MAX_AGE = 30 * 60 * 1_000;
 
 function readStored(): MarketClientPayload | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as MarketClientPayload & {
-      storedAt?: number;
-    };
-    if (
-      !parsed.storedAt ||
-      Date.now() - parsed.storedAt > STORAGE_MAX_AGE ||
-      !Array.isArray(parsed.opportunities)
-    ) {
-      return null;
+    for (const key of [STORAGE_KEY, "lynerva-market-snapshot-v4"]) {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw) as MarketClientPayload & {
+        storedAt?: number;
+      };
+      if (
+        parsed.storedAt &&
+        Date.now() - parsed.storedAt <= STORAGE_MAX_AGE &&
+        Array.isArray(parsed.opportunities)
+      ) {
+        return parsed;
+      }
     }
-    return parsed;
+    return null;
   } catch {
     return null;
   }
