@@ -794,20 +794,19 @@ function namesMatch(candidate: string, target: string) {
   if (!left.length || !right.length) return false;
   const leftFull = left.join(" ");
   const rightFull = right.join(" ");
-  if (
-    leftFull === rightFull ||
-    leftFull.startsWith(rightFull) ||
-    rightFull.startsWith(leftFull)
-  ) {
-    return true;
-  }
-  const leftLast = left.at(-1);
-  const rightLast = right.at(-1);
-  return (
-    leftLast === rightLast &&
-    left[0]?.[0] !== undefined &&
-    left[0]?.[0] === right[0]?.[0]
-  );
+  if (leftFull === rightFull) return true;
+
+  // Only allow a first-initial + last-name abbreviation, e.g. "B Robinson"
+  // matching "Brian Robinson". Never use broad prefix matching, because
+  // "Brian Robinson" and "Bijan Robinson" share enough characters to collide.
+  const abbreviated = (shorter: string[], longer: string[]) =>
+    shorter.length === 2 &&
+    longer.length >= 2 &&
+    shorter[0]?.length === 1 &&
+    shorter[0] === longer[0]?.[0] &&
+    shorter.at(-1) === longer.at(-1);
+
+  return abbreviated(left, right) || abbreviated(right, left);
 }
 
 function loadCovers(season: number, week: number) {
@@ -939,6 +938,27 @@ function plausibleProjection(
   return true;
 }
 
+function robustProjectionPoints(
+  family: CanonicalMarket["family"],
+  points: ProjectionPoint[],
+) {
+  const plausible = points.filter((point) =>
+    plausibleProjection(family, point.value),
+  );
+  if (plausible.length < 3) return plausible;
+
+  const sorted = plausible.map((point) => point.value).toSorted((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+  if (median <= 0) return plausible;
+
+  // A parser/name failure can still produce a numerically plausible value.
+  // Reject a lone source that is wildly separated from a multi-source cluster.
+  return plausible.filter((point) => {
+    const ratio = point.value / median;
+    return ratio >= 0.45 && ratio <= 2.2;
+  });
+}
+
 async function buildConsensus(
   market: CanonicalMarket,
   season: number,
@@ -952,16 +972,16 @@ async function buildConsensus(
     getLearnedSourceWeights(market.family, season, week),
   ]);
 
-  const points = settled
+  const uniquePoints = settled
     .flatMap((result) =>
       result.status === "fulfilled" && result.value ? [result.value] : [],
     )
-    .filter((point) => plausibleProjection(market.family, point.value))
     .filter(
       (point, index, all) =>
         all.findIndex((candidate) => candidate.source === point.source) ===
         index,
     );
+  const points = robustProjectionPoints(market.family, uniquePoints);
 
   if (!points.length) {
     return {
