@@ -6,8 +6,7 @@ import { isNflText } from "@/lib/markets/normalize";
 import {
   dollarsToBps,
   dollarsToCents,
-  fetchValidated,
-  safeIso,
+  fetchValidated
 } from "@/lib/providers/http";
 
 const GAMMA_BASE = "https://gamma-api.polymarket.com";
