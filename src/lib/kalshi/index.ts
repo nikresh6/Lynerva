@@ -43,22 +43,6 @@ const marketsResponseSchema = z.object({
   cursor: z.string().optional().default(""),
 });
 
-const seriesResponseSchema = z.object({
-  series: z.array(
-    z.object({
-      ticker: z.string(),
-      title: z.string().optional().default(""),
-      category: z.string().optional().default(""),
-      tags: z.array(z.string()).nullish(),
-    }).passthrough(),
-  ),
-});
-
-let discoveredSeriesCache: {
-  expiresAt: number;
-  promise: Promise<string[]>;
-} | null = null;
-
 const CORE_NFL_SERIES = [
   "KXNFLGAME",
   "KXNFLSPREAD",
@@ -102,53 +86,8 @@ async function fetchSeriesMarkets(seriesTicker: string) {
   }
 }
 
-function discoverWeeklyPlayerSeries() {
-  if (discoveredSeriesCache && discoveredSeriesCache.expiresAt > Date.now()) {
-    return discoveredSeriesCache.promise;
-  }
-
-  const promise = (async () => {
-    try {
-      const url = new URL(`${KALSHI_BASE}/series`);
-      url.searchParams.set("category", "Sports");
-      url.searchParams.set("tags", "NFL");
-      const payload = await fetchValidated(
-        "Kalshi series",
-        url.toString(),
-        seriesResponseSchema,
-        { cache: "no-store" },
-      );
-
-      return payload.series
-        .filter((series) => {
-          const text = `${series.ticker} ${series.title}`;
-          const isPlayerStat =
-            /pass(?:ing)? yards?|pass(?:ing)? (?:tds?|touchdowns?)|rush(?:ing)? yards?|receiv(?:ing)? yards?|receptions?|catches|touchdowns?|longest (?:reception|catch)/i.test(
-              text,
-            );
-          const seasonOnly =
-            /season|leader|record|award|most|top\s+\d|year/i.test(text);
-          return isPlayerStat && !seasonOnly;
-        })
-        .map((series) => series.ticker)
-        .slice(0, 30);
-    } catch (error) {
-      console.error("Kalshi NFL series discovery failed", error);
-      return [] as string[];
-    }
-  })();
-
-  discoveredSeriesCache = {
-    expiresAt: Date.now() + 30 * 60_000,
-    promise,
-  };
-  return promise;
-}
-
 async function fetchCoreSeriesMarkets() {
-  const discovered = await discoverWeeklyPlayerSeries();
-  const tickers = [...new Set([...CORE_NFL_SERIES, ...discovered])];
-  const chunks = await Promise.all(tickers.map(fetchSeriesMarkets));
+  const chunks = await Promise.all(CORE_NFL_SERIES.map(fetchSeriesMarkets));
   return chunks.flat();
 }
 
