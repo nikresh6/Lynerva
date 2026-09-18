@@ -14,7 +14,8 @@ export type ProjectionSource =
   | "covers"
   | "dimers"
   | "fourforfour"
-  | "rotoballer";
+  | "rotoballer"
+  | "sleeper";
 
 export interface ProjectionPoint {
   source: ProjectionSource;
@@ -680,6 +681,76 @@ function loadRotoBaller(season: number, week: number) {
   });
 }
 
+function loadSleeper(season: number, week: number) {
+  return cachedSource("sleeper", season, week, async () => {
+    const map: ProjectionMap = new Map();
+
+    await Promise.all(
+      ["QB", "RB", "WR", "TE"].map(async (position) => {
+        try {
+          const payload = (await fetchJson(
+            `sleeper:${season}:${week}:${position}`,
+            `https://api.sleeper.com/projections/nfl/${season}/${week}?season_type=regular&position=${position}&order_by=pts_ppr`,
+            {
+              Accept: "application/json",
+              "User-Agent": "Lynerva/1.0",
+            },
+          )) as Array<{
+            player_id?: string;
+            week?: number;
+            season?: string | number;
+            season_type?: string;
+            category?: string;
+            game_id?: string | null;
+            stats?: Record<string, number>;
+            player?: {
+              first_name?: string | null;
+              last_name?: string | null;
+              position?: string | null;
+            } | null;
+          }>;
+
+          if (!Array.isArray(payload)) return;
+
+          for (const row of payload) {
+            if (
+              row.week !== week ||
+              String(row.season ?? "") !== String(season) ||
+              row.season_type !== "regular" ||
+              row.category !== "proj" ||
+              !row.game_id ||
+              !row.stats ||
+              typeof row.stats.pts_ppr !== "number"
+            ) {
+              continue;
+            }
+
+            const first = row.player?.first_name?.trim() ?? "";
+            const last = row.player?.last_name?.trim() ?? "";
+            const player = `${first} ${last}`.trim();
+            if (!player) continue;
+
+            mergeStats(map, player, {
+              passingYards: toNumber(row.stats.pass_yd) ?? undefined,
+              passingTouchdowns: toNumber(row.stats.pass_td) ?? undefined,
+              rushingYards: toNumber(row.stats.rush_yd) ?? undefined,
+              rushingTouchdowns: toNumber(row.stats.rush_td) ?? undefined,
+              receptions: toNumber(row.stats.rec) ?? undefined,
+              receivingYards: toNumber(row.stats.rec_yd) ?? undefined,
+              receivingTouchdowns: toNumber(row.stats.rec_td) ?? undefined,
+            });
+          }
+        } catch {
+          // Sleeper's projections endpoint is public but undocumented.
+          // Treat a failed batch as missing data and retry after the failure TTL.
+        }
+      }),
+    );
+
+    return map;
+  });
+}
+
 function loadNfl(season: number, week: number) {
   return cachedSource("nfl", season, week, async () => {
     const map: ProjectionMap = new Map();
@@ -1047,9 +1118,11 @@ async function sourceProjection(
               ? loadFfToday
               : source === "rotoballer"
                 ? loadRotoBaller
-                : source === "covers"
-                  ? loadCovers
-                  : loadDimers;
+                : source === "sleeper"
+                  ? loadSleeper
+                  : source === "covers"
+                    ? loadCovers
+                    : loadDimers;
 
   const map = await loader(season, week);
   // Prefer an exact normalized player name. Abbreviated fallbacks are used
