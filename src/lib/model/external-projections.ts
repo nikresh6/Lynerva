@@ -577,7 +577,7 @@ function loadFfToday(season: number, week: number) {
           (async () => {
             try {
               const html = await fetchText(
-                `https://www.fftoday.com/rankings/playerwkproj.php?Season=${season}&GameWeek=${week}&PosID=${posId}&LeagueID=1&order_by=FFPts&sort_order=DESC&cur_page=${page}`,
+                `https://www.fftoday.com/rankings/playerwkproj.php?GameWeek=${week}&LeagueID=&PosID=${posId}&Season=${season}&order_by=FFPts&sort_order=DESC&cur_page=${page}`,
               );
               if (
                 !new RegExp(`${season}\\s+Week\\s+${week}`, "i").test(
@@ -587,14 +587,66 @@ function loadFfToday(season: number, week: number) {
                 return;
               }
 
-              for (const cells of rowsFromHtml(html)) {
-                if (cells.length < 8) continue;
-                const player = ffTodayPlayerFromRow(cells);
-                if (!player) continue;
+              const text = decode(html);
+              const team =
+                "(?:ARI|ATL|BAL|BUF|CAR|CHI|CIN|CLE|DAL|DEN|DET|GB|HOU|IND|JAX|KC|LV|LAC|LAR|MIA|MIN|NE|NO|NYG|NYJ|PHI|PIT|SF|SEA|TB|TEN|WAS)";
+              const name =
+                "([A-Z][A-Za-z'’.-]+(?:\\s+[A-Z][A-Za-z'’.-]+){1,3}(?:\\s+(?:Jr\\.?|Sr\\.?|II|III|IV))?)";
+              const note =
+                "(?:\\s+(?:Image:\\s*)?(?:Risk|Upside):[^0-9]{0,180})?";
 
-                const stats = ffTodayRowStats(position, cells);
-                if (Object.values(stats).some((value) => value !== undefined)) {
-                  mergeStats(map, player, stats);
+              if (position === "QB") {
+                const pattern = new RegExp(
+                  name +
+                    note +
+                    "\\s+" +
+                    team +
+                    "\\s+@?" +
+                    team +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)",
+                  "g",
+                );
+                for (const match of text.matchAll(pattern)) {
+                  mergeStats(map, match[1] ?? "", {
+                    passingYards: toNumber(match[4]) ?? undefined,
+                    passingTouchdowns: toNumber(match[5]) ?? undefined,
+                    rushingYards: toNumber(match[8]) ?? undefined,
+                    rushingTouchdowns: toNumber(match[9]) ?? undefined,
+                  });
+                }
+              } else {
+                const pattern = new RegExp(
+                  name +
+                    note +
+                    "\\s+" +
+                    team +
+                    "\\s+@?" +
+                    team +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)" +
+                    "\\s+(-?\\d+(?:\\.\\d+)?)",
+                  "g",
+                );
+                for (const match of text.matchAll(pattern)) {
+                  mergeStats(map, match[1] ?? "", {
+                    rushingYards: toNumber(match[3]) ?? undefined,
+                    rushingTouchdowns: toNumber(match[4]) ?? undefined,
+                    receptions: toNumber(match[5]) ?? undefined,
+                    receivingYards: toNumber(match[6]) ?? undefined,
+                    receivingTouchdowns: toNumber(match[7]) ?? undefined,
+                  });
                 }
               }
             } catch {
