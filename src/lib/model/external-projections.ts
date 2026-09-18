@@ -12,7 +12,8 @@ export type ProjectionSource =
   | "fftoday"
   | "nfl"
   | "covers"
-  | "dimers";
+  | "dimers"
+  | "fourforfour";
 
 export interface ProjectionPoint {
   source: ProjectionSource;
@@ -462,38 +463,29 @@ function loadCbs(season: number, week: number) {
   });
 }
 
-function fftodayStats(position: string, cells: string[]): ProjectionStats {
-  const values = cells.slice(4).map(toNumber);
+function ffTodayRowStats(
+  position: string,
+  cells: string[],
+  playerIndex: number,
+): ProjectionStats {
+  // FFToday weekly tables place Team and Opp immediately after Player.
+  // Skill positions then use: RuAtt, RuYd, RuTD, Rec, RecYd, RecTD.
+  // QB uses: Comp, Att, PaYd, PaTD, INT, RuAtt, RuYd, RuTD.
   if (position === "QB") {
     return {
-      passingYards: values[2] ?? undefined,
-      passingTouchdowns: values[3] ?? undefined,
-      rushingYards: values[6] ?? undefined,
-      rushingTouchdowns: values[7] ?? undefined,
+      passingYards: toNumber(cells[playerIndex + 5]) ?? undefined,
+      passingTouchdowns: toNumber(cells[playerIndex + 6]) ?? undefined,
+      rushingYards: toNumber(cells[playerIndex + 9]) ?? undefined,
+      rushingTouchdowns: toNumber(cells[playerIndex + 10]) ?? undefined,
     };
   }
-  if (position === "RB") {
-    return {
-      rushingYards: values[1] ?? undefined,
-      rushingTouchdowns: values[2] ?? undefined,
-      receptions: values[3] ?? undefined,
-      receivingYards: values[4] ?? undefined,
-      receivingTouchdowns: values[5] ?? undefined,
-    };
-  }
-  if (position === "WR") {
-    return {
-      receptions: values[0] ?? undefined,
-      receivingYards: values[1] ?? undefined,
-      receivingTouchdowns: values[2] ?? undefined,
-      rushingYards: values[4] ?? undefined,
-      rushingTouchdowns: values[5] ?? undefined,
-    };
-  }
+
   return {
-    receptions: values[0] ?? undefined,
-    receivingYards: values[1] ?? undefined,
-    receivingTouchdowns: values[2] ?? undefined,
+    rushingYards: toNumber(cells[playerIndex + 4]) ?? undefined,
+    rushingTouchdowns: toNumber(cells[playerIndex + 5]) ?? undefined,
+    receptions: toNumber(cells[playerIndex + 6]) ?? undefined,
+    receivingYards: toNumber(cells[playerIndex + 7]) ?? undefined,
+    receivingTouchdowns: toNumber(cells[playerIndex + 8]) ?? undefined,
   };
 }
 
@@ -501,36 +493,101 @@ function loadFfToday(season: number, week: number) {
   return cachedSource("fftoday", season, week, async () => {
     const map: ProjectionMap = new Map();
     const positions = [
-      ["QB", 10],
-      ["RB", 20],
-      ["WR", 30],
-      ["TE", 40],
+      ["QB", 10, 2],
+      ["RB", 20, 4],
+      ["WR", 30, 5],
+      ["TE", 40, 3],
     ] as const;
+
     await Promise.all(
-      positions.map(async ([position, posId]) => {
-        try {
-          const html = await fetchText(
-            `https://www.fftoday.com/rankings/playerwkproj.php?Season=${season}&GameWeek=${week}&PosID=${posId}&LeagueID=1&order_by=FFPts&sort_order=DESC&cur_page=0`,
-          );
-          for (const row of html.match(/<tr\b[\s\S]*?<\/tr>/gi) ?? []) {
-            if (!/smallbody/i.test(row)) continue;
-            const rawCells = [
-              ...row.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi),
-            ];
-            if (rawCells.length < 6) continue;
-            const playerMatch = row.match(
-              /stats\/players\/\d+\/[^"'<>]*["'][^>]*>([\s\S]*?)<\/a>/i,
-            );
-            const player = playerMatch ? decode(playerMatch[1] ?? "") : "";
-            if (!player) continue;
-            const cells = rawCells.map((match) => decode(match[1] ?? ""));
-            mergeStats(map, player, fftodayStats(position, cells));
-          }
-        } catch {
-          // Source remains optional.
-        }
-      }),
+      positions.flatMap(([position, posId, pageCount]) =>
+        Array.from({ length: pageCount }, (_, page) =>
+          (async () => {
+            try {
+              const html = await fetchText(
+                `https://www.fftoday.com/rankings/playerwkproj.php?Season=${season}&GameWeek=${week}&PosID=${posId}&LeagueID=1&order_by=FFPts&sort_order=DESC&cur_page=${page}`,
+              );
+              if (
+                !new RegExp(`${season}\\s+Week\\s+${week}`, "i").test(
+                  decode(html),
+                )
+              ) {
+                return;
+              }
+
+              for (const row of html.match(/<tr\\b[\\s\\S]*?<\\/tr>/gi) ?? []) {
+                const rawCells = [
+                  ...row.matchAll(/<td\\b[^>]*>([\\s\\S]*?)<\\/td>/gi),
+                ];
+                if (!rawCells.length) continue;
+
+                const playerIndex = rawCells.findIndex((match) =>
+                  /stats\\/players\\/\\d+/i.test(match[1] ?? ""),
+                );
+                if (playerIndex < 0) continue;
+
+                const playerMatch = (rawCells[playerIndex]?.[1] ?? "").match(
+                  /<a[^>]*>([\\s\\S]*?)<\\/a>/i,
+                );
+                const player = playerMatch ? decode(playerMatch[1] ?? "") : "";
+                if (!player) continue;
+
+                const cells = rawCells.map((match) => decode(match[1] ?? ""));
+                const stats = ffTodayRowStats(position, cells, playerIndex);
+                if (Object.values(stats).some((value) => value !== undefined)) {
+                  mergeStats(map, player, stats);
+                }
+              }
+            } catch {
+              // Weekly source is optional. A failed page is retried after the
+              // short failure TTL rather than replaced with non-weekly data.
+            }
+          })(),
+        ),
+      ),
     );
+
+    return map;
+  });
+}
+
+function loadFourForFour(season: number, week: number) {
+  return cachedSource("fourforfour", season, week, async () => {
+    const map: ProjectionMap = new Map();
+    const html = await fetchText(
+      `https://www.4for4.com/fantasy-football-projections/standard/sflex/${season}/week${week}`,
+    );
+    const pageText = decode(html);
+    if (
+      !new RegExp(`${season}\\s+NFL\\s+Week\\s+${week}`, "i").test(
+        pageText,
+      )
+    ) {
+      return map;
+    }
+
+    for (const cells of rowsFromHtml(html)) {
+      // Unified Superflex table:
+      // #, Player, Pos, Team, Opp, M/U, FF Pts, PaYds, PaTD, INT, Pa1D,
+      // RuYds, RuTD, Ru1D, Rec, RecYds, RecTD, Rec1D.
+      if (cells.length < 17) continue;
+      const player = cells[1]?.trim();
+      const position = cells[2]?.trim().toUpperCase();
+      if (!player || !["QB", "RB", "WR", "TE"].includes(position ?? "")) {
+        continue;
+      }
+
+      mergeStats(map, player, {
+        passingYards: toNumber(cells[7]) ?? undefined,
+        passingTouchdowns: toNumber(cells[8]) ?? undefined,
+        rushingYards: toNumber(cells[11]) ?? undefined,
+        rushingTouchdowns: toNumber(cells[12]) ?? undefined,
+        receptions: toNumber(cells[14]) ?? undefined,
+        receivingYards: toNumber(cells[15]) ?? undefined,
+        receivingTouchdowns: toNumber(cells[16]) ?? undefined,
+      });
+    }
+
     return map;
   });
 }
@@ -903,7 +960,9 @@ async function sourceProjection(
             ? loadCbs
             : source === "covers"
               ? loadCovers
-              : loadDimers;
+              : source === "fourforfour"
+                ? loadFourForFour
+                : loadDimers;
 
   const map = await loader(season, week);
   // Prefer an exact normalized player name. Abbreviated fallbacks are used
