@@ -309,8 +309,8 @@ async function main() {
     "numberfire",
     "espn",
     "cbs",
-    "fftoday",
     "rotoballer",
+    "sleeper",
   ];
   for (const source of activeCoverageSources) {
     const coverage = playerPropMarkets.filter((market) =>
