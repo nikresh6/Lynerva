@@ -132,7 +132,50 @@ export function MarketTable({ markets, emptyMessage = "No NFL markets match thes
   if (!markets.length) return <div className="rounded-lg border bg-surface px-6 py-16 text-center"><p className="font-medium">{emptyMessage}</p><p className="mt-1 text-xs text-muted">Try clearing a filter or check back when markets reopen.</p></div>;
   return (
     <>
-      <div className="scrollbar-subtle overflow-x-auto rounded-lg border bg-surface">
+      <div className="space-y-2 sm:hidden">
+        {markets.map((market) => {
+          const key = `${market.platform}:${market.platformMarketId}:${market.platformOutcomeId ?? "yes"}`;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setSelected(market)}
+              className="w-full rounded-xl border bg-surface p-4 text-left transition-[border-color,transform,background-color] active:scale-[0.995] active:bg-surface-raised"
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <PlatformMark platform={market.platform} />
+                <div className="text-[10px] text-faint">
+                  <FreshnessLabel value={market.freshness} /> · {relativeTime(market.updatedAt)}
+                </div>
+              </div>
+              <div className="font-medium leading-5">
+                <span className="mr-2 text-[10px] font-semibold uppercase tracking-wide text-muted">
+                  {displayPickSide(market)}
+                </span>
+                {displayMarketTitle(market)}
+              </div>
+              <div className="mt-1 text-[11px] text-faint">
+                {displayMarketContext(market)}
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-3 border-t pt-3">
+                <div>
+                  <div className="text-[9px] font-medium uppercase tracking-[0.09em] text-faint">Price</div>
+                  <div className="mt-1 font-semibold tabular">{formatCents(market.executablePriceBps)}</div>
+                </div>
+                <div>
+                  <div className="text-[9px] font-medium uppercase tracking-[0.09em] text-faint">Model</div>
+                  <div className="mt-1 font-semibold tabular">{formatPercent(market.recommendedProbabilityBps)}</div>
+                </div>
+                <div>
+                  <div className="text-[9px] font-medium uppercase tracking-[0.09em] text-faint">Edge</div>
+                  <div className="mt-1 font-semibold text-positive tabular">{formatEdge(market.edgeBps)}</div>
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      <div className="scrollbar-subtle hidden overflow-x-auto rounded-lg border bg-surface sm:block">
         <table className="w-full min-w-[960px] border-collapse text-left text-xs">
           <thead className="bg-surface-raised text-[10px] font-medium uppercase tracking-[0.09em] text-faint"><tr><th className="w-[28%] px-4 py-3">Pick</th><th className="px-3 py-3">Platform</th><th className="px-3 py-3 text-right">Price</th><th className="px-3 py-3 text-right">Model</th><th className="px-3 py-3 text-right">Edge</th><th className="px-3 py-3 text-right">Hit rate</th><th className="px-3 py-3 text-right">Risk : Return</th><th className="px-3 py-3 text-right">Liquidity</th><th className="px-4 py-3 text-right">Updated</th><th className="px-4 py-3 text-right">Why</th></tr></thead>
           <tbody>{markets.map((market) => {
