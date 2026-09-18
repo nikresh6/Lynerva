@@ -60,6 +60,16 @@ export interface HistoricalEvidence {
   seasonHits: number | null;
   seasonGames: number | null;
   sampleSize: number;
+  recentValues?: number[];
+}
+
+export interface LynervaScoreBreakdown {
+  value: number;
+  hitRate: number;
+  probability: number;
+  reliability: number;
+  edge: number;
+  marketQuality: number;
 }
 
 export interface ModelEstimate {
@@ -81,6 +91,8 @@ export interface MarketOpportunity extends ProviderMarket {
   riskReturn: number | null;
   spreadBps: number | null;
   opportunityScore: number | null;
+  lynervaScore: number | null;
+  scoreBreakdown: LynervaScoreBreakdown | null;
   freshness: Freshness;
   discrepancyBps: number | null;
   equivalentPlatform: Platform | null;
