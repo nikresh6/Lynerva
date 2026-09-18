@@ -351,24 +351,47 @@ export async function estimateMarket(
     const sample = history.values.slice(0, 20);
     const values = sample.map((row) => row.value);
 
-    // Current-season results stay informational until we have a real
-    // four-game sample. Before then they must not affect probability,
-    // ranking, score, or Builder eligibility.
-    if (!history.playerName || values.length < 4) {
+    if (!history.playerName) {
       return {
         probabilityBps: null,
         reliabilityBps: 0,
         version: MODEL_VERSION,
-        evidence: { ...emptyEvidence, sampleSize: values.length },
-        factors: [
-          values.length
-            ? `Only ${values.length} current-season game${values.length === 1 ? "" : "s"} available; results stay display-only until 4 games.`
-            : "No verified current-season history matches this player prop.",
-        ],
+        evidence: emptyEvidence,
+        factors: ["No verified current-season history matches this player prop."],
       };
     }
 
     const threshold = canonical.threshold;
+
+    // Before four current-season games, keep those results display-only.
+    // Still price the prop from a deliberately conservative, history-free
+    // prior so player props remain rankable without contaminating the model
+    // with a 1-3 game sample.
+    if (values.length < 4) {
+      const familyPrior: Partial<Record<CanonicalMarket["family"], number>> = {
+        passing_yards: 0.50,
+        passing_touchdowns: 0.50,
+        rushing_yards: 0.50,
+        receiving_yards: 0.50,
+        receptions: 0.50,
+        touchdowns: 0.35,
+      };
+      const probability = familyPrior[canonical.family] ?? 0.50;
+      return {
+        probabilityBps: Math.round(probability * 10_000),
+        reliabilityBps: 3000,
+        version: MODEL_VERSION,
+        evidence: {
+          ...emptyEvidence,
+          sampleSize: values.length,
+          recentValues: values.slice(0, 10),
+        },
+        factors: [
+          `Only ${values.length} current-season game${values.length === 1 ? "" : "s"} available; those results are display-only until 4 games.`,
+          "Lynerva is rating this prop with a conservative history-free prior until the four-game threshold is reached.",
+        ],
+      };
+    }
     const last5 = values.slice(0, 5);
     const last10 = values.slice(0, 10);
     const historicalHits = hits(values, threshold, canonical.direction);
