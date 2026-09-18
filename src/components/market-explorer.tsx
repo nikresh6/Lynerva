@@ -2,7 +2,10 @@
 
 import { useDeferredValue, useMemo, useState } from "react";
 import { Search, SlidersHorizontal, X } from "lucide-react";
-import { isTopOpportunity } from "@/lib/markets/eligibility";
+import {
+  isPricedOpportunity,
+  isTopOpportunity,
+} from "@/lib/markets/eligibility";
 import { filterAndSortMarkets } from "@/lib/markets/filters";
 import type {
   MarketFamily,
@@ -110,9 +113,11 @@ function LoadingTable() {
 export function MarketExplorer({
   forceStatus,
   emptyMessage,
+  topOnly = true,
 }: {
   forceStatus?: "live" | "pregame";
   emptyMessage?: string;
+  topOnly?: boolean;
 }) {
   const { opportunities, loading } = useMarketData();
   const [filters, setFilters] = useState<MarketFilters>({
@@ -128,11 +133,14 @@ export function MarketExplorer({
       query: deferredQuery,
       status: forceStatus ?? filters.status,
     };
+    const eligible = opportunities.filter(
+      topOnly ? isTopOpportunity : isPricedOpportunity,
+    );
     return filterAndSortMarkets(
-      opportunities.filter(isTopOpportunity),
+      eligible,
       activeFilters,
-    ).slice(0, 120);
-  }, [deferredQuery, filters, forceStatus, opportunities]);
+    ).slice(0, topOnly ? 60 : 120);
+  }, [deferredQuery, filters, forceStatus, opportunities, topOnly]);
 
   const activeAdvanced = [
     filters.minModelBps,
