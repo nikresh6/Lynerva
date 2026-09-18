@@ -214,7 +214,7 @@ async function main() {
             ]),
         ),
         projectionSourceCoverage: Object.fromEntries(
-          ["fantasypros", "numberfire", "espn", "cbs", "fftoday", "nfl", "covers", "dimers"].map(
+          ["fantasypros", "numberfire", "espn", "cbs", "fftoday", "fourforfour", "covers", "dimers"].map(
             (source) => [
               source,
               playerPropMarkets.filter((market) =>
