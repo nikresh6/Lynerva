@@ -125,6 +125,7 @@ function currentGameForCanonical(
     games.find(
       (game) =>
         game.seasonType === 2 &&
+        (game.state === "pre" || game.state === "in") &&
         [game.home.team, game.away.team].toSorted().join("-") ===
           canonical.matchup,
     ) ?? null
