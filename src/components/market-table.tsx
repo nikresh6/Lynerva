@@ -12,6 +12,7 @@ const FAMILY_LABEL: Record<string, string> = {
   rushing_yards: "Rushing Yards",
   receiving_yards: "Receiving Yards",
   receptions: "Receptions",
+  longest_reception: "Longest Reception",
   touchdowns: "Touchdowns",
   moneyline: "Moneyline",
   spread: "Spread",
@@ -36,7 +37,7 @@ function displayMarketTitle(market: MarketOpportunity) {
 
   if (
     canonical.threshold !== null &&
-    ["passing_yards","passing_touchdowns","rushing_yards","receiving_yards","receptions","touchdowns"].includes(canonical.family)
+    ["passing_yards","passing_touchdowns","rushing_yards","receiving_yards","receptions","longest_reception","touchdowns"].includes(canonical.family)
   ) {
     if (
       canonical.family === "touchdowns" &&
