@@ -20,3 +20,21 @@ export function empiricalPlayerProbability(input: {
 
   return clamp(blended + performanceAdjustment, 0.02, 0.98);
 }
+
+
+export function poissonAtLeastProbability(
+  threshold: number,
+  lambda: number,
+) {
+  const k = Math.max(0, Math.ceil(threshold));
+  if (k <= 0) return 1;
+  if (lambda <= 0) return 0;
+
+  let term = Math.exp(-lambda);
+  let cumulative = term;
+  for (let i = 1; i < k; i += 1) {
+    term *= lambda / i;
+    cumulative += term;
+  }
+  return clamp(1 - cumulative, 0, 1);
+}
