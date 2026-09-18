@@ -154,6 +154,54 @@ describe("bankroll portfolio builder", () => {
     );
   });
 
+  it("keeps the all-win payout reasonably close to the requested target", () => {
+    const plan = buildPortfolioPlan(markets, {
+      amount: 100,
+      targetPayout: 300,
+      risk: "balanced",
+      platform: "either",
+      live: "pregame",
+      mode: "multi_game",
+      maxLegs: 6,
+    });
+
+    expect(plan).not.toBeNull();
+    expect(
+      Math.abs(plan!.allWinPayout - 300) / 300,
+    ).toBeLessThanOrEqual(0.4);
+  });
+
+  it("does not duplicate the same exact leg as both a straight and a parlay leg", () => {
+    const plan = buildPortfolioPlan(markets, {
+      amount: 150,
+      targetPayout: 400,
+      risk: "balanced",
+      platform: "either",
+      live: "pregame",
+      mode: "multi_game",
+      maxLegs: 6,
+    });
+
+    expect(plan).not.toBeNull();
+    const straightKeys = new Set(
+      plan!.positions
+        .filter((position) => position.kind === "straight")
+        .flatMap((position) =>
+          position.legs.map(
+            (leg) => leg.canonical?.key ?? leg.platformMarketId,
+          ),
+        ),
+    );
+    const duplicated = plan!.positions
+      .filter((position) => position.kind === "parlay")
+      .flatMap((position) => position.legs)
+      .some((leg) =>
+        straightKeys.has(leg.canonical?.key ?? leg.platformMarketId),
+      );
+
+    expect(duplicated).toBe(false);
+  });
+
   it("keeps lower-risk plans from putting most capital into parlays", () => {
     const plan = buildPortfolioPlan(markets, {
       amount: 100,
