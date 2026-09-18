@@ -181,7 +181,7 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
           ),
           volumeCents: dollarsToCents(market.volumeNum ?? market.volume ?? null),
           closesAt: market.endDate ?? event.endDate ?? null,
-          updatedAt: safeIso(market.updatedAt ?? event.updatedAt, fetchedAt),
+          updatedAt: fetchedAt,
           sourceUrl: `https://polymarket.com/event/${event.slug}`,
         });
       }
