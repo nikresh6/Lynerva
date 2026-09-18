@@ -24,6 +24,20 @@ type LiveGame = {
   away: { team: string; score: number };
 };
 
+function projectionIsPlausible(
+  family: string | undefined,
+  value: number,
+) {
+  if (!Number.isFinite(value) || value < 0) return false;
+  if (family === "passing_yards") return value <= 600;
+  if (family === "passing_touchdowns") return value <= 6;
+  if (family === "rushing_yards") return value <= 300;
+  if (family === "receiving_yards") return value <= 300;
+  if (family === "receptions") return value <= 20;
+  if (family === "touchdowns") return value <= 3;
+  return true;
+}
+
 async function main() {
   const baseUrl = process.env.LYNERVA_SMOKE_BASE_URL ?? "http://127.0.0.1:3000";
   const started = Date.now();
@@ -143,6 +157,19 @@ async function main() {
     return matchup ? completedMatchups.has(matchup) : false;
   });
   const displayedTopPicks = picks.slice(0, 30);
+  const impossibleSourceProjections = playerPropMarkets.flatMap((market) =>
+    (market.model.components?.projectionSources ?? [])
+      .filter(
+        (point) =>
+          !projectionIsPlausible(market.canonical?.family, point.value),
+      )
+      .map((point) => ({
+        family: market.canonical?.family,
+        player: market.canonical?.subject,
+        source: point.source,
+        value: point.value,
+      })),
+  );
 
   const matchups = new Set(
     payload.opportunities
@@ -267,6 +294,13 @@ async function main() {
   }
   if (payload.opportunities.some((market) => market.lynervaScore === null)) {
     throw new Error("Live smoke failed: displayed pick is missing a Lynerva score.");
+  }
+  if (impossibleSourceProjections.length > 0) {
+    throw new Error(
+      `Live smoke failed: impossible external projection leaked into the model: ${JSON.stringify(
+        impossibleSourceProjections.slice(0, 5),
+      )}`,
+    );
   }
   if (payload.opportunities.length > 0 && playerPropMarkets.length === 0) {
     throw new Error("Live smoke failed: populated feed has zero regular-season player props.");
