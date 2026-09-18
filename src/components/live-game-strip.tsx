@@ -35,6 +35,7 @@ export function LiveGameStrip({ games }: { games: LiveNflGame[] }) {
       }
     };
 
+    void refresh();
     const timer = window.setInterval(refresh, 3_000);
     const onVisibility = () => {
       if (document.visibilityState === "visible") void refresh();
