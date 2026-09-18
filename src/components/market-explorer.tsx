@@ -62,26 +62,41 @@ function FeedStatus() {
   const { providers, refreshing, error, ratedCount, displayedCount } = useMarketData();
 
   return (
-    <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-[10px] text-muted">
-      {providers.map((provider) => (
-        <span key={provider.provider} className="inline-flex items-center gap-1.5">
+    <div className="mb-4 flex flex-wrap items-center gap-2 text-[10px]">
+      {providers.map((provider) => {
+        const offline = Boolean(provider.error);
+        return (
           <span
-            className={
-              provider.error || provider.count === 0
-                ? "size-1.5 rounded-full bg-warning"
-                : "size-1.5 rounded-full bg-positive"
-            }
-          />
-          <span className="capitalize">{provider.provider}</span>
-          <span className="text-faint">{provider.count ? `${provider.count} markets` : "unavailable"}</span>
-        </span>
-      ))}
-      <span className="text-faint">
-        {displayedCount === 0 && refreshing
-          ? "Loading current odds…"
-          : `${ratedCount} markets checked · showing top ${displayedCount}`}
+            key={provider.provider}
+            className="feed-pill"
+          >
+            <span
+              className={
+                offline
+                  ? "size-1.5 rounded-full bg-negative"
+                  : provider.count > 0
+                    ? "size-1.5 rounded-full bg-positive"
+                    : "size-1.5 rounded-full bg-warning"
+              }
+            />
+            <span className="font-semibold capitalize text-foreground">{provider.provider}</span>
+            <span className="text-faint">
+              {offline ? "feed offline" : `${provider.count} props`}
+            </span>
+          </span>
+        );
+      })}
+      <span className="feed-pill text-muted">
+        <span className={refreshing ? "refresh-dot is-refreshing" : "refresh-dot"} />
+        {refreshing
+          ? "Refreshing live odds"
+          : `${ratedCount} props rated · ${displayedCount} ranked picks`}
       </span>
-      {error ? <span className="text-negative">{error}</span> : null}
+      {error ? (
+        <span className="feed-pill border-warning/30 bg-warning-bg text-warning">
+          {error}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -155,7 +170,7 @@ export function MarketExplorer({
 
   return (
     <>
-      <div className="sticky top-14 z-30 mb-3 rounded-xl border bg-[var(--header)] p-2 backdrop-blur-xl">
+      <div className="filter-dock sticky top-14 z-30 mb-3 rounded-2xl border bg-[var(--header)] p-2.5 backdrop-blur-xl">
         <div className="flex flex-wrap items-center gap-2">
           <label className="relative min-w-[220px] flex-1">
             <Search
