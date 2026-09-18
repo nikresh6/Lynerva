@@ -40,9 +40,12 @@ export function isModelBackedOpportunity(market: MarketOpportunity) {
   return (
     market.canonical !== null &&
     market.canonical.parseConfidence !== "low" &&
-    hasExecutableYesPrice(market) &&
+    market.recommendedSide !== null &&
+    market.recommendedProbabilityBps !== null &&
+    market.executablePriceBps !== null &&
+    market.executablePriceBps > 0 &&
+    market.executablePriceBps < 10_000 &&
     market.freshness !== "stale" &&
-    market.model.probabilityBps !== null &&
     market.edgeBps !== null &&
     market.edgeBps > 0
   );
