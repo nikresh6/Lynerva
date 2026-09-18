@@ -62,7 +62,7 @@ function normalizePerson(value: string) {
 const loadHistory = unstable_cache(
   async () => {
     const currentSeason = new Date().getUTCFullYear();
-    const seasons = [currentSeason, currentSeason - 1];
+    const seasons = [currentSeason, currentSeason - 1, currentSeason - 2];
     const rows: CsvRow[] = [];
     await Promise.all(
       seasons.map(async (season) => {
@@ -75,6 +75,9 @@ const loadHistory = unstable_cache(
           });
           if (!response.ok) return;
           for (const row of parseCsv(await response.text())) {
+            if ((row.season_type || row.seasonType || "").toUpperCase() !== "REG") {
+              continue;
+            }
             rows.push({ ...row, __season: String(season) });
           }
         } catch (error) {
@@ -149,7 +152,7 @@ export async function findPublicPlayerHistory(
     })
     .filter((row): row is HistoricalValue => row !== null)
     .toSorted((a, b) => b.season - a.season || b.week - a.week)
-    .slice(0, 20);
+    .slice(0, 24);
 
   return { playerName, values };
 }
