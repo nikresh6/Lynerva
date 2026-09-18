@@ -522,24 +522,33 @@ function loadFfToday(season: number, week: number) {
                 return;
               }
 
-              for (const row of html.match(/<tr\b[\s\S]*?<\/tr>/gi) ?? []) {
-                const rawCells = [
-                  ...row.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi),
-                ];
-                if (!rawCells.length) continue;
+              for (const cells of rowsFromHtml(html)) {
+                if (cells.length < 8) continue;
 
-                const playerIndex = rawCells.findIndex((match) =>
-                  /stats\/players\/\d+/i.test(match[1] ?? ""),
+                // FFToday currently renders the player name as plain table
+                // text in some responses rather than a stable /stats/players
+                // link. Identify the player cell structurally: it is followed
+                // by an NFL team code and then the opponent.
+                const playerIndex = cells.findIndex(
+                  (cell, index) =>
+                    index + 2 < cells.length &&
+                    /^[A-Z][A-Za-z.'’ -]+(?:\s+(?:Jr\.?|Sr\.?|II|III|IV))?(?:\s+Risk:.*)?$/i.test(
+                      cell.trim(),
+                    ) &&
+                    /^(?:ARI|ATL|BAL|BUF|CAR|CHI|CIN|CLE|DAL|DEN|DET|GB|HOU|IND|JAX|KC|LV|LAC|LAR|MIA|MIN|NE|NO|NYG|NYJ|PHI|PIT|SF|SEA|TB|TEN|WAS)$/i.test(
+                      cells[index + 1]?.trim() ?? "",
+                    ) &&
+                    /^@?(?:ARI|ATL|BAL|BUF|CAR|CHI|CIN|CLE|DAL|DEN|DET|GB|HOU|IND|JAX|KC|LV|LAC|LAR|MIA|MIN|NE|NO|NYG|NYJ|PHI|PIT|SF|SEA|TB|TEN|WAS)$/i.test(
+                      cells[index + 2]?.trim() ?? "",
+                    ),
                 );
                 if (playerIndex < 0) continue;
 
-                const playerMatch = (rawCells[playerIndex]?.[1] ?? "").match(
-                  /<a[^>]*>([\s\S]*?)<\/a>/i,
-                );
-                const player = playerMatch ? decode(playerMatch[1] ?? "") : "";
+                const player = (cells[playerIndex] ?? "")
+                  .replace(/\s+(?:Risk|Upside):.*$/i, "")
+                  .trim();
                 if (!player) continue;
 
-                const cells = rawCells.map((match) => decode(match[1] ?? ""));
                 const stats = ffTodayRowStats(position, cells, playerIndex);
                 if (Object.values(stats).some((value) => value !== undefined)) {
                   mergeStats(map, player, stats);
