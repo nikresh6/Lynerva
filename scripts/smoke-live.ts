@@ -81,6 +81,14 @@ async function main() {
     ),
   );
   const livePicks = picks.filter((market) => market.isLive);
+  const livePricedMarkets = payload.opportunities.filter(
+    (market) =>
+      market.isLive &&
+      market.recommendedProbabilityBps !== null &&
+      market.executablePriceBps !== null &&
+      market.executablePriceBps > 0 &&
+      market.executablePriceBps < 10_000,
+  );
   const pregamePicks = picks.filter((market) => !market.isLive);
   const builderMarkets = payload.opportunities.filter(
     isBuilderEligibleOpportunity,
@@ -141,6 +149,7 @@ async function main() {
         gameMarkets: gameMarkets.length,
         topPicks: picks.length,
         liveTopPicks: livePicks.length,
+        livePricedMarkets: livePricedMarkets.length,
         pregameTopPicks: pregamePicks.length,
         builderEligible: builderMarkets.length,
         defaultBuilderWorks: Boolean(defaultBuild),
@@ -180,8 +189,8 @@ async function main() {
   if (picks.length === 0) {
     throw new Error("Live smoke failed: zero quality model-backed top picks.");
   }
-  if (currentEspnGame?.state === "in" && livePicks.length === 0) {
-    throw new Error("Live smoke failed: live game exists but there are zero quality live picks.");
+  if (currentEspnGame?.state === "in" && livePricedMarkets.length === 0) {
+    throw new Error("Live smoke failed: live game exists but there are zero executable modeled live markets.");
   }
   if (pregamePicks.length === 0) {
     throw new Error("Live smoke failed: upcoming regular-season slate has zero quality pregame picks.");
