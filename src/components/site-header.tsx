@@ -1,10 +1,15 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
 import { AccountMenu } from "./account-menu";
 import { ThemeToggle } from "./theme-toggle";
 
 const links = [["Markets", "/"], ["Live", "/live"], ["Builder", "/builder"], ["Tracker", "/tracker"]] as const;
 
 export function SiteHeader() {
+  const pathname = usePathname();
   return (
     <header className="sticky top-0 z-40 border-b bg-[var(--header)] backdrop-blur-xl">
       <div className="mx-auto flex h-14 max-w-[1480px] items-center gap-4 px-4 sm:px-6 lg:px-8">
@@ -22,7 +27,12 @@ export function SiteHeader() {
             <Link
               key={href}
               href={href}
-              className="rounded-md px-2.5 py-1.5 text-[13px] text-muted transition-colors hover:bg-surface hover:text-foreground"
+              className={cn(
+                "rounded-md px-2.5 py-1.5 text-[13px] transition-colors",
+                pathname === href
+                  ? "bg-surface text-foreground"
+                  : "text-muted hover:bg-surface hover:text-foreground",
+              )}
             >
               {label}
             </Link>
@@ -41,7 +51,12 @@ export function SiteHeader() {
           <Link
             key={href}
             href={href}
-            className="flex items-center justify-center rounded-md text-[13px] text-muted transition-colors hover:bg-surface hover:text-foreground"
+            className={cn(
+              "flex items-center justify-center rounded-md text-[13px] transition-colors",
+              pathname === href
+                ? "bg-surface text-foreground"
+                : "text-muted hover:bg-surface hover:text-foreground",
+            )}
           >
             {label}
           </Link>
