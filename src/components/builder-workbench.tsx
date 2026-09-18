@@ -158,8 +158,31 @@ export function BuilderWorkbench() {
     [opportunities],
   );
 
-  const [minReturn, setMinReturn] = useState(3);
-  const [maxReturn, setMaxReturn] = useState(6);
+  type ParlayRequest = {
+    markets: MarketOpportunity[];
+    minReturn: number;
+    maxReturn: number;
+    maxLegs: number;
+    platform: "either" | "kalshi" | "polymarket";
+    live: "all" | "pregame" | "live";
+    mode: BuilderMode;
+    objective: BuilderObjective;
+    stake: number;
+  };
+
+  type PortfolioRequest = {
+    markets: MarketOpportunity[];
+    amount: number;
+    targetPayout: number;
+    risk: PortfolioRisk;
+    platform: "either" | "kalshi" | "polymarket";
+    live: "all" | "pregame" | "live";
+    mode: BuilderMode;
+    maxLegs: number;
+  };
+
+  const [minReturnInput, setMinReturnInput] = useState("3");
+  const [maxReturnInput, setMaxReturnInput] = useState("6");
   const [maxLegs, setMaxLegs] = useState(6);
   const [platform, setPlatform] = useState<
     "either" | "kalshi" | "polymarket"
@@ -167,70 +190,108 @@ export function BuilderWorkbench() {
   const [live, setLive] = useState<"all" | "pregame" | "live">("pregame");
   const [mode, setMode] = useState<BuilderMode>("multi_game");
   const [objective, setObjective] = useState<BuilderObjective>("balanced");
-  const [stake, setStake] = useState(100);
+  const [stakeInput, setStakeInput] = useState("100");
   const [builderView, setBuilderView] = useState<"parlay" | "portfolio">("parlay");
-  const [planAmount, setPlanAmount] = useState(100);
-  const [targetPayout, setTargetPayout] = useState(250);
+  const [planAmountInput, setPlanAmountInput] = useState("100");
+  const [targetPayoutInput, setTargetPayoutInput] = useState("250");
   const [portfolioRisk, setPortfolioRisk] =
     useState<PortfolioRisk>("balanced");
+  const [parlayRequest, setParlayRequest] =
+    useState<ParlayRequest | null>(null);
+  const [portfolioRequest, setPortfolioRequest] =
+    useState<PortfolioRequest | null>(null);
 
-  const combination = useMemo(
-    () => {
-      if (builderView !== "parlay") return null;
-      return buildBestAvailableCombination(currentMarkets, {
-        minReturn,
-        maxReturn,
-        maxLegs,
-        platform,
-        live,
-        mode,
-        objective,
-      });
-    },
-    [
-      builderView,
-      currentMarkets,
-      live,
+  const minReturnNumber = Number(minReturnInput);
+  const maxReturnNumber = Number(maxReturnInput);
+  const stakeNumber = Number(stakeInput);
+  const planAmountNumber = Number(planAmountInput);
+  const targetPayoutNumber = Number(targetPayoutInput);
+
+  const canBuildParlay =
+    Number.isFinite(minReturnNumber) &&
+    Number.isFinite(maxReturnNumber) &&
+    Number.isFinite(stakeNumber) &&
+    minReturnNumber > 1 &&
+    maxReturnNumber >= minReturnNumber &&
+    maxReturnNumber <= 100 &&
+    stakeNumber > 0;
+
+  const canBuildPortfolio =
+    Number.isFinite(planAmountNumber) &&
+    Number.isFinite(targetPayoutNumber) &&
+    planAmountNumber > 0 &&
+    targetPayoutNumber > planAmountNumber;
+
+  const draftTargetReturn = canBuildPortfolio
+    ? targetPayoutNumber / planAmountNumber
+    : null;
+
+  const combination = useMemo(() => {
+    if (!parlayRequest) return null;
+    return buildBestAvailableCombination(parlayRequest.markets, {
+      minReturn: parlayRequest.minReturn,
+      maxReturn: parlayRequest.maxReturn,
+      maxLegs: parlayRequest.maxLegs,
+      platform: parlayRequest.platform,
+      live: parlayRequest.live,
+      mode: parlayRequest.mode,
+      objective: parlayRequest.objective,
+    });
+  }, [parlayRequest]);
+
+  const portfolioPlan = useMemo(() => {
+    if (!portfolioRequest) return null;
+    return buildPortfolioPlan(portfolioRequest.markets, {
+      amount: portfolioRequest.amount,
+      targetPayout: portfolioRequest.targetPayout,
+      risk: portfolioRequest.risk,
+      platform: portfolioRequest.platform,
+      live: portfolioRequest.live,
+      mode: portfolioRequest.mode,
+      maxLegs: portfolioRequest.maxLegs,
+    });
+  }, [portfolioRequest]);
+
+  const payout =
+    combination && parlayRequest
+      ? combination.grossReturn * parlayRequest.stake
+      : 0;
+  const profit = combination && parlayRequest
+    ? payout - parlayRequest.stake
+    : 0;
+  const evProfit =
+    combination && parlayRequest
+      ? (combination.expectedProfitOn100 * parlayRequest.stake) / 100
+      : 0;
+
+  function buildParlay() {
+    if (!canBuildParlay) return;
+    setParlayRequest({
+      markets: currentMarkets,
+      minReturn: minReturnNumber,
+      maxReturn: maxReturnNumber,
       maxLegs,
-      maxReturn,
-      minReturn,
+      platform,
+      live,
       mode,
       objective,
-      platform,
-    ],
-  );
+      stake: stakeNumber,
+    });
+  }
 
-  const portfolioPlan = useMemo(
-    () => {
-      if (builderView !== "portfolio") return null;
-      return buildPortfolioPlan(currentMarkets, {
-        amount: planAmount,
-        targetPayout,
-        risk: portfolioRisk,
-        platform,
-        live,
-        mode,
-        maxLegs,
-      });
-    },
-    [
-      builderView,
-      currentMarkets,
+  function buildPortfolio() {
+    if (!canBuildPortfolio) return;
+    setPortfolioRequest({
+      markets: currentMarkets,
+      amount: planAmountNumber,
+      targetPayout: targetPayoutNumber,
+      risk: portfolioRisk,
+      platform,
       live,
-      maxLegs,
       mode,
-      planAmount,
-      platform,
-      portfolioRisk,
-      targetPayout,
-    ],
-  );
-
-  const payout = combination ? combination.grossReturn * stake : 0;
-  const profit = combination ? payout - stake : 0;
-  const evProfit = combination
-    ? (combination.expectedProfitOn100 * stake) / 100
-    : 0;
+      maxLegs,
+    });
+  }
 
   return (
     <div className="space-y-5">
@@ -371,21 +432,22 @@ export function BuilderWorkbench() {
                 </p>
               </div>
               <div className="rounded-full border bg-surface px-2.5 py-1 text-[10px] font-medium tabular">
-                {minReturn.toFixed(1)}x to {maxReturn.toFixed(1)}x
+                {minReturnInput || "—"}x to {maxReturnInput || "—"}x
               </div>
             </div>
 
             <div className="mt-3 grid grid-cols-2 gap-2">
               {RETURN_PRESETS.map((preset) => {
                 const active =
-                  minReturn === preset.min && maxReturn === preset.max;
+                  Number(minReturnInput) === preset.min &&
+                  Number(maxReturnInput) === preset.max;
                 return (
                   <button
                     key={preset.label}
                     type="button"
                     onClick={() => {
-                      setMinReturn(preset.min);
-                      setMaxReturn(preset.max);
+                      setMinReturnInput(String(preset.min));
+                      setMaxReturnInput(String(preset.max));
                     }}
                     className={cn(
                       "rounded-lg border px-2.5 py-2 text-[11px] font-medium transition-colors",
@@ -405,14 +467,14 @@ export function BuilderWorkbench() {
                 <FieldLabel>Minimum</FieldLabel>
                 <div className="flex h-10 items-center rounded-lg border bg-surface px-3">
                   <input
-                    type="number"
-                    min="1.1"
-                    max="50"
-                    step="0.5"
-                    value={minReturn}
-                    onChange={(event) =>
-                      setMinReturn(Math.max(1.1, Number(event.target.value)))
-                    }
+                    type="text"
+                    inputMode="decimal"
+                    value={minReturnInput}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      if (/^\d*\.?\d*$/.test(next)) setMinReturnInput(next);
+                    }}
                     className="w-full bg-transparent text-sm outline-none tabular"
                   />
                   <span className="text-xs text-muted">x</span>
@@ -423,16 +485,14 @@ export function BuilderWorkbench() {
                 <FieldLabel>Maximum</FieldLabel>
                 <div className="flex h-10 items-center rounded-lg border bg-surface px-3">
                   <input
-                    type="number"
-                    min={minReturn}
-                    max="100"
-                    step="0.5"
-                    value={maxReturn}
-                    onChange={(event) =>
-                      setMaxReturn(
-                        Math.max(minReturn, Number(event.target.value)),
-                      )
-                    }
+                    type="text"
+                    inputMode="decimal"
+                    value={maxReturnInput}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      if (/^\d*\.?\d*$/.test(next)) setMaxReturnInput(next);
+                    }}
                     className="w-full bg-transparent text-sm outline-none tabular"
                   />
                   <span className="text-xs text-muted">x</span>
@@ -493,18 +553,34 @@ export function BuilderWorkbench() {
             <div className="flex h-10 items-center rounded-lg border bg-surface px-3">
               <span className="text-xs text-muted">$</span>
               <input
-                type="number"
-                min="1"
-                max="100000"
-                step="10"
-                value={stake}
-                onChange={(event) =>
-                  setStake(Math.max(1, Number(event.target.value)))
-                }
+                type="text"
+                inputMode="decimal"
+                value={stakeInput}
+                onFocus={(event) => event.currentTarget.select()}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  if (/^\d*\.?\d*$/.test(next)) setStakeInput(next);
+                }}
                 className="w-full bg-transparent pl-1 text-sm outline-none tabular"
               />
             </div>
           </label>
+        </div>
+
+        <div className="flex flex-col gap-2 border-t bg-surface-raised/45 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+          <p className="text-[10px] leading-4 text-muted">
+            Adjust anything above first. Lynerva only runs the optimizer when
+            you click Build, so changing settings stays instant.
+          </p>
+          <button
+            type="button"
+            onClick={buildParlay}
+            disabled={!canBuildParlay || currentMarkets.length === 0}
+            className="inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-foreground px-5 text-xs font-semibold text-background transition-opacity disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+          >
+            <Sparkles className="size-3.5" />
+            {parlayRequest ? "Update parlay" : "Build parlay"}
+          </button>
         </div>
       </section>
 
@@ -517,6 +593,17 @@ export function BuilderWorkbench() {
             <p className="font-medium">Loading live picks...</p>
             <p className="mt-1 text-xs text-muted">
               The builder will update as soon as the market snapshot arrives.
+            </p>
+          </div>
+        ) : !parlayRequest ? (
+          <div className="px-6 py-16 text-center sm:py-20">
+            <div className="mx-auto mb-3 grid size-10 place-items-center rounded-xl border bg-surface-raised">
+              <Sparkles className="size-4 text-muted" />
+            </div>
+            <p className="font-medium">Set your parameters, then build</p>
+            <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-muted">
+              Nothing recalculates while you edit. Click Build parlay when the
+              settings look right.
             </p>
           </div>
         ) : !combination ? (
@@ -537,23 +624,23 @@ export function BuilderWorkbench() {
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-full border bg-surface px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
-                      {mode === "sgp"
+                      {parlayRequest?.mode === "sgp"
                         ? "Same game parlay"
-                        : mode === "multi_game"
+                        : parlayRequest?.mode === "multi_game"
                           ? "Cross-game build"
                           : "Smart build"}
                     </span>
                     <span className="rounded-full border bg-surface px-2.5 py-1 text-[10px] font-medium text-muted">
-                      {objective === "balanced"
+                      {parlayRequest?.objective === "balanced"
                         ? "Balanced"
-                        : objective === "safer"
+                        : parlayRequest?.objective === "safer"
                           ? "Safer"
                           : "Max EV"}
                     </span>
                   </div>
 
                   <p className="mt-3 text-2xl font-semibold tracking-[-0.035em] tabular sm:text-3xl">
-                    {"$"}{stake.toLocaleString()} to about {"$"}{Math.round(payout).toLocaleString()}
+                    {"$"}{parlayRequest?.stake.toLocaleString()} to about {"$"}{Math.round(payout).toLocaleString()}
                   </p>
                   <p className="mt-1 text-xs text-muted">
                     About {"$"}{Math.round(profit).toLocaleString()} profit at the
@@ -728,19 +815,13 @@ export function BuilderWorkbench() {
                   <div className="flex h-11 items-center rounded-xl border bg-surface px-3">
                     <span className="text-xs text-muted">$</span>
                     <input
-                      type="number"
-                      min="1"
-                      max="100000"
-                      step="10"
-                      value={planAmount}
+                      type="text"
+                      inputMode="decimal"
+                      value={planAmountInput}
+                      onFocus={(event) => event.currentTarget.select()}
                       onChange={(event) => {
-                        const next = Math.max(1, Number(event.target.value));
-                        const currentMultiple =
-                          targetPayout / Math.max(planAmount, 1);
-                        setPlanAmount(next);
-                        setTargetPayout(
-                          Math.max(next + 1, Math.round(next * currentMultiple)),
-                        );
+                        const next = event.target.value;
+                        if (/^\d*\.?\d*$/.test(next)) setPlanAmountInput(next);
                       }}
                       className="w-full bg-transparent pl-1 text-sm outline-none tabular"
                     />
@@ -752,16 +833,14 @@ export function BuilderWorkbench() {
                   <div className="flex h-11 items-center rounded-xl border bg-surface px-3">
                     <span className="text-xs text-muted">$</span>
                     <input
-                      type="number"
-                      min={planAmount + 1}
-                      max="1000000"
-                      step="10"
-                      value={targetPayout}
-                      onChange={(event) =>
-                        setTargetPayout(
-                          Math.max(planAmount + 1, Number(event.target.value)),
-                        )
-                      }
+                      type="text"
+                      inputMode="decimal"
+                      value={targetPayoutInput}
+                      onFocus={(event) => event.currentTarget.select()}
+                      onChange={(event) => {
+                        const next = event.target.value;
+                        if (/^\d*\.?\d*$/.test(next)) setTargetPayoutInput(next);
+                      }}
                       className="w-full bg-transparent pl-1 text-sm outline-none tabular"
                     />
                   </div>
@@ -772,7 +851,9 @@ export function BuilderWorkbench() {
                 <div className="flex items-center justify-between gap-3 text-[10px]">
                   <span className="text-muted">Target return</span>
                   <span className="font-semibold tabular">
-                    {(targetPayout / Math.max(planAmount, 1)).toFixed(2)}x
+                    {draftTargetReturn === null
+                      ? "—"
+                      : `${draftTargetReturn.toFixed(2)}x`}
                   </span>
                 </div>
                 <p className="mt-1.5 text-[10px] leading-4 text-faint">
@@ -891,6 +972,22 @@ export function BuilderWorkbench() {
               </div>
             </div>
           </div>
+
+          <div className="flex flex-col gap-2 border-t bg-surface-raised/45 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+            <p className="text-[10px] leading-4 text-muted">
+              Set the amount, target, and risk first. The plan is calculated
+              only after you click Build.
+            </p>
+            <button
+              type="button"
+              onClick={buildPortfolio}
+              disabled={!canBuildPortfolio || currentMarkets.length === 0}
+              className="inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-foreground px-5 text-xs font-semibold text-background transition-opacity disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+            >
+              <WalletCards className="size-3.5" />
+              {portfolioRequest ? "Update plan" : "Build plan"}
+            </button>
+          </div>
         </section>
 
         <section className="overflow-hidden rounded-2xl border bg-surface shadow-[0_12px_40px_rgb(0_0_0/0.035)]">
@@ -902,6 +999,17 @@ export function BuilderWorkbench() {
               <p className="font-medium">Building your plan...</p>
               <p className="mt-1 text-xs text-muted">
                 Lynerva needs the current market snapshot first.
+              </p>
+            </div>
+          ) : !portfolioRequest ? (
+            <div className="px-6 py-16 text-center sm:py-20">
+              <div className="mx-auto mb-3 grid size-10 place-items-center rounded-xl border bg-surface-raised">
+                <WalletCards className="size-4 text-muted" />
+              </div>
+              <p className="font-medium">Set your target, then build the plan</p>
+              <p className="mx-auto mt-1 max-w-lg text-xs leading-5 text-muted">
+                You can change every parameter without rerunning the optimizer.
+                Click Build plan when you are ready.
               </p>
             </div>
           ) : !portfolioPlan ? (
@@ -926,7 +1034,7 @@ export function BuilderWorkbench() {
                         BANKROLL PLAN
                       </span>
                       <span className="rounded-full border bg-surface px-2.5 py-1 text-[10px] font-medium capitalize text-muted">
-                        {portfolioRisk} risk
+                        {portfolioRequest?.risk} risk
                       </span>
                     </div>
                     <p className="mt-3 text-2xl font-semibold tracking-[-0.035em] tabular sm:text-3xl">
