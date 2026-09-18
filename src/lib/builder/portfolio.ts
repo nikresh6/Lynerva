@@ -391,7 +391,10 @@ function selectPortfolioCandidates(
     }),
   );
 
-  if (risk !== "lower" || targetReturn >= 3.5) {
+  if (
+    risk === "higher" ||
+    targetReturn >= (risk === "lower" ? 3.5 : 2.5)
+  ) {
     addCandidate(
       selected,
       bestCandidate(straights, selected, {
@@ -415,7 +418,7 @@ function selectPortfolioCandidates(
     }),
   );
 
-  if (targetReturn >= 2.2 || risk !== "lower") {
+  if (targetReturn >= 2.2 || risk === "higher") {
     const upsideTarget = clamp(targetReturn * 2.2, 7, 22);
     addCandidate(
       selected,
@@ -457,7 +460,7 @@ function shareBounds(
     if (role === "value_straight") return { min: 0.15, max: 0.3 };
     if (role === "aggressive_straight") return { min: 0.03, max: 0.1 };
     if (role === "core_parlay") return { min: 0.08, max: 0.2 };
-    if (role === "upside_parlay") return { min: 0.02, max: 0.1 };
+    if (role === "upside_parlay") return { min: 0.02, max: 0.18 };
     return {
       min: 0,
       max: targetReturn >= 4.5 ? 0.025 : 0,
