@@ -339,6 +339,7 @@ function sourceLabel(source: string) {
   if (source === "nfl") return "NFL.com";
   if (source === "covers") return "Covers";
   if (source === "dimers") return "Dimers";
+  if (source === "fourforfour") return "4for4";
   return titleCase(source);
 }
 
