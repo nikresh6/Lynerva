@@ -54,7 +54,9 @@ export function parseMarketFilters(
 function historicalHitRate(market: MarketOpportunity) {
   const { seasonHits, seasonGames } = market.model.evidence;
   if (seasonHits === null || !seasonGames) return null;
-  return (seasonHits / seasonGames) * 10_000;
+  const hits =
+    market.recommendedSide === "no" ? seasonGames - seasonHits : seasonHits;
+  return (hits / seasonGames) * 10_000;
 }
 
 export function filterAndSortMarkets(
@@ -73,10 +75,10 @@ export function filterAndSortMarkets(
     if (filters.status === "live" && !market.isLive) return false;
     if (filters.status === "pregame" && market.isLive) return false;
     if (filters.family !== "all" && market.canonical?.family !== filters.family) return false;
-    if (filters.side !== "all" && market.canonical?.direction !== filters.side) return false;
+    if (filters.side !== "all" && market.recommendedSide !== filters.side) return false;
     if (filters.minPriceBps !== null && (price === null || price < filters.minPriceBps)) return false;
     if (filters.maxPriceBps !== null && (price === null || price > filters.maxPriceBps)) return false;
-    if (filters.minModelBps !== null && (market.model.probabilityBps === null || market.model.probabilityBps < filters.minModelBps)) return false;
+    if (filters.minModelBps !== null && (market.recommendedProbabilityBps === null || market.recommendedProbabilityBps < filters.minModelBps)) return false;
     if (filters.minEdgeBps !== null && (market.edgeBps === null || market.edgeBps < filters.minEdgeBps)) return false;
     if (filters.minLiquidityCents !== null && (market.liquidityCents === null || market.liquidityCents < filters.minLiquidityCents)) return false;
     if (filters.minHitRateBps !== null && (hitRate === null || hitRate < filters.minHitRateBps)) return false;
@@ -88,7 +90,7 @@ export function filterAndSortMarkets(
       case "edge":
         return market.edgeBps ?? -Infinity;
       case "probability":
-        return market.model.probabilityBps ?? -Infinity;
+        return market.recommendedProbabilityBps ?? -Infinity;
       case "risk_return":
         return market.riskReturn ?? -Infinity;
       case "liquidity":
