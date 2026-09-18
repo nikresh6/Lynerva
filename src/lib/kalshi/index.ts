@@ -53,12 +53,6 @@ const CORE_NFL_SERIES = [
   "KXNFLREC",
   "KXNFLRUSHYDS",
   "KXNFLTD",
-  "KXNFL1H",
-  "KXNFL1HSPREAD",
-  "KXNFL1HTOTAL",
-  "KXNFL2H",
-  "KXNFL2HSPREAD",
-  "KXNFL2HTOTAL",
 ] as const;
 
 async function fetchSeriesMarkets(seriesTicker: string) {
@@ -83,7 +77,7 @@ async function fetchSeriesMarkets(seriesTicker: string) {
 
 async function fetchCoreSeriesMarkets() {
   const results: z.infer<typeof marketSchema>[] = [];
-  const batchSize = 4;
+  const batchSize = 3;
   for (let index = 0; index < CORE_NFL_SERIES.length; index += batchSize) {
     const batch = CORE_NFL_SERIES.slice(index, index + batchSize);
     const chunks = await Promise.all(batch.map(fetchSeriesMarkets));
