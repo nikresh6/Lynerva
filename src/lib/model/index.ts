@@ -5,7 +5,7 @@ import { findPublicPlayerHistory } from "@/lib/nfl/history";
 import { getMatchupProjection } from "@/lib/nfl/team-history";
 import type { NflScheduleGame } from "@/lib/nfl/schedule-match";
 import type { LiveNflGame } from "@/lib/nfl/live";
-import { empiricalPlayerProbability } from "./player-probability";
+import { empiricalPlayerProbability, poissonAtLeastProbability } from "./player-probability";
 import { getExternalProjectionConsensus } from "./external-projections";
 import { selfCalibrateProbability } from "./self-learning";
 import { weatherProbabilityAdjustment } from "./weather-adjustment";
@@ -56,20 +56,6 @@ function erf(value: number) {
 
 function normalCdf(value: number, mean: number, stdDev: number) {
   return 0.5 * (1 + erf((value - mean) / (stdDev * Math.sqrt(2))));
-}
-
-function poissonAtLeast(threshold: number, lambda: number) {
-  const k = Math.max(0, Math.ceil(threshold));
-  if (k <= 0) return 1;
-  if (lambda <= 0) return 0;
-
-  let term = Math.exp(-lambda);
-  let cumulative = term;
-  for (let i = 1; i < k; i += 1) {
-    term *= lambda / i;
-    cumulative += term;
-  }
-  return clamp(1 - cumulative, 0, 1);
 }
 
 function remainingGameFraction(game: LiveNflGame | null | undefined) {
@@ -389,7 +375,7 @@ export async function estimateMarket(
         canonical.family === "touchdowns" ||
         canonical.family === "passing_touchdowns";
       const overProbability = countMarket
-        ? poissonAtLeast(threshold, external.projection)
+        ? poissonAtLeastProbability(threshold, external.projection)
         : 1 -
           normalCdf(
             threshold,
