@@ -17,6 +17,7 @@ export interface BuiltCombination {
   estimatedEdge: number;
   correlationWarning: boolean;
   executableAsSingleContract: false;
+  relaxedConstraints: string[];
 }
 
 function gameKey(market: MarketOpportunity) {
@@ -84,6 +85,7 @@ export function buildCombination(
             estimatedEdge: score,
             correlationWarning: new Set(keys).size !== keys.length,
             executableAsSingleContract: false,
+            relaxedConstraints: [],
           };
         }
       }
@@ -113,4 +115,48 @@ export function buildCombination(
   };
   visit(0, []);
   return best;
+}
+
+
+export function buildBestAvailableCombination(
+  opportunities: MarketOpportunity[],
+  options: BuilderOptions,
+): BuiltCombination | null {
+  const strict = buildCombination(opportunities, options);
+  if (strict) return strict;
+
+  if (options.live !== "all") {
+    const withAllStates = buildCombination(opportunities, {
+      ...options,
+      live: "all",
+    });
+    if (withAllStates) {
+      return {
+        ...withAllStates,
+        relaxedConstraints: ["Included both pregame and live markets because the requested state had no valid combination."],
+      };
+    }
+  }
+
+  if (options.excludeSameGame) {
+    const withSameGame = buildCombination(opportunities, {
+      ...options,
+      live: "all",
+      excludeSameGame: false,
+    });
+    if (withSameGame) {
+      return {
+        ...withSameGame,
+        correlationWarning: true,
+        relaxedConstraints: [
+          ...(options.live !== "all"
+            ? ["Included both pregame and live markets because the requested state had no valid combination."]
+            : []),
+          "Allowed same-game legs because no cross-game combination fit the target return.",
+        ],
+      };
+    }
+  }
+
+  return null;
 }
