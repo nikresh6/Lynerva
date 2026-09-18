@@ -73,12 +73,30 @@ const TEAM_CODES = [...new Set(Object.values(TEAM_ALIASES))].toSorted(
 );
 
 function findTickerTeams(value: string) {
-  const upper = value.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  for (const first of TEAM_CODES) {
-    for (const second of TEAM_CODES) {
-      if (first === second) continue;
-      if (upper.includes(`${first}${second}`)) {
-        return [first, second];
+  const upper = value.toUpperCase();
+  const compactSegments = upper
+    .split(/[^A-Z0-9]+/)
+    .filter(Boolean);
+
+  const datedCandidates: string[] = [];
+  for (const segment of compactSegments) {
+    const matches = [
+      ...segment.matchAll(
+        /(?:\d{2}(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\d{2}|\d{6,8})([A-Z]{4,6})/g,
+      ),
+    ];
+    for (const match of matches) {
+      if (match[1]) datedCandidates.push(match[1]);
+    }
+  }
+
+  for (const candidate of datedCandidates) {
+    for (const first of TEAM_CODES) {
+      for (const second of TEAM_CODES) {
+        if (first === second) continue;
+        if (candidate === `${first}${second}`) {
+          return [first, second];
+        }
       }
     }
   }
