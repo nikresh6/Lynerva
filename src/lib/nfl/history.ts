@@ -73,7 +73,9 @@ export async function findPublicPlayerHistory(
   if (!player) {
     return { playerName: null, values: [] as HistoricalValue[] };
   }
+  const currentSeason = new Date().getUTCFullYear();
   const values = player.g
+    .filter((game) => (game[0] ?? 0) === currentSeason)
     .map((game): HistoricalValue | null => {
       const value = valueFromTuple(game, statistic);
       if (value === null) return null;

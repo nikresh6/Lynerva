@@ -240,14 +240,21 @@ export function normalizeMarket(market: ProviderMarket): CanonicalMarket | null 
       : rawThreshold;
   const direction = findDirection(contractText);
   const outcomeTeams = findTeams(market.outcomeLabel);
+  const titleTeams = findTeams(market.marketTitle);
+  const explicitSpreadTeams =
+    family === "spread" && /wins? by|margin/i.test(market.marketTitle)
+      ? titleTeams
+      : [];
   const subject =
     family === "moneyline" && outcomeTeams.length
       ? outcomeTeams[0]!
-      : findSubject(
-          contractText,
-          family,
-          contractTeams.length ? contractTeams : teams,
-        );
+      : explicitSpreadTeams.length
+        ? explicitSpreadTeams[0]!
+        : findSubject(
+            contractText,
+            family,
+            contractTeams.length ? contractTeams : teams,
+          );
   const matchup = teams.length >= 2 ? teams.slice(0, 2).toSorted().join("-") : null;
   const date = settlementDate(market);
   const regulation = regulationOnly(market.resolutionRules);

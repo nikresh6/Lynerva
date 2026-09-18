@@ -42,7 +42,7 @@ export interface MarketsPayload {
 interface NormalizedItem {
   market: ProviderMarket;
   canonical: NonNullable<ReturnType<typeof normalizeMarket>>;
-  scheduleGame: NflScheduleGame;
+  scheduleGame: NflScheduleGame | null;
   liveGame: LiveNflGame | null;
 }
 
@@ -176,8 +176,46 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
     (provider) => provider.markets,
   );
 
+  const marketGameDate = (market: ProviderMarket, fallback: string | null) => {
+    const text = `${market.platformMarketId} ${market.eventTitle}`.toUpperCase();
+    const match = text.match(/(?:^|[-_])(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(?:[A-Z]|[-_]|$)/);
+    if (match) {
+      const months: Record<string, string> = {
+        JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06",
+        JUL: "07", AUG: "08", SEP: "09", OCT: "10", NOV: "11", DEC: "12",
+      };
+      const month = months[match[2]!];
+      if (month) return `20${match[1]}-${month}-${match[3]}`;
+    }
+    return fallback;
+  };
+
+  const isCurrentUpcomingPlayerMarket = (
+    canonical: NonNullable<ReturnType<typeof normalizeMarket>>,
+    market: ProviderMarket,
+  ) => {
+    if (
+      ["moneyline", "spread", "game_total"].includes(canonical.family) ||
+      !canonical.matchup
+    ) {
+      return false;
+    }
+    const gameDate = marketGameDate(market, canonical.settlementDate);
+    if (!gameDate) return false;
+    const timestamp = new Date(`${gameDate}T17:00:00Z`).getTime();
+    const now = Date.now();
+    const currentSeason = new Date(now).getUTCFullYear();
+    return (
+      gameDate.startsWith(`${currentSeason}-`) &&
+      Number.isFinite(timestamp) &&
+      timestamp >= now - 8 * 60 * 60 * 1_000 &&
+      timestamp <= now + 10 * 24 * 60 * 60 * 1_000
+    );
+  };
+
   const normalizeWithSchedule = (
     scheduleGames: NflScheduleGame[] | null,
+    allowPlayerFallback = false,
   ) => {
     const items: NormalizedItem[] = [];
     for (const market of providerMarkets) {
@@ -193,11 +231,16 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
         (scheduleGames
           ? findEligibleScheduleGame(canonical, scheduleGames)
           : null);
-      if (!scheduleGame) continue;
+      if (
+        !scheduleGame &&
+        !(allowPlayerFallback && isCurrentUpcomingPlayerMarket(canonical, market))
+      ) {
+        continue;
+      }
 
       if (
         !liveGame &&
-        scheduleGames &&
+        scheduleGame &&
         new Date(scheduleGame.kickoffAt).getTime() <= Date.now()
       ) {
         continue;
@@ -221,9 +264,10 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
   // regular-season schedule only when ESPN produced no usable mappings.
   if (normalized.length === 0 && providerMarkets.length > 0) {
     try {
-      normalized = normalizeWithSchedule(await loadNflSchedule());
+      normalized = normalizeWithSchedule(await loadNflSchedule(), true);
     } catch (error) {
       console.error("NFL schedule fallback unavailable", error);
+      normalized = normalizeWithSchedule(null, true);
     }
   }
 

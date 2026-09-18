@@ -88,7 +88,10 @@ export function isTopOpportunity(market: MarketOpportunity) {
   ) {
     return true;
   }
-  if (!isBuilderEligibleOpportunity(market)) return false;
+  // The public top-30 can include low-confidence early-season estimates.
+  // Reliability is already penalized heavily in Lynerva Score. Builder keeps
+  // its stricter reliability requirement.
+  if (!isModelBackedOpportunity(market)) return false;
   if ((market.edgeBps ?? 0) < 150) return false;
   return true;
 }

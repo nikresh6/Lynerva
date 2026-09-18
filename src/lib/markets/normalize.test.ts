@@ -73,6 +73,26 @@ describe("market normalization", () => {
     });
   });
 
+
+  it("uses the team named in a wins-by spread, not the first ticker team", () => {
+    const normalized = normalizeMarket(
+      contract({
+        platformMarketId: "KXNFLSPREAD-26SEP20GBNYJ-NYJ14",
+        eventTitle: "KXNFLSPREAD-26SEP20GBNYJ",
+        marketTitle: "New York J wins by over 14.5 points?",
+        resolutionRules: "Resolves Yes if the New York Jets win by more than 14.5 points.",
+        closesAt: "2026-09-22T00:00:00.000Z",
+      }),
+    );
+    expect(normalized).toMatchObject({
+      family: "spread",
+      subject: "NYJ",
+      threshold: 14.5,
+      matchup: "GB-NYJ",
+      settlementDate: "2026-09-22",
+    });
+  });
+
   it("parses Polymarket O/U totals with the real threshold", () => {
     const normalized = normalizeMarket(
       contract({
