@@ -326,8 +326,7 @@ function bestCandidate(
     const onlyParlays =
       candidate.kind === "parlay" &&
       avoid.every((row) => row.kind === "parlay");
-    const hardOverlapLimit = onlyParlays ? 0.85 : 0.5;
-    if (maxOverlap >= hardOverlapLimit) continue;
+    if (onlyParlays && maxOverlap >= 0.95) continue;
 
     const probabilityDistance =
       options.probabilityTarget === undefined
@@ -345,7 +344,7 @@ function bestCandidate(
 
     const score =
       candidate.score -
-      0.9 * maxOverlap -
+      1.2 * maxOverlap -
       0.8 * probabilityDistance -
       0.4 * returnDistance;
 
