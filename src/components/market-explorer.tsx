@@ -217,6 +217,7 @@ export function MarketExplorer({
             <option value="rushing_yards">Rushing yards</option>
             <option value="receiving_yards">Receiving yards</option>
             <option value="receptions">Receptions</option>
+            <option value="longest_reception">Longest reception</option>
             <option value="touchdowns">Touchdowns</option>
           </Select>
 
