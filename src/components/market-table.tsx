@@ -76,7 +76,7 @@ function displayPickSide(market: MarketOpportunity) {
 
 function historicalHitRate(market: MarketOpportunity) {
   const evidence = market.model.evidence;
-  if (evidence.seasonHits !== null && evidence.seasonGames) {
+  if (evidence.seasonHits !== null && evidence.seasonGames && evidence.seasonGames >= 5) {
     const hits =
       market.recommendedSide === "no"
         ? evidence.seasonGames - evidence.seasonHits
