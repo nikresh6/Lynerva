@@ -2,6 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 import type { ProviderMarket, ProviderResult } from "@/lib/markets/types";
+import type { LiveNflGame } from "@/lib/nfl/live";
 import {
   dollarsToBps,
   dollarsToCents,
@@ -64,35 +65,50 @@ function parseStringArray(value: string | string[] | null | undefined) {
   }
 }
 
-export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
+async function fetchEventBySlug(slug: string) {
+  try {
+    const url = new URL(`${GAMMA_BASE}/events`);
+    url.searchParams.set("slug", slug);
+    const events = await fetchValidated(
+      "Polymarket Gamma",
+      url.toString(),
+      eventsSchema,
+      { cache: "no-store" },
+    );
+    return events[0] ?? null;
+  } catch (error) {
+    console.error(`Polymarket event fetch failed for ${slug}`, error);
+    return null;
+  }
+}
+
+export async function fetchPolymarketNflMarkets(
+  games: LiveNflGame[] = [],
+): Promise<ProviderResult> {
   const fetchedAt = new Date().toISOString();
   try {
     const now = Date.now();
     const windowStart = now - 8 * 60 * 60 * 1_000;
     const windowEnd = now + 8 * 24 * 60 * 60 * 1_000;
-    const events: z.infer<typeof eventSchema>[] = [];
-    const pageSize = 500;
-    for (let offset = 0; offset < 500; offset += pageSize) {
-      const url = new URL(`${GAMMA_BASE}/events`);
-      url.searchParams.set("tag_id", "100639");
-      url.searchParams.set("active", "true");
-      url.searchParams.set("closed", "false");
-      url.searchParams.set("limit", String(pageSize));
-      url.searchParams.set("order", "startTime");
-      url.searchParams.set("ascending", "true");
-      url.searchParams.set("offset", String(offset));
-      const page = await fetchValidated(
-        "Polymarket Gamma",
-        url.toString(),
-        eventsSchema,
-        { cache: "no-store" },
-      );
-      events.push(...page);
-      if (page.length < pageSize) break;
-    }
 
-    const nflEvents = events
-      .filter((event) => event.slug.startsWith("nfl-"))
+    const currentGames = games.filter((game) => {
+      if (game.state === "post") return false;
+      const timestamp = new Date(game.startsAt).getTime();
+      return (
+        Number.isFinite(timestamp) &&
+        timestamp >= windowStart &&
+        timestamp <= windowEnd
+      );
+    });
+
+    const slugs = currentGames.map((game) => {
+      const date = new Date(game.startsAt).toISOString().slice(0, 10);
+      return `nfl-${game.away.team.toLowerCase()}-${game.home.team.toLowerCase()}-${date}`;
+    });
+
+    const fetched = await Promise.all(slugs.map(fetchEventBySlug));
+    const nflEvents = fetched
+      .filter((event): event is z.infer<typeof eventSchema> => Boolean(event))
       .map((event) => ({
         ...event,
         markets: event.markets.filter((market) => {
@@ -121,7 +137,6 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
 
     for (const event of nflEvents) {
       for (const market of event.markets) {
-        if (!market.active || market.closed || !market.acceptingOrders) continue;
         const outcomes = parseStringArray(market.outcomes);
         const tokens = parseStringArray(market.clobTokenIds);
         const prices = parseStringArray(market.outcomePrices);
@@ -143,7 +158,7 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
         ]
           .filter(Boolean)
           .join("\n\n");
-        const status = market.closed ? "closed" : market.active ? "open" : "unavailable";
+
         markets.push({
           platform: "polymarket",
           platformMarketId: market.conditionId ?? market.id,
@@ -152,7 +167,7 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
           marketTitle: market.question || event.title,
           outcomeLabel: outcomes[yesIndex] ?? "Yes",
           resolutionRules: rules || null,
-          status,
+          status: market.closed ? "closed" : market.active ? "open" : "unavailable",
           isLive:
             Boolean(market.gameStartTime) &&
             new Date(market.gameStartTime ?? "").getTime() < Date.now(),
@@ -166,13 +181,19 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
           liquidityCents: dollarsToCents(
             market.liquidityNum ?? market.liquidity ?? null,
           ),
-          volumeCents: dollarsToCents(market.volumeNum ?? market.volume ?? null),
+          volumeCents: dollarsToCents(
+            market.volumeNum ?? market.volume ?? null,
+          ),
           closesAt: market.endDate ?? event.endDate ?? null,
-          updatedAt: safeIso(market.updatedAt ?? event.updatedAt, fetchedAt),
+          updatedAt: safeIso(
+            market.updatedAt ?? event.updatedAt,
+            fetchedAt,
+          ),
           sourceUrl: `https://polymarket.com/event/${event.slug}`,
         });
       }
     }
+
     return { provider: "polymarket", markets, fetchedAt, error: null };
   } catch (error) {
     const message =
