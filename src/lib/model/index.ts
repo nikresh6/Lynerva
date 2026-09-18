@@ -360,6 +360,7 @@ export async function estimateMarket(
     const external = await getExternalProjectionConsensus(
       canonical,
       scheduleGame?.week ?? null,
+      scheduleGame?.season ?? 2026,
     );
 
     const distributionStdDev: Partial<Record<CanonicalMarket["family"], number>> = {
@@ -504,13 +505,21 @@ export async function estimateMarket(
             0.25,
           );
     const sourceReliability =
-      sourceCount >= 2
-        ? 0.66
-        : sourceCount === 1
-          ? 0.52
-          : statisticalProbability !== null
-            ? 0.46
-            : 0.28;
+      sourceCount >= 6
+        ? 0.83
+        : sourceCount === 5
+          ? 0.79
+          : sourceCount === 4
+            ? 0.74
+            : sourceCount === 3
+              ? 0.69
+              : sourceCount === 2
+                ? 0.62
+                : sourceCount === 1
+                  ? 0.50
+                  : statisticalProbability !== null
+                    ? 0.46
+                    : 0.28;
     const historyBoost =
       values.length >= 4 ? clamp(values.length / 40, 0.08, 0.22) : 0;
     const reliability = clamp(

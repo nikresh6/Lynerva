@@ -186,6 +186,18 @@ async function main() {
               playerPropMarkets.filter((market) => (market.canonical?.family ?? "unknown") === family).length,
             ]),
         ),
+        projectionSourceCoverage: Object.fromEntries(
+          ["fantasypros", "numberfire", "espn", "cbs", "fftoday", "nfl", "covers", "dimers"].map(
+            (source) => [
+              source,
+              playerPropMarkets.filter((market) =>
+                market.model.components?.projectionSources?.some(
+                  (point) => point.source === source,
+                ),
+              ).length,
+            ],
+          ),
+        ),
         chaseMarkets: playerPropMarkets
           .filter((market) => /ja.?marr chase/i.test(`${market.canonical?.subject ?? ""} ${market.marketTitle}`))
           .slice(0, 30)
@@ -221,6 +233,8 @@ async function main() {
           model: pick.recommendedProbabilityBps,
           edge: pick.edgeBps,
           score: pick.lynervaScore,
+          sources: pick.model.components?.projectionSources ?? [],
+          consensus: pick.model.components?.consensusProjection ?? null,
           live: pick.isLive,
         })),
       },

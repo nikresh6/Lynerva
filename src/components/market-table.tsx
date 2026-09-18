@@ -333,6 +333,12 @@ function pickFacingBps(
 function sourceLabel(source: string) {
   if (source === "fantasypros") return "FantasyPros";
   if (source === "numberfire") return "numberFire";
+  if (source === "espn") return "ESPN";
+  if (source === "cbs") return "CBS";
+  if (source === "fftoday") return "FFToday";
+  if (source === "nfl") return "NFL.com";
+  if (source === "covers") return "Covers";
+  if (source === "dimers") return "Dimers";
   return titleCase(source);
 }
 
