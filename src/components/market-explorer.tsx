@@ -2,10 +2,7 @@
 
 import { useDeferredValue, useMemo, useState } from "react";
 import { Search, SlidersHorizontal, X } from "lucide-react";
-import {
-  isPricedOpportunity,
-  isTopOpportunity,
-} from "@/lib/markets/eligibility";
+import { isPricedOpportunity } from "@/lib/markets/eligibility";
 import { filterAndSortMarkets } from "@/lib/markets/filters";
 import type {
   MarketFamily,
@@ -145,15 +142,11 @@ export function MarketExplorer({
       query: deferredQuery,
       status: forceStatus ?? filters.status,
     };
-    const eligible = opportunities.filter(
-      topOnly ? isTopOpportunity : isPricedOpportunity,
-    );
+    // Search and filters operate on the entire rated weekly universe.
+    // MarketTable handles the final top-30 grouping after filtering.
+    const eligible = opportunities.filter(isPricedOpportunity);
     const sorted = filterAndSortMarkets(eligible, activeFilters);
-    if (!topOnly) return sorted.slice(0, 120);
-
-    // The API sends the top underlying bets plus their alternate lines.
-    // MarketTable groups those alternates into one expandable card.
-    return sorted.slice(0, 300);
+    return sorted.slice(0, topOnly ? 1_500 : 1_500);
   }, [deferredQuery, filters, forceStatus, opportunities, topOnly]);
 
   const activeAdvanced = [
