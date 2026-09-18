@@ -121,38 +121,47 @@ function scheduleGameFromEspn(game: LiveNflGame): NflScheduleGame | null {
   };
 }
 
-function selectModelCandidates(items: NormalizedItem[]) {
-  const gameMarkets = items.filter((item) =>
-    ["moneyline", "spread", "game_total"].includes(item.canonical.family),
+function candidateQuality(item: NormalizedItem) {
+  const executable =
+    (item.market.yesAskBps ?? 0) > 0 || (item.market.noAskBps ?? 0) > 0;
+  return (
+    (executable ? 1_000_000_000 : 0) +
+    (item.market.liquidityCents ?? 0) * 10 +
+    (item.market.volumeCents ?? 0)
   );
-  const playerMarkets = items
-    .filter(
-      (item) =>
-        !["moneyline", "spread", "game_total"].includes(item.canonical.family) &&
-        ((item.market.yesAskBps ?? 0) > 0 || (item.market.noAskBps ?? 0) > 0),
-    )
-    .toSorted((first, second) => {
-      const firstQuality =
-        (first.market.liquidityCents ?? 0) * 10 +
-        (first.market.volumeCents ?? 0);
-      const secondQuality =
-        (second.market.liquidityCents ?? 0) * 10 +
-        (second.market.volumeCents ?? 0);
-      return secondQuality - firstQuality;
-    });
+}
 
-  const selectedPlayers: NormalizedItem[] = [];
-  const perGame = new Map<string, number>();
-  for (const item of playerMarkets) {
-    const game = item.canonical.matchup ?? item.market.eventTitle;
-    const count = perGame.get(game) ?? 0;
-    if (count >= 20) continue;
-    selectedPlayers.push(item);
-    perGame.set(game, count + 1);
-    if (selectedPlayers.length >= 240) break;
+function selectModelCandidates(items: NormalizedItem[]) {
+  const ranked = items.toSorted(
+    (first, second) => candidateQuality(second) - candidateQuality(first),
+  );
+  const selected: NormalizedItem[] = [];
+  const gameCounts = new Map<string, number>();
+  const playerCounts = new Map<string, number>();
+
+  for (const item of ranked) {
+    const matchup = item.canonical.matchup ?? item.market.eventTitle;
+    const isGameMarket = ["moneyline", "spread", "game_total"].includes(
+      item.canonical.family,
+    );
+    const counts = isGameMarket ? gameCounts : playerCounts;
+    const perMatchupLimit = isGameMarket ? 5 : 3;
+    const count = counts.get(matchup) ?? 0;
+    if (count >= perMatchupLimit) continue;
+    if (
+      !isGameMarket &&
+      (item.market.yesAskBps ?? 0) <= 0 &&
+      (item.market.noAskBps ?? 0) <= 0
+    ) {
+      continue;
+    }
+
+    selected.push(item);
+    counts.set(matchup, count + 1);
+    if (selected.length >= 110) break;
   }
 
-  return [...gameMarkets, ...selectedPlayers];
+  return selected;
 }
 
 function bestExecutableSide(input: {
