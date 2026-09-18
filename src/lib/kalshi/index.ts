@@ -61,7 +61,7 @@ async function fetchSeriesMarkets(seriesTicker: string) {
     url.searchParams.set("status", "open");
     url.searchParams.set("series_ticker", seriesTicker);
     url.searchParams.set("mve_filter", "exclude");
-    url.searchParams.set("limit", "1000");
+    url.searchParams.set("limit", "200");
     const payload = await fetchValidated(
       "Kalshi",
       url.toString(),
