@@ -3,10 +3,8 @@ import "server-only";
 import { fetchKalshiNflMarkets } from "@/lib/kalshi";
 import { fetchPolymarketNflMarkets } from "@/lib/polymarket";
 import { estimateMarket } from "@/lib/model";
-import {
-  findEligibleScheduleGame,
-  loadNflSchedule,
-} from "@/lib/nfl/schedule";
+import { loadNflSchedule } from "@/lib/nfl/schedule";
+import { findEligibleScheduleGame } from "@/lib/nfl/schedule-match";
 import { marketFixtures } from "./fixtures";
 import { isSingleLegNflProviderMarket } from "./eligibility";
 import {
