@@ -13,6 +13,46 @@ describe("market normalization", () => {
     expect(normalized?.subject.toLowerCase()).toContain("ja'marr chase");
   });
 
+  it("parses compact Kalshi player props using ticker and settlement rules", () => {
+    const normalized = normalizeMarket(
+      contract({
+        platformMarketId: "KXNFLPASSYDS-26SEP17DETBUF-JALLEN250",
+        eventTitle: "KXNFLPASSYDS-26SEP17DETBUF",
+        marketTitle: "Josh Allen: 250+",
+        outcomeLabel: "Yes",
+        resolutionRules:
+          "Resolves Yes if Josh Allen records at least 250 passing yards in the Detroit Lions at Buffalo Bills NFL game.",
+        closesAt: "2026-09-18T00:15:00.000Z",
+      }),
+    );
+    expect(normalized).toMatchObject({
+      family: "passing_yards",
+      statistic: "passing_yards",
+      direction: "over",
+      threshold: 250,
+      subject: "Josh Allen",
+      matchup: "BUF-DET",
+      settlementDate: "2026-09-18",
+      parseConfidence: "high",
+    });
+  });
+
+  it("does not treat an NFL season-long receiving-yards future as a game prop", () => {
+    const normalized = normalizeMarket(
+      contract({
+        platform: "polymarket",
+        platformMarketId: "nico-season",
+        eventTitle: "Pro Football: Nico Collins 2026-27 Regular Season Receiving Yards",
+        marketTitle: "Nico Collins 1274.5+ receiving yards",
+        resolutionRules:
+          "This market resolves using Nico Collins's full 2026-27 NFL regular season receiving-yard total.",
+        closesAt: "2027-01-12T00:00:00.000Z",
+      }),
+    );
+    expect(normalized?.family).toBe("receiving_yards");
+    expect(normalized?.matchup).toBeNull();
+  });
+
   it("does not pair semantically different thresholds", () => {
     const first = normalizeMarket(contract());
     const second = normalizeMarket(contract({ platform: "polymarket", marketTitle: "Will Ja'Marr Chase record over 89.5 receiving yards?" }));
