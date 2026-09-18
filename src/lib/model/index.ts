@@ -5,8 +5,6 @@ import { findPublicPlayerHistory } from "@/lib/nfl/history";
 import { getMatchupProjection } from "@/lib/nfl/team-history";
 import type { NflScheduleGame } from "@/lib/nfl/schedule-match";
 import type { LiveNflGame } from "@/lib/nfl/live";
-import { getGameWeatherContext } from "@/lib/nfl/game-context";
-import { weatherProbabilityAdjustment } from "./weather-adjustment";
 import { empiricalPlayerProbability } from "./player-probability";
 import type {
   CanonicalMarket,
@@ -172,20 +170,12 @@ async function estimateGameMarket(
   scheduleGame: NflScheduleGame,
   liveGame?: LiveNflGame | null,
 ): Promise<ModelEstimate> {
-  const projectionTask = getMatchupProjection(
+  const projection = getMatchupProjection(
     scheduleGame.homeTeam,
     scheduleGame.awayTeam,
     scheduleGame.season,
     scheduleGame.week ?? 1,
   );
-  const projectionDeadlineMs =
-    liveGame?.state === "in" ? 450 : 1_800;
-  const projection = await Promise.race([
-    projectionTask,
-    new Promise<Awaited<ReturnType<typeof getMatchupProjection>>>((resolve) => {
-      setTimeout(() => resolve(null), projectionDeadlineMs);
-    }),
-  ]);
 
   if (!projection) {
     const baseline = baselineGameProjection(scheduleGame, liveGame);
@@ -404,33 +394,7 @@ export async function estimateMarket(
       `Last-5 average: ${average.toFixed(1)} versus a ${threshold} line.`,
     ];
 
-    const weatherContext = await getGameWeatherContext(canonical, scheduleGame);
-    const weatherAdjustment = weatherProbabilityAdjustment({
-      family: canonical.family,
-      direction: canonical.direction,
-      indoor: weatherContext?.indoor ?? false,
-      weather: weatherContext?.weather ?? null,
-    });
-
-    if (weatherContext?.indoor) {
-      factors.push("Indoor/closed-roof game: weather treated as neutral.");
-    } else if (weatherContext?.weather) {
-      const weather = weatherContext.weather;
-      factors.push(
-        `Forecast: ${Math.round(weather.temperatureF)}°F, ${Math.round(weather.windMph)} mph wind, ${Math.round(weather.precipitationProbability)}% precipitation.`,
-      );
-      if (weatherAdjustment !== 0) {
-        factors.push(
-          `Adverse-weather adjustment: ${weatherAdjustment > 0 ? "+" : ""}${(weatherAdjustment * 100).toFixed(1)} percentage points.`,
-        );
-      }
-    }
-
-    const probability = clamp(
-      baseProbability + weatherAdjustment,
-      0.03,
-      0.97,
-    );
+    const probability = clamp(baseProbability, 0.03, 0.97);
 
     return {
       probabilityBps: Math.round(probability * 10_000),
@@ -442,6 +406,7 @@ export async function estimateMarket(
         seasonHits: seasonValues.length ? seasonHitCount : null,
         seasonGames: seasonValues.length || null,
         sampleSize: values.length,
+        recentValues: values.slice(0, 10),
       },
       factors,
     };
