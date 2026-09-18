@@ -6,7 +6,7 @@ import { isNflText } from "@/lib/markets/normalize";
 import {
   dollarsToBps,
   dollarsToCents,
-  fetchValidated
+  fetchValidated,
 } from "@/lib/providers/http";
 
 const KALSHI_BASE = "https://external-api.kalshi.com/trade-api/v2";
@@ -43,6 +43,18 @@ const marketsResponseSchema = z.object({
   cursor: z.string().optional().default(""),
 });
 
+const seriesSchema = z
+  .object({
+    ticker: z.string(),
+    title: z.string().optional().default(""),
+    tags: z.array(z.string()).nullish(),
+  })
+  .passthrough();
+
+const seriesResponseSchema = z.object({
+  series: z.array(seriesSchema),
+});
+
 const FALLBACK_NFL_SERIES = [
   "KXNFLGAME",
   "KXNFLSPREAD",
@@ -69,26 +81,59 @@ function collectNflSeries(value: unknown, output = new Set<string>()) {
   return output;
 }
 
+function prioritizeNflSeries(series: string[]) {
+  const relevant = (value: string) =>
+    /GAME|SPREAD|TOTAL|PASS|RUSH|REC|YARD|TD|TOUCH|CATCH/i.test(value)
+      ? 1
+      : 0;
+  return series.toSorted(
+    (first, second) =>
+      relevant(second) - relevant(first) || first.localeCompare(second),
+  );
+}
+
 async function discoverNflSeries() {
+  const discovered = new Set<string>(FALLBACK_NFL_SERIES);
+
+  try {
+    const url = new URL(`${KALSHI_BASE}/series`);
+    url.searchParams.set("category", "Sports");
+    url.searchParams.set("tags", "Football");
+    url.searchParams.set("include_product_metadata", "true");
+    const payload = await fetchValidated(
+      "Kalshi series",
+      url.toString(),
+      seriesResponseSchema,
+    );
+    for (const series of payload.series) {
+      const ticker = series.ticker.toUpperCase();
+      if (
+        /^KXNFL[A-Z0-9]*$/.test(ticker) ||
+        /\bNFL\b|national football league/i.test(
+          `${series.title} ${series.tags?.join(" ") ?? ""}`,
+        )
+      ) {
+        discovered.add(ticker);
+      }
+    }
+  } catch (error) {
+    console.error("Kalshi Sports/Football series discovery failed", error);
+  }
+
   try {
     const payload = await fetchValidated(
       "Kalshi sports filters",
       `${KALSHI_BASE}/search/filters_by_sport`,
       z.unknown(),
     );
-    const discovered = [...collectNflSeries(payload)];
-    const prioritized = discovered.toSorted((first, second) => {
-      const relevant = (value: string) =>
-        /GAME|SPREAD|TOTAL|PASS|RUSH|REC|YARD|TD|TOUCH|CATCH/i.test(value)
-          ? 1
-          : 0;
-      return relevant(second) - relevant(first) || first.localeCompare(second);
-    });
-    return [...new Set([...prioritized.slice(0, 40), ...FALLBACK_NFL_SERIES])];
+    for (const ticker of collectNflSeries(payload)) {
+      discovered.add(ticker);
+    }
   } catch (error) {
-    console.error("Kalshi NFL series discovery failed", error);
-    return [...FALLBACK_NFL_SERIES];
+    console.error("Kalshi sports-filter fallback failed", error);
   }
+
+  return prioritizeNflSeries([...discovered]).slice(0, 80);
 }
 
 async function fetchSeriesMarkets(seriesTicker: string) {
