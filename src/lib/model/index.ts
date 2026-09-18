@@ -7,6 +7,7 @@ import type { NflScheduleGame } from "@/lib/nfl/schedule-match";
 import type { LiveNflGame } from "@/lib/nfl/live";
 import { getGameWeatherContext } from "@/lib/nfl/game-context";
 import { weatherProbabilityAdjustment } from "./weather-adjustment";
+import { empiricalPlayerProbability } from "./player-probability";
 import type {
   CanonicalMarket,
   HistoricalEvidence,
@@ -25,32 +26,6 @@ const emptyEvidence: HistoricalEvidence = {
 
 function isHit(value: number, threshold: number, direction: string) {
   return direction === "under" ? value < threshold : value >= threshold;
-}
-
-export function calibratedLogisticProbability(input: {
-  historicalHitRate: number;
-  recentHitRate: number;
-  recentPerformanceRatio: number;
-  sampleSize: number;
-}) {
-  const sampleSize = Math.max(1, input.sampleSize);
-  const observedHits = clamp(input.historicalHitRate, 0, 1) * sampleSize;
-
-  // A small Beta prior prevents 0/20 and 20/20 samples from becoming
-  // impossible certainties while keeping the estimate anchored to what the
-  // player actually did at this exact threshold.
-  const longRunPosterior = (observedHits + 1) / (sampleSize + 2);
-  const recentWeight = Math.min(0.25, 5 / Math.max(sampleSize, 5));
-  const blended =
-    longRunPosterior * (1 - recentWeight) +
-    clamp(input.recentHitRate, 0, 1) * recentWeight;
-
-  // Recent average versus the line is useful context, but it should only
-  // nudge the empirical hit rate, never overwhelm it.
-  const performanceAdjustment =
-    clamp(input.recentPerformanceRatio - 1, -0.75, 0.75) * 0.08;
-
-  return clamp(blended + performanceAdjustment, 0.02, 0.98);
 }
 
 function hits(values: number[], threshold: number, direction: string) {
@@ -416,7 +391,7 @@ export async function estimateMarket(
       canonical.direction,
     );
 
-    const baseProbability = calibratedLogisticProbability({
+    const baseProbability = empiricalPlayerProbability({
       historicalHitRate: historicalHits / values.length,
       recentHitRate: recentHits / last5.length,
       recentPerformanceRatio: threshold === 0 ? 1 : average / threshold,
