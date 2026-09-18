@@ -143,11 +143,13 @@ function findSubject(value: string, family: MarketFamily, teams: string[]) {
   if (family === "game_total" && teams.length >= 2) return teams.toSorted().join("-");
 
   const firstClause = value
+    .replace(/^\s*(?:yes|no)\s+/i, "")
     .replace(/will\s+/i, "")
     .split(/(?:\s+(?:over|under|to record|to have|at least|more than)\s+|\s+\d)/i)[0]
     ?.replace(/[?:-]+$/g, "")
+    .replace(/\b(?:record|have|get|finish with)\s*$/i, "")
     .trim();
-  return compact(firstClause || value).slice(0, 80);
+  return (firstClause || value).trim().slice(0, 80);
 }
 
 function settlementDate(market: ProviderMarket) {
