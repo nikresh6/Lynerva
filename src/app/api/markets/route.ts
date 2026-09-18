@@ -17,13 +17,13 @@ function balancedSnapshot(opportunities: MarketOpportunity[]) {
   for (const market of ranked) {
     const matchup = market.canonical?.matchup ?? "unknown";
     const count = perMatchup.get(matchup) ?? 0;
-    if (count >= 6) continue;
+    if (count >= 4) continue;
     const key = `${market.platform}:${market.platformMarketId}:${market.platformOutcomeId ?? "yes"}`;
     if (seen.has(key)) continue;
     selected.push(market);
     seen.add(key);
     perMatchup.set(matchup, count + 1);
-    if (selected.length >= 60) break;
+    if (selected.length >= 30) break;
   }
 
   return selected;
@@ -33,7 +33,7 @@ export async function GET() {
   const payload = await getMarketOpportunities();
   const opportunities = balancedSnapshot(payload.opportunities).map((market) => ({
     ...market,
-    resolutionRules: market.resolutionRules?.slice(0, 600) ?? null,
+    resolutionRules: market.resolutionRules?.slice(0, 240) ?? null,
     model: {
       ...market.model,
       factors: market.model.factors.slice(0, 4),
@@ -55,7 +55,7 @@ export async function GET() {
     },
     {
       headers: {
-        "Cache-Control": "public, s-maxage=2, stale-while-revalidate=4",
+        "Cache-Control": "public, s-maxage=15, stale-while-revalidate=60",
       },
     },
   );
