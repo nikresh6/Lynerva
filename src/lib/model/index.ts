@@ -179,12 +179,23 @@ async function estimateGameMarket(
 
   if (!projection) {
     const baseline = baselineGameProjection(scheduleGame, liveGame);
+    if (!baseline.live) {
+      return {
+        probabilityBps: null,
+        reliabilityBps: 0,
+        version: MODEL_VERSION,
+        evidence: emptyEvidence,
+        factors: [
+          "No current-season-only team profile is available yet. Prior-season team data is intentionally excluded.",
+        ],
+      };
+    }
     return estimateGameFromDistribution(canonical, scheduleGame, {
       meanHomeMargin: baseline.meanHomeMargin,
       meanTotal: baseline.meanTotal,
       marginStdDev: baseline.marginStdDev,
       totalStdDev: baseline.totalStdDev,
-      reliability: baseline.live ? 0.52 : 0.22,
+      reliability: 0.42,
       factors: baseline.factors,
     });
   }
@@ -351,7 +362,7 @@ export async function estimateMarket(
     const sample = history.values.slice(0, 20);
     const values = sample.map((row) => row.value);
 
-    if (!history.playerName || values.length < 1) {
+    if (!history.playerName || values.length < 2) {
       return {
         probabilityBps: null,
         reliabilityBps: 0,
@@ -359,7 +370,7 @@ export async function estimateMarket(
         evidence: { ...emptyEvidence, sampleSize: values.length },
         factors: [
           values.length
-            ? `Only ${values.length} current-season game is available.`
+            ? `Only ${values.length} current-season game${values.length === 1 ? "" : "s"} available; at least 2 are required before pricing this prop.`
             : "No verified current-season history matches this player prop.",
         ],
       };
