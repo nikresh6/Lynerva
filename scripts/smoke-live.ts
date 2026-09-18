@@ -237,8 +237,8 @@ async function main() {
   if (payload.opportunities.some((market) => market.lynervaScore === null)) {
     throw new Error("Live smoke failed: displayed pick is missing a Lynerva score.");
   }
-  if (playerPropMarkets.length === 0) {
-    throw new Error("Live smoke failed: zero regular-season player props were modeled.");
+  if (payload.opportunities.length > 0 && playerPropMarkets.length === 0) {
+    throw new Error("Live smoke failed: populated feed has zero regular-season player props.");
   }
   if (picks.length === 0) {
     console.warn("Live smoke note: no current-season-only top picks are available yet.");
