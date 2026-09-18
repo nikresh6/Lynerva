@@ -565,10 +565,10 @@ function loadFfToday(season: number, week: number) {
   return cachedSource("fftoday", season, week, async () => {
     const map: ProjectionMap = new Map();
     const positions = [
-      ["QB", 10, 2],
-      ["RB", 20, 4],
-      ["WR", 30, 5],
-      ["TE", 40, 3],
+      ["QB", 10, 1],
+      ["RB", 20, 1],
+      ["WR", 30, 1],
+      ["TE", 40, 1],
     ] as const;
 
     await Promise.all(
