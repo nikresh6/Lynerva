@@ -176,8 +176,21 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
     (provider) => provider.markets,
   );
 
+  const marketGameDate = (market: ProviderMarket, fallback: string) => {
+    const text = `${market.platformMarketId} ${market.eventTitle}`.toUpperCase();
+    const match = text.match(/(?:^|[-_])(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(?:[A-Z]|[-_]|$)/);
+    if (!match) return fallback;
+    const months: Record<string, string> = {
+      JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06",
+      JUL: "07", AUG: "08", SEP: "09", OCT: "10", NOV: "11", DEC: "12",
+    };
+    const month = months[match[2]!];
+    return month ? `20${match[1]}-${month}-${match[3]}` : fallback;
+  };
+
   const playerOnlyScheduleFallback = (
     canonical: NonNullable<ReturnType<typeof normalizeMarket>>,
+    market: ProviderMarket,
   ): NflScheduleGame | null => {
     if (
       !canonical.matchup ||
@@ -186,13 +199,14 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
     ) {
       return null;
     }
-    const kickoff = new Date(`${canonical.settlementDate}T17:00:00Z`);
+    const gameDate = marketGameDate(market, canonical.settlementDate);
+    const kickoff = new Date(`${gameDate}T17:00:00Z`);
     const timestamp = kickoff.getTime();
     const now = Date.now();
     const currentSeason = new Date(now).getUTCFullYear();
     if (
       Number.isNaN(timestamp) ||
-      !canonical.settlementDate.startsWith(`${currentSeason}-`) ||
+      !gameDate.startsWith(`${currentSeason}-`) ||
       timestamp < now - 8 * 60 * 60 * 1_000 ||
       timestamp > now + 10 * 24 * 60 * 60 * 1_000
     ) {
@@ -201,11 +215,11 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
     const [first, second] = canonical.matchup.split("-");
     if (!first || !second) return null;
     return {
-      gameId: `market:${canonical.settlementDate}:${canonical.matchup}`,
+      gameId: `market:${gameDate}:${canonical.matchup}`,
       season: currentSeason,
       week: null,
       seasonType: "REG",
-      gameday: canonical.settlementDate,
+      gameday: gameDate,
       kickoffAt: kickoff.toISOString(),
       homeTeam: first,
       awayTeam: second,
@@ -232,7 +246,7 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
         (scheduleGames
           ? findEligibleScheduleGame(canonical, scheduleGames)
           : null) ??
-        (allowPlayerFallback ? playerOnlyScheduleFallback(canonical) : null);
+        (allowPlayerFallback ? playerOnlyScheduleFallback(canonical, market) : null);
       if (!scheduleGame) continue;
 
       if (
