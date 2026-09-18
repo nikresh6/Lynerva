@@ -195,6 +195,8 @@ async function main() {
           currentEspnMatchup === null ? null : matchups.has(currentEspnMatchup),
         samples: picks.slice(0, 10).map((pick) => ({
           platform: pick.platform,
+          id: pick.platformMarketId,
+          eventTitle: pick.eventTitle,
           title: pick.marketTitle,
           matchup: pick.canonical?.matchup,
           family: pick.canonical?.family,
