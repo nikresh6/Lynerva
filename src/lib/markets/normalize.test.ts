@@ -73,6 +73,29 @@ describe("market normalization", () => {
     });
   });
 
+  it("parses Polymarket O/U totals with the real threshold", () => {
+    const normalized = normalizeMarket(
+      contract({
+        platform: "polymarket",
+        platformMarketId: "buf-det-total-70-5",
+        eventTitle: "Lions vs. Bills",
+        marketTitle: "Lions vs. Bills: O/U 70.5",
+        outcomeLabel: "Over",
+        resolutionRules:
+          "Sports market type: totals. Resolves Over if Detroit and Buffalo combine for more than 70.5 points.",
+        closesAt: "2026-09-18T00:15:00.000Z",
+      }),
+    );
+    expect(normalized).toMatchObject({
+      family: "game_total",
+      statistic: "game_points",
+      direction: "over",
+      threshold: 70.5,
+      matchup: "BUF-DET",
+      parseConfidence: "high",
+    });
+  });
+
   it("does not pair semantically different thresholds", () => {
     const first = normalizeMarket(contract());
     const second = normalizeMarket(contract({ platform: "polymarket", marketTitle: "Will Ja'Marr Chase record over 89.5 receiving yards?" }));
