@@ -33,7 +33,7 @@ interface MarketDataContextValue extends MarketClientPayload {
 
 const MarketDataContext = createContext<MarketDataContextValue | null>(null);
 
-const STORAGE_KEY = "lynerva-market-snapshot-v2";
+const STORAGE_KEY = "lynerva-market-snapshot-v3";
 const STORAGE_MAX_AGE = 5 * 1_000;
 
 function readStored(): MarketClientPayload | null {
@@ -123,7 +123,7 @@ export function MarketDataProvider({
     }
     void refresh();
 
-    const intervalMs = pathname === "/live" ? 5_000 : 15_000;
+    const intervalMs = pathname === "/live" ? 10_000 : 30_000;
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void refresh();
     }, intervalMs);
