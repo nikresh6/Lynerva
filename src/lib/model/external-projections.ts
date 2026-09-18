@@ -311,68 +311,90 @@ function loadNumberFire(season: number, week: number) {
 function loadEspn(season: number, week: number) {
   return cachedSource("espn", season, week, async () => {
     const map: ProjectionMap = new Map();
-    const filter = {
-      players: {
-        limit: 1500,
-        filterStatsForSourceIds: { value: [1] },
-        filterStatsForSplitTypeIds: { value: [1] },
-        filterStatsForTopScoringPeriodIds: {
-          value: week,
-          additionalValue: [
-            `00${season}`,
-            `10${season}`,
-            `11${season}${week}`,
-            `02${season}`,
-          ],
-        },
-      },
-    };
-    const url =
-      `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${season}/segments/0/leaguedefaults/3?scoringPeriodId=0&view=kona_player_info`;
-    const payload = (await fetchJson(
-      `espn:${season}:${week}`,
-      url,
-      {
-        Accept: "application/json",
-        "User-Agent": "Lynerva/1.0",
-        "X-Fantasy-Source": "kona",
-        "X-Fantasy-Filter": JSON.stringify(filter),
-      },
-    )) as {
-      players?: Array<{
-        player?: {
-          fullName?: string;
-          stats?: Array<{
-            statSourceId?: number;
-            statSplitTypeId?: number;
-            scoringPeriodId?: number;
-            stats?: Record<string, number>;
-          }>;
-        };
-      }>;
-    };
+    const positions = [
+      ["QB", 0, 42],
+      ["RB", 2, 100],
+      ["WR", 4, 150],
+      ["TE", 6, 60],
+    ] as const;
 
-    for (const entry of payload.players ?? []) {
-      const player = entry.player;
-      if (!player?.fullName) continue;
-      const projection = player.stats?.find(
-        (stat) =>
-          stat.statSourceId === 1 &&
-          stat.statSplitTypeId === 1 &&
-          (stat.scoringPeriodId === undefined || stat.scoringPeriodId === week),
-      );
-      const stats = projection?.stats;
-      if (!stats) continue;
-      mergeStats(map, player.fullName, {
-        passingYards: toNumber(stats["3"]) ?? undefined,
-        passingTouchdowns: toNumber(stats["4"]) ?? undefined,
-        rushingYards: toNumber(stats["24"]) ?? undefined,
-        rushingTouchdowns: toNumber(stats["25"]) ?? undefined,
-        receptions: toNumber(stats["53"]) ?? undefined,
-        receivingYards: toNumber(stats["42"]) ?? undefined,
-        receivingTouchdowns: toNumber(stats["43"]) ?? undefined,
-      });
-    }
+    await Promise.all(
+      positions.map(async ([position, slotId, limit]) => {
+        const filter = {
+          players: {
+            filterSlotIds: { value: [slotId] },
+            filterStatsForSourceIds: { value: [1] },
+            filterStatsForSplitTypeIds: { value: [1] },
+            sortAppliedStatTotal: {
+              sortAsc: false,
+              sortPriority: 3,
+              value: `11${season}${week}`,
+            },
+            limit,
+            offset: 0,
+            filterStatsForTopScoringPeriodIds: {
+              value: week,
+              additionalValue: [
+                `00${season}`,
+                `10${season}`,
+                `11${season}${week}`,
+                `02${season}`,
+              ],
+            },
+          },
+        };
+        const url =
+          `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${season}/segments/0/leaguedefaults/3?scoringPeriodId=0&view=kona_player_info`;
+        try {
+          const payload = (await fetchJson(
+            `espn:${season}:${week}:${position}`,
+            url,
+            {
+              Accept: "application/json",
+              "User-Agent": "Lynerva/1.0",
+              "X-Fantasy-Source": "kona",
+              "X-Fantasy-Filter": JSON.stringify(filter),
+            },
+          )) as {
+            players?: Array<{
+              player?: {
+                fullName?: string;
+                stats?: Array<{
+                  statSourceId?: number;
+                  statSplitTypeId?: number;
+                  stats?: Record<string, number>;
+                }>;
+              };
+            }>;
+          };
+
+          for (const entry of payload.players ?? []) {
+            const player = entry.player;
+            if (!player?.fullName) continue;
+            const projection =
+              player.stats?.find(
+                (stat) =>
+                  stat.statSourceId === 1 &&
+                  stat.statSplitTypeId === 1 &&
+                  Object.keys(stat.stats ?? {}).length > 0,
+              ) ?? player.stats?.find((stat) => Object.keys(stat.stats ?? {}).length > 0);
+            const stats = projection?.stats;
+            if (!stats) continue;
+            mergeStats(map, player.fullName, {
+              passingYards: toNumber(stats["3"]) ?? undefined,
+              passingTouchdowns: toNumber(stats["4"]) ?? undefined,
+              rushingYards: toNumber(stats["24"]) ?? undefined,
+              rushingTouchdowns: toNumber(stats["25"]) ?? undefined,
+              receptions: toNumber(stats["53"]) ?? undefined,
+              receivingYards: toNumber(stats["42"]) ?? undefined,
+              receivingTouchdowns: toNumber(stats["43"]) ?? undefined,
+            });
+          }
+        } catch {
+          // Source remains optional.
+        }
+      }),
+    );
     return map;
   });
 }
@@ -553,24 +575,221 @@ function loadNfl(season: number, week: number) {
   });
 }
 
+function likelyPositions(family: CanonicalMarket["family"]) {
+  if (family === "passing_yards" || family === "passing_touchdowns") {
+    return ["QB"] as const;
+  }
+  if (family === "rushing_yards") return ["RB", "QB", "WR"] as const;
+  if (
+    family === "receiving_yards" ||
+    family === "receptions" ||
+    family === "touchdowns"
+  ) {
+    return ["WR", "RB", "TE"] as const;
+  }
+  return [] as const;
+}
+
+async function numberFireMarketProjection(
+  market: CanonicalMarket,
+): Promise<ProjectionPoint | null> {
+  const target = normalizePerson(market.subject);
+  const positions = likelyPositions(market.family).map((position) =>
+    position.toLowerCase(),
+  );
+
+  for (const position of positions) {
+    try {
+      const rows = rowsFromHtml(
+        await fetchText(
+          `https://www.numberfire.com/external/widgets/top-players/${position}`,
+        ),
+      );
+      for (const cells of rows) {
+        const playerIndex = cells.findIndex((cell) =>
+          normalizePerson(cell).startsWith(target),
+        );
+        if (playerIndex < 0) continue;
+
+        let value: number | null = null;
+        if (position === "qb") {
+          if (market.family === "passing_yards") {
+            value = toNumber(cells[playerIndex + 2]);
+          } else if (market.family === "passing_touchdowns") {
+            value = toNumber(cells[playerIndex + 3]);
+          }
+        } else if (position === "wr" || position === "te") {
+          if (market.family === "receptions") {
+            value = toNumber(cells[playerIndex + 2]);
+          } else if (market.family === "receiving_yards") {
+            value = toNumber(cells[playerIndex + 3]);
+          } else if (market.family === "touchdowns") {
+            value = toNumber(cells[playerIndex + 4]);
+          }
+        } else if (position === "rb" && market.family === "touchdowns") {
+          value = toNumber(cells[playerIndex + 3]);
+        }
+        if (value !== null && value >= 0) {
+          return {
+            source: "numberfire",
+            value,
+            fetchedAt: new Date().toISOString(),
+          };
+        }
+      }
+    } catch {
+      // Try another position/source.
+    }
+  }
+  return null;
+}
+
+function fftodayMarketStats(
+  position: string,
+  cells: string[],
+  playerIndex: number,
+): ProjectionStats {
+  const values = cells.slice(playerIndex + 3).map(toNumber);
+  if (position === "QB") {
+    return {
+      passingYards: values[2] ?? undefined,
+      passingTouchdowns: values[3] ?? undefined,
+      rushingYards: values[6] ?? undefined,
+      rushingTouchdowns: values[7] ?? undefined,
+    };
+  }
+  if (position === "RB") {
+    return {
+      rushingYards: values[1] ?? undefined,
+      rushingTouchdowns: values[2] ?? undefined,
+      receptions: values[3] ?? undefined,
+      receivingYards: values[4] ?? undefined,
+      receivingTouchdowns: values[5] ?? undefined,
+    };
+  }
+  if (position === "WR") {
+    return {
+      receptions: values[0] ?? undefined,
+      receivingYards: values[1] ?? undefined,
+      receivingTouchdowns: values[2] ?? undefined,
+      rushingYards: values[4] ?? undefined,
+      rushingTouchdowns: values[5] ?? undefined,
+    };
+  }
+  return {
+    receptions: values[0] ?? undefined,
+    receivingYards: values[1] ?? undefined,
+    receivingTouchdowns: values[2] ?? undefined,
+  };
+}
+
+async function ffTodayMarketProjection(
+  market: CanonicalMarket,
+  season: number,
+  week: number,
+): Promise<ProjectionPoint | null> {
+  const target = normalizePerson(market.subject);
+  const posIds: Record<string, number> = { QB: 10, RB: 20, WR: 30, TE: 40 };
+  const maxPages: Record<string, number> = { QB: 1, RB: 2, WR: 3, TE: 1 };
+
+  for (const position of likelyPositions(market.family)) {
+    const posId = posIds[position];
+    for (let page = 0; page < maxPages[position]; page += 1) {
+      try {
+        const html = await fetchText(
+          `https://www.fftoday.com/rankings/playerwkproj.php?Season=${season}&GameWeek=${week}&PosID=${posId}&LeagueID=1&order_by=FFPts&sort_order=DESC&cur_page=${page}`,
+        );
+        for (const cells of rowsFromHtml(html)) {
+          const playerIndex = cells.findIndex((cell) =>
+            normalizePerson(cell).startsWith(target),
+          );
+          if (playerIndex < 0) continue;
+          const value = sourceValue(
+            fftodayMarketStats(position, cells, playerIndex),
+            market.family,
+          );
+          if (value !== null && value >= 0) {
+            return {
+              source: "fftoday",
+              value,
+              fetchedAt: new Date().toISOString(),
+            };
+          }
+        }
+      } catch {
+        // Try another page.
+      }
+    }
+  }
+  return null;
+}
+
+async function nflMarketProjection(
+  market: CanonicalMarket,
+  season: number,
+  week: number,
+): Promise<ProjectionPoint | null> {
+  const target = normalizePerson(market.subject);
+  const posIds: Record<string, number> = { QB: 1, RB: 2, WR: 3, TE: 4 };
+  const counts: Record<string, number> = { QB: 42, RB: 100, WR: 150, TE: 60 };
+
+  for (const position of likelyPositions(market.family)) {
+    try {
+      const html = await fetchText(
+        `https://fantasy.nfl.com/research/projections?position=${posIds[position]}&count=${counts[position]}&sort=projectedPts&statCategory=projectedStats&statSeason=${season}&statType=weekProjectedStats&statWeek=${week}`,
+      );
+      for (const row of html.match(/<tr\b[^>]*class=["'][^"']*player[^"']*["'][^>]*>[\s\S]*?<\/tr>/gi) ?? []) {
+        if (!normalizePerson(decode(row)).includes(target)) continue;
+        const stats = [
+          ...row.matchAll(
+            /<td\b[^>]*class=["'][^"']*\bstat\b[^"']*["'][^>]*>([\s\S]*?)<\/td>/gi,
+          ),
+        ].map((match) => toNumber(decode(match[1] ?? "")));
+        const value = sourceValue(
+          {
+            passingYards: stats[1] ?? undefined,
+            passingTouchdowns: stats[2] ?? undefined,
+            rushingYards: stats[4] ?? undefined,
+            rushingTouchdowns: stats[5] ?? undefined,
+            receptions: stats[6] ?? undefined,
+            receivingYards: stats[7] ?? undefined,
+            receivingTouchdowns: stats[8] ?? undefined,
+          },
+          market.family,
+        );
+        if (value !== null && value >= 0) {
+          return {
+            source: "nfl",
+            value,
+            fetchedAt: new Date().toISOString(),
+          };
+        }
+      }
+    } catch {
+      // Try another position.
+    }
+  }
+  return null;
+}
+
 async function sourceProjection(
   source: ProjectionSource,
   market: CanonicalMarket,
   season: number,
   week: number,
 ): Promise<ProjectionPoint | null> {
+  if (source === "numberfire") return numberFireMarketProjection(market);
+  if (source === "fftoday") {
+    return ffTodayMarketProjection(market, season, week);
+  }
+  if (source === "nfl") return nflMarketProjection(market, season, week);
+
   const loader =
     source === "fantasypros"
       ? loadFantasyPros
-      : source === "numberfire"
-        ? loadNumberFire
-        : source === "espn"
-          ? loadEspn
-          : source === "cbs"
-            ? loadCbs
-            : source === "fftoday"
-              ? loadFfToday
-              : loadNfl;
+      : source === "espn"
+        ? loadEspn
+        : loadCbs;
 
   const map = await loader(season, week);
   const target = normalizePerson(market.subject);
