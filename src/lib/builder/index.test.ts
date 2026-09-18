@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCombination } from "./index";
+import { buildBestAvailableCombination, buildCombination } from "./index";
 import type { MarketOpportunity } from "@/lib/markets/types";
 
 function opportunity(id: string, matchup: string, price: number, model: number): MarketOpportunity {
@@ -40,6 +40,28 @@ describe("combination builder", () => {
     expect(
       result?.legs.filter((leg) => leg.canonical?.key === first.canonical?.key),
     ).toHaveLength(1);
+  });
+
+  it("falls back to live markets without changing a 3x-5x target", () => {
+    const live = {
+      ...opportunity("LIVE", "BUF-DET", 2_100, 2_538),
+      isLive: true,
+    };
+    const result = buildBestAvailableCombination(
+      [live],
+      {
+        minReturn: 3,
+        maxReturn: 5,
+        maxLegs: 4,
+        platform: "either",
+        live: "pregame",
+        excludeSameGame: true,
+      },
+    );
+    expect(result).not.toBeNull();
+    expect(result?.grossReturn).toBeGreaterThanOrEqual(3);
+    expect(result?.grossReturn).toBeLessThanOrEqual(5);
+    expect(result?.relaxedConstraints.length).toBeGreaterThan(0);
   });
 
   it("excludes same-game legs when correlation is unknown", () => {
