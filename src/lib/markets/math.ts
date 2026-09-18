@@ -63,6 +63,8 @@ export function lynervaScore(input: {
   reliabilityBps: number;
   seasonHits: number | null;
   seasonGames: number | null;
+  last10Hits: number | null;
+  sampleSize: number;
   recommendedSide: "yes" | "no" | null;
   liquidityCents: number | null;
   volumeCents: number | null;
@@ -85,12 +87,19 @@ export function lynervaScore(input: {
   const reliability = clamp(input.reliabilityBps / 100, 0, 100);
 
   let hitRate = probability;
-  if (input.seasonHits !== null && input.seasonGames && input.seasonGames > 0) {
+  if (input.seasonHits !== null && input.seasonGames && input.seasonGames >= 5) {
     const hits =
       input.recommendedSide === "no"
         ? input.seasonGames - input.seasonHits
         : input.seasonHits;
     hitRate = clamp((hits / input.seasonGames) * 100, 0, 100);
+  } else if (input.last10Hits !== null && input.sampleSize > 0) {
+    const games = Math.min(10, input.sampleSize);
+    const hits =
+      input.recommendedSide === "no"
+        ? games - input.last10Hits
+        : input.last10Hits;
+    hitRate = clamp((hits / games) * 100, 0, 100);
   }
 
   const dollars =
