@@ -17,6 +17,31 @@ describe("combination builder", () => {
     expect(result?.correlationWarning).toBe(false);
   });
 
+  it("never uses the same underlying contract twice across platforms", () => {
+    const first = opportunity("A", "KC-BUF", 5_000, 5_700);
+    const duplicate = {
+      ...opportunity("B", "KC-BUF", 5_000, 5_700),
+      platform: "polymarket" as const,
+      canonical: first.canonical,
+    };
+    const other = opportunity("C", "DAL-PHI", 5_000, 5_600);
+    const result = buildCombination(
+      [first, duplicate, other],
+      {
+        minReturn: 3.5,
+        maxReturn: 4.5,
+        maxLegs: 3,
+        platform: "either",
+        live: "pregame",
+        excludeSameGame: false,
+      },
+    );
+    expect(result?.legs).toHaveLength(2);
+    expect(
+      result?.legs.filter((leg) => leg.canonical?.key === first.canonical?.key),
+    ).toHaveLength(1);
+  });
+
   it("excludes same-game legs when correlation is unknown", () => {
     const result = buildCombination([
       opportunity("A", "KC-BUF", 5_000, 5_700),
