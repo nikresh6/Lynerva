@@ -5,7 +5,7 @@ import { isModelBackedOpportunity } from "@/lib/markets/eligibility";
 import { getMarketOpportunities } from "@/lib/markets/service";
 
 export const metadata: Metadata = { title: "Builder" };
-export const dynamic = "force-dynamic";
+export const revalidate = 10;
 
 export default async function BuilderPage() {
   const payload = await getMarketOpportunities();
