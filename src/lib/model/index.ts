@@ -179,23 +179,12 @@ async function estimateGameMarket(
 
   if (!projection) {
     const baseline = baselineGameProjection(scheduleGame, liveGame);
-    if (!baseline.live) {
-      return {
-        probabilityBps: null,
-        reliabilityBps: 0,
-        version: MODEL_VERSION,
-        evidence: emptyEvidence,
-        factors: [
-          "No current-season-only team profile is available yet. Prior-season team data is intentionally excluded.",
-        ],
-      };
-    }
     return estimateGameFromDistribution(canonical, scheduleGame, {
       meanHomeMargin: baseline.meanHomeMargin,
       meanTotal: baseline.meanTotal,
       marginStdDev: baseline.marginStdDev,
       totalStdDev: baseline.totalStdDev,
-      reliability: 0.42,
+      reliability: baseline.live ? 0.42 : 0.28,
       factors: baseline.factors,
     });
   }
