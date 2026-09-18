@@ -134,7 +134,6 @@ export async function getLearnedSourceWeights(
   }
 
   try {
-    await ensureSourceLearningSchema();
     const db = getDb();
     const rows = await db
       .select({
