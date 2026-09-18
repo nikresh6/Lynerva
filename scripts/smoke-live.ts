@@ -311,6 +311,7 @@ async function main() {
     "cbs",
     "rotoballer",
     "sleeper",
+    "sleeper",
   ];
   for (const source of activeCoverageSources) {
     const coverage = playerPropMarkets.filter((market) =>
@@ -335,9 +336,9 @@ async function main() {
         (market) => market.model.components?.projectionSources?.length ?? 0,
       ),
     );
-    if (bestCoverage < 5) {
+    if (bestCoverage < 6) {
       throw new Error(
-        `Live smoke failed: Ja'Marr Chase receiving-yards projection has only ${bestCoverage} verified sources; expected at least 5.`,
+        `Live smoke failed: Ja'Marr Chase receiving-yards projection has only ${bestCoverage} verified sources; expected at least 6.`,
       );
     }
   }
