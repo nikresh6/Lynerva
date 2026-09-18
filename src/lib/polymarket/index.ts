@@ -165,6 +165,20 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
       }
     }
 
+    console.info("Polymarket NFL discovery summary", {
+      events: events.length,
+      eligibleEvents: nflEvents.length,
+      markets: markets.length,
+      samples: markets.slice(0, 5).map((market) => ({
+        id: market.platformMarketId,
+        eventTitle: market.eventTitle,
+        marketTitle: market.marketTitle,
+        closesAt: market.closesAt,
+        yesAskBps: market.yesAskBps,
+        noAskBps: market.noAskBps,
+      })),
+    });
+
     if (markets.length === 0) {
       console.warn("Polymarket NFL discovery produced zero markets", {
         events: events.length,
