@@ -4,8 +4,6 @@ import {
   isTopOpportunity,
 } from "../src/lib/markets/eligibility";
 import type { MarketOpportunity } from "../src/lib/markets/types";
-import { fetchPolymarketNflMarkets } from "../src/lib/polymarket";
-import { normalizeMarket } from "../src/lib/markets/normalize";
 
 type MarketsPayload = {
   opportunities: MarketOpportunity[];
@@ -68,23 +66,6 @@ async function main() {
   const apiElapsedMs = Date.now() - apiStarted;
   const payload = (await marketsResponse.json()) as MarketsPayload;
   const livePayload = (await liveResponse.json()) as { games: LiveGame[] };
-  const rawPolymarket = await fetchPolymarketNflMarkets();
-  console.log(
-    "POLYMARKET_RAW",
-    JSON.stringify({
-      count: rawPolymarket.markets.length,
-      error: rawPolymarket.error,
-      samples: rawPolymarket.markets.slice(0, 8).map((market) => ({
-        eventTitle: market.eventTitle,
-        marketTitle: market.marketTitle,
-        closesAt: market.closesAt,
-        yesAskBps: market.yesAskBps,
-        noAskBps: market.noAskBps,
-        canonical: normalizeMarket(market),
-      })),
-    }),
-  );
-
   const warmStarted = Date.now();
   const warmResponse = await fetch(`${baseUrl}/api/markets`, {
     cache: "no-store",
