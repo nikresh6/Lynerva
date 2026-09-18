@@ -67,6 +67,15 @@ async function main() {
   const payload = (await marketsResponse.json()) as MarketsPayload;
   const livePayload = (await liveResponse.json()) as { games: LiveGame[] };
 
+  const warmStarted = Date.now();
+  const warmResponse = await fetch(`${baseUrl}/api/markets`, {
+    cache: "no-store",
+  });
+  const warmApiElapsedMs = Date.now() - warmStarted;
+  if (!warmResponse.ok) {
+    throw new Error(`Warm Markets API returned ${warmResponse.status}.`);
+  }
+
   const picks = payload.opportunities
     .filter(isTopOpportunity)
     .toSorted(
@@ -140,6 +149,7 @@ async function main() {
         elapsedMs: Date.now() - started,
         pages: pageChecks,
         apiElapsedMs,
+        warmApiElapsedMs,
         providers: payload.providers.map((provider) => ({
           provider: provider.provider,
           acceptedMarkets: provider.count,
@@ -177,8 +187,24 @@ async function main() {
     ),
   );
 
+  const slowPage = pageChecks.find((page) => page.elapsedMs > 1_500);
+  if (slowPage) {
+    throw new Error(
+      `Page smoke failed: ${slowPage.path} took ${slowPage.elapsedMs}ms.`,
+    );
+  }
+  if (apiElapsedMs > 6_000) {
+    throw new Error(
+      `Live smoke failed: cold market API took ${apiElapsedMs}ms.`,
+    );
+  }
+  if (warmApiElapsedMs > 1_000) {
+    throw new Error(
+      `Live smoke failed: warm market API took ${warmApiElapsedMs}ms.`,
+    );
+  }
   if (Date.now() - started > 8_000) {
-    throw new Error("Live smoke failed: cold market snapshot exceeded 8 seconds.");
+    throw new Error("Live smoke failed: full cold smoke exceeded 8 seconds.");
   }
   if (payload.opportunities.length === 0) {
     throw new Error("Live smoke failed: zero eligible NFL opportunities.");
