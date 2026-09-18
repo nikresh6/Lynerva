@@ -6,6 +6,47 @@ import type { MarketOpportunity } from "@/lib/markets/types";
 import { cn, formatCents, formatCompactMoney, formatEdge, formatPercent, relativeTime, titleCase } from "@/lib/utils";
 import { PlatformMark } from "./platform-mark";
 
+const FAMILY_LABEL: Record<string, string> = {
+  passing_yards: "Passing Yards",
+  passing_touchdowns: "Passing TDs",
+  rushing_yards: "Rushing Yards",
+  receiving_yards: "Receiving Yards",
+  receptions: "Receptions",
+  touchdowns: "TDs",
+  moneyline: "Moneyline",
+  spread: "Spread",
+  game_total: "Game Total",
+};
+
+function displayMarketTitle(market: MarketOpportunity) {
+  const canonical = market.canonical;
+  if (!canonical) return market.marketTitle;
+
+  const label = FAMILY_LABEL[canonical.family] ?? titleCase(canonical.family);
+  if (
+    canonical.threshold !== null &&
+    ["passing_yards", "passing_touchdowns", "rushing_yards", "receiving_yards", "receptions", "touchdowns"].includes(canonical.family)
+  ) {
+    const direction =
+      canonical.direction === "under"
+        ? "Under"
+        : canonical.family === "touchdowns" &&
+            Number.isInteger(canonical.threshold)
+          ? `${canonical.threshold}+`
+          : "Over";
+    return `${canonical.subject} ${direction} ${canonical.threshold}${direction.endsWith("+") ? "" : ` ${label}`}${
+      direction.endsWith("+") ? ` ${label}` : ""
+    }`;
+  }
+
+  return market.marketTitle;
+}
+
+function displayMarketContext(market: MarketOpportunity) {
+  const matchup = market.canonical?.matchup;
+  return matchup ? matchup.replace("-", " vs ") : market.eventTitle;
+}
+
 function HitRate({ market }: { market: MarketOpportunity }) {
   const { seasonHits, seasonGames } = market.model.evidence;
   if (seasonHits === null || !seasonGames) return <span className="text-faint">—</span>;
@@ -57,7 +98,7 @@ export function MarketTable({ markets, emptyMessage = "No NFL markets match thes
           <thead className="bg-surface-raised text-[10px] font-medium uppercase tracking-[0.09em] text-faint"><tr><th className="w-[28%] px-4 py-3">Market</th><th className="px-3 py-3">Platform</th><th className="px-3 py-3 text-right">Price</th><th className="px-3 py-3 text-right">Model</th><th className="px-3 py-3 text-right">Edge</th><th className="px-3 py-3 text-right">Hit rate</th><th className="px-3 py-3 text-right">Risk : Return</th><th className="px-3 py-3 text-right">Liquidity</th><th className="px-4 py-3 text-right">Updated</th></tr></thead>
           <tbody>{markets.map((market) => {
             const key = `${market.platform}:${market.platformMarketId}:${market.platformOutcomeId ?? "yes"}`;
-            return <tr key={key} tabIndex={0} role="button" onClick={() => setSelected(market)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelected(market); }} className="market-row cursor-pointer border-t transition-colors hover:bg-surface-raised focus:bg-surface-raised focus:outline-none"><td className="px-4 py-3"><div className="flex items-start gap-2"><div className="min-w-0"><div className="max-h-10 overflow-hidden font-medium leading-5" title={market.marketTitle}>{market.marketTitle}</div><div className="mt-0.5 truncate text-[11px] text-faint" title={market.eventTitle}>{market.eventTitle}</div></div>{market.arbitrage ? <span className={cn("mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide", market.arbitrage.classification === "arbitrage" ? "bg-positive-bg text-positive" : "bg-warning-bg text-warning")}>{market.arbitrage.classification === "arbitrage" ? "Arb" : "Gap"}</span> : null}</div></td><td className="px-3 py-3"><PlatformMark platform={market.platform} /></td><td className="px-3 py-3 text-right font-medium tabular">{formatCents(market.executablePriceBps)}</td><td className="px-3 py-3 text-right tabular">{formatPercent(market.model.probabilityBps)}</td><td className={cn("px-3 py-3 text-right font-medium tabular", (market.edgeBps ?? 0) > 0 ? "text-positive" : (market.edgeBps ?? 0) < 0 ? "text-negative" : "text-faint")}>{formatEdge(market.edgeBps)}</td><td className="px-3 py-3 text-right"><HitRate market={market} /></td><td className="px-3 py-3 text-right tabular">{market.riskReturn === null ? "—" : `1 : ${market.riskReturn.toFixed(2)}`}</td><td className="px-3 py-3 text-right tabular">{formatCompactMoney(market.liquidityCents)}</td><td className="px-4 py-3 text-right"><span className="block"><FreshnessLabel value={market.freshness} /></span><span className="text-[10px] text-faint">{relativeTime(market.updatedAt)}</span></td></tr>;
+            return <tr key={key} tabIndex={0} role="button" onClick={() => setSelected(market)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelected(market); }} className="market-row cursor-pointer border-t transition-colors hover:bg-surface-raised focus:bg-surface-raised focus:outline-none"><td className="px-4 py-3"><div className="flex items-start gap-2"><div className="min-w-0"><div className="max-h-10 overflow-hidden font-medium leading-5" title={market.marketTitle}>{displayMarketTitle(market)}</div><div className="mt-0.5 truncate text-[11px] text-faint" title={market.eventTitle}>{displayMarketContext(market)}</div></div>{market.arbitrage ? <span className={cn("mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide", market.arbitrage.classification === "arbitrage" ? "bg-positive-bg text-positive" : "bg-warning-bg text-warning")}>{market.arbitrage.classification === "arbitrage" ? "Arb" : "Gap"}</span> : null}</div></td><td className="px-3 py-3"><PlatformMark platform={market.platform} /></td><td className="px-3 py-3 text-right font-medium tabular">{formatCents(market.executablePriceBps)}</td><td className="px-3 py-3 text-right tabular">{formatPercent(market.model.probabilityBps)}</td><td className={cn("px-3 py-3 text-right font-medium tabular", (market.edgeBps ?? 0) > 0 ? "text-positive" : (market.edgeBps ?? 0) < 0 ? "text-negative" : "text-faint")}>{formatEdge(market.edgeBps)}</td><td className="px-3 py-3 text-right"><HitRate market={market} /></td><td className="px-3 py-3 text-right tabular">{market.riskReturn === null ? "—" : `1 : ${market.riskReturn.toFixed(2)}`}</td><td className="px-3 py-3 text-right tabular">{formatCompactMoney(market.liquidityCents)}</td><td className="px-4 py-3 text-right"><span className="block"><FreshnessLabel value={market.freshness} /></span><span className="text-[10px] text-faint">{relativeTime(market.updatedAt)}</span></td></tr>;
           })}</tbody>
         </table>
       </div>
