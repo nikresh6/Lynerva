@@ -372,6 +372,39 @@ function selectPortfolioCandidates(
 ) {
   const selected: Candidate[] = [];
 
+  addCandidate(
+    selected,
+    bestCandidate(straights, selected, {
+      probabilityMin: 0.72,
+      probabilityMax: 0.98,
+      probabilityTarget: risk === "lower" ? 0.86 : 0.82,
+      role: "core_straight",
+    }),
+  );
+
+  addCandidate(
+    selected,
+    bestCandidate(straights, selected, {
+      probabilityMin: risk === "lower" ? 0.56 : 0.5,
+      probabilityMax: 0.76,
+      probabilityTarget: risk === "lower" ? 0.66 : 0.63,
+      role: "value_straight",
+    }),
+  );
+
+  if (risk !== "lower" || targetReturn >= 3.5) {
+    addCandidate(
+      selected,
+      bestCandidate(straights, selected, {
+        probabilityMin: risk === "lower" ? 0.44 : 0.28,
+        probabilityMax: risk === "higher" ? 0.58 : 0.62,
+        probabilityTarget:
+          risk === "higher" ? 0.4 : risk === "lower" ? 0.54 : 0.47,
+        role: "aggressive_straight",
+      }),
+    );
+  }
+
   const coreTarget = clamp(targetReturn * 0.7, 2.2, 5.5);
   addCandidate(
     selected,
@@ -408,39 +441,6 @@ function selectPortfolioCandidates(
         returnMax: 150,
         returnTarget: hailTarget,
         role: "hail_mary",
-      }),
-    );
-  }
-
-  addCandidate(
-    selected,
-    bestCandidate(straights, selected, {
-      probabilityMin: 0.72,
-      probabilityMax: 0.98,
-      probabilityTarget: risk === "lower" ? 0.86 : 0.82,
-      role: "core_straight",
-    }),
-  );
-
-  addCandidate(
-    selected,
-    bestCandidate(straights, selected, {
-      probabilityMin: risk === "lower" ? 0.56 : 0.5,
-      probabilityMax: 0.76,
-      probabilityTarget: risk === "lower" ? 0.66 : 0.63,
-      role: "value_straight",
-    }),
-  );
-
-  if (risk !== "lower" || targetReturn >= 3.5) {
-    addCandidate(
-      selected,
-      bestCandidate(straights, selected, {
-        probabilityMin: risk === "lower" ? 0.44 : 0.28,
-        probabilityMax: risk === "higher" ? 0.58 : 0.62,
-        probabilityTarget:
-          risk === "higher" ? 0.4 : risk === "lower" ? 0.54 : 0.47,
-        role: "aggressive_straight",
       }),
     );
   }
