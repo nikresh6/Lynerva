@@ -13,7 +13,7 @@ export interface NflScheduleGame {
   roof: string | null;
 }
 
-const ELIGIBLE_SEASON_TYPES = new Set(["REG", "WC", "DIV", "CON", "SB", "POST"]);
+const ELIGIBLE_SEASON_TYPES = new Set(["REG"]);
 
 function matchupKey(homeTeam: string, awayTeam: string) {
   return [homeTeam, awayTeam].toSorted().join("-");
