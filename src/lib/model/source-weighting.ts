@@ -5,8 +5,8 @@ export const ACTIVE_PROJECTION_SOURCES = [
   "numberfire",
   "espn",
   "cbs",
-  "fftoday",
   "rotoballer",
+  "sleeper",
 ] as const;
 
 export type ActiveProjectionSource =
