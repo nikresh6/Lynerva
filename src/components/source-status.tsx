@@ -7,7 +7,7 @@ export function SourceStatus({ providers, fixtureMode }: { providers: ProviderRe
       {providers.map((provider) => (
         <span key={provider.provider} className="inline-flex items-center gap-1.5 capitalize">
           <span className={`size-1.5 rounded-full ${provider.error ? "bg-negative" : provider.markets.length ? "bg-positive" : "bg-warning"}`} />
-          {provider.provider}: {provider.error ? "unavailable" : `${provider.markets.length} NFL singles`} · {relativeTime(provider.fetchedAt)}
+          {provider.provider}: {provider.error ? "unavailable" : `${provider.markets.length} eligible NFL game markets`} · {relativeTime(provider.fetchedAt)}
         </span>
       ))}
       {fixtureMode ? <span className="rounded bg-warning-bg px-1.5 py-0.5 font-medium text-warning">Development fixtures</span> : null}
