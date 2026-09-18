@@ -221,6 +221,9 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
     for (const market of providerMarkets) {
       const canonical = normalizeMarket(market);
       if (!canonical) continue;
+      if (["moneyline", "spread", "game_total"].includes(canonical.family)) {
+        continue;
+      }
 
       const liveGame = findCurrentRegularSeasonGame(
         canonical.matchup,
