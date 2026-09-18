@@ -90,45 +90,58 @@ export class OpenMeteoProvider implements WeatherProvider {
 }
 
 
-const gameWeatherCache = new Map<string, { at: number; weather: WeatherPoint | null }>();
+const gameWeatherCache = new Map<
+  string,
+  { expiresAt: number; promise: Promise<WeatherPoint | null> }
+>();
 
-export async function getGameWeather(input: {
+export function getGameWeather(input: {
   stadium: string | null | undefined;
   kickoffAt: string | Date;
 }) {
-  if (!input.stadium) return null;
-  const kickoff = input.kickoffAt instanceof Date ? input.kickoffAt : new Date(input.kickoffAt);
-  if (Number.isNaN(kickoff.getTime())) return null;
+  if (!input.stadium) return Promise.resolve(null);
+  const kickoff =
+    input.kickoffAt instanceof Date
+      ? input.kickoffAt
+      : new Date(input.kickoffAt);
+  if (Number.isNaN(kickoff.getTime())) return Promise.resolve(null);
+
   const key = `${input.stadium}:${kickoff.toISOString().slice(0, 13)}`;
   const cached = gameWeatherCache.get(key);
-  if (cached && Date.now() - cached.at < 30 * 60_000) return cached.weather;
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
 
-  try {
-    const geocodeUrl = new URL("https://geocoding-api.open-meteo.com/v1/search");
-    geocodeUrl.searchParams.set("name", input.stadium);
-    geocodeUrl.searchParams.set("count", "1");
-    geocodeUrl.searchParams.set("language", "en");
-    geocodeUrl.searchParams.set("format", "json");
-    const place = await fetchValidated(
-      "Open-Meteo geocoding",
-      geocodeUrl.toString(),
-      geocodeSchema,
-    );
-    const result = place.results?.[0];
-    if (!result) {
-      gameWeatherCache.set(key, { at: Date.now(), weather: null });
+  const promise = (async () => {
+    try {
+      const geocodeUrl = new URL(
+        "https://geocoding-api.open-meteo.com/v1/search",
+      );
+      geocodeUrl.searchParams.set("name", input.stadium!);
+      geocodeUrl.searchParams.set("count", "1");
+      geocodeUrl.searchParams.set("language", "en");
+      geocodeUrl.searchParams.set("format", "json");
+      const place = await fetchValidated(
+        "Open-Meteo geocoding",
+        geocodeUrl.toString(),
+        geocodeSchema,
+      );
+      const result = place.results?.[0];
+      if (!result) return null;
+
+      return new OpenMeteoProvider().getForecast({
+        latitude: result.latitude,
+        longitude: result.longitude,
+        kickoffAt: kickoff,
+      });
+    } catch (error) {
+      console.error("Game weather unavailable", error);
       return null;
     }
-    const weather = await new OpenMeteoProvider().getForecast({
-      latitude: result.latitude,
-      longitude: result.longitude,
-      kickoffAt: kickoff,
-    });
-    gameWeatherCache.set(key, { at: Date.now(), weather });
-    return weather;
-  } catch (error) {
-    console.error("Game weather unavailable", error);
-    gameWeatherCache.set(key, { at: Date.now(), weather: null });
-    return null;
-  }
+  })();
+
+  gameWeatherCache.set(key, {
+    expiresAt: Date.now() + 30 * 60_000,
+    promise,
+  });
+
+  return promise;
 }

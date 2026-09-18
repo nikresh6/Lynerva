@@ -8,9 +8,9 @@ import { clamp } from "@/lib/utils";
 type CalibrationBucket = { count: number; wins: number };
 
 let cache: { at: number; buckets: CalibrationBucket[] } | null = null;
+let inflight: Promise<CalibrationBucket[]> | null = null;
 
-async function loadBuckets() {
-  if (cache && Date.now() - cache.at < 15 * 60_000) return cache.buckets;
+async function queryBuckets() {
   try {
     const db = getDb();
     const rows = await db
@@ -36,6 +36,18 @@ async function loadBuckets() {
     return buckets;
   } catch {
     return Array.from({ length: 10 }, () => ({ count: 0, wins: 0 }));
+  }
+}
+
+async function loadBuckets() {
+  if (cache && Date.now() - cache.at < 15 * 60_000) return cache.buckets;
+  if (inflight) return inflight;
+
+  inflight = queryBuckets();
+  try {
+    return await inflight;
+  } finally {
+    inflight = null;
   }
 }
 

@@ -54,7 +54,10 @@ function browserShortlist(opportunities: MarketOpportunity[]) {
 
 export async function GET() {
   const payload = await getMarketOpportunities();
-  const eligible = payload.opportunities.filter(isTopOpportunity);
+  const rated = payload.opportunities.filter(
+    (market) => market.model.probabilityBps !== null,
+  );
+  const eligible = rated.filter(isTopOpportunity);
   const opportunities = browserShortlist(eligible).map((market) => ({
     ...market,
     resolutionRules: market.resolutionRules?.slice(0, 240) ?? null,
@@ -75,7 +78,7 @@ export async function GET() {
         fetchedAt: provider.fetchedAt,
         error: provider.error,
       })),
-      ratedCount: payload.opportunities.length,
+      ratedCount: rated.length,
       displayedCount: Math.min(30, new Set(eligible.map(groupKey)).size),
       fetchedAt: payload.fetchedAt,
     },

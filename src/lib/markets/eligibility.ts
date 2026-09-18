@@ -92,6 +92,6 @@ export function isTopOpportunity(market: MarketOpportunity) {
   // Reliability is already penalized heavily in Lynerva Score. Builder keeps
   // its stricter reliability requirement.
   if (!isModelBackedOpportunity(market)) return false;
-  if ((market.edgeBps ?? 0) < 150) return false;
+  if ((market.edgeBps ?? 0) < 75) return false;
   return true;
 }

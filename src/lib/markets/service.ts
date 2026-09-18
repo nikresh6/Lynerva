@@ -467,7 +467,7 @@ async function refreshSnapshot() {
 
 export async function getMarketOpportunities(): Promise<MarketsPayload> {
   const now = Date.now();
-  if (warmSnapshot && now - warmSnapshot.storedAt < 15_000) {
+  if (warmSnapshot && now - warmSnapshot.storedAt < 45_000) {
     return warmSnapshot.payload;
   }
 
