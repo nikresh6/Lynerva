@@ -383,10 +383,11 @@ function modeCompatible(
   return true;
 }
 
-export function buildCombination(
+function searchCombinations(
   opportunities: MarketOpportunity[],
   options: BuilderOptions,
-): BuiltCombination | null {
+  resultLimit: number,
+): BuiltCombination[] {
   if (
     !Number.isFinite(options.minReturn) ||
     !Number.isFinite(options.maxReturn) ||
@@ -394,14 +395,14 @@ export function buildCombination(
     options.maxReturn < options.minReturn ||
     options.maxLegs < 2
   ) {
-    return null;
+    return [];
   }
 
   const eligible = candidatePool(opportunities, options);
-  if (eligible.length === 0) return null;
+  if (eligible.length === 0) return [];
 
   const targetReturn = Math.sqrt(options.minReturn * options.maxReturn);
-  const beamWidth = 3_000;
+  const beamWidth = resultLimit > 1 ? 2_200 : 3_000;
   let frontier: SearchState[] = [
     {
       legs: [],
@@ -412,6 +413,7 @@ export function buildCombination(
     },
   ];
   let best: BuiltCombination | null = null;
+  const bestByReturnBucket = new Map<number, BuiltCombination>();
 
   for (let depth = 1; depth <= options.maxLegs; depth += 1) {
     const next: SearchState[] = [];
@@ -467,24 +469,42 @@ export function buildCombination(
         if (
           nextState.legs.length >= 2 &&
           grossReturn >= options.minReturn &&
-          grossReturn <= options.maxReturn
+          grossReturn <= options.maxReturn &&
+          isAcceptablePayoutShape(nextState.legs)
         ) {
-          if (isAcceptablePayoutShape(nextState.legs)) {
-            const built = buildFromState(nextState);
+          const built = buildFromState(nextState);
+
+          if (
+            isBetterCombination(
+              built,
+              best,
+              targetReturn,
+              options.objective,
+            )
+          ) {
+            best = built;
+          }
+
+          if (resultLimit > 1) {
+            const bucket = Math.floor(Math.log(grossReturn) / 0.24);
+            const previous = bestByReturnBucket.get(bucket);
+            const bucketTarget = Math.exp((bucket + 0.5) * 0.24);
             if (
               isBetterCombination(
                 built,
-                best,
-                targetReturn,
+                previous ?? null,
+                bucketTarget,
                 options.objective,
               )
             ) {
-              best = built;
+              bestByReturnBucket.set(bucket, built);
             }
           }
         }
 
-        if (depth < options.maxLegs && grossReturn < options.minReturn) {
+        const searchCeiling =
+          resultLimit > 1 ? options.maxReturn : options.minReturn;
+        if (depth < options.maxLegs && grossReturn < searchCeiling) {
           next.push(nextState);
         }
       }
@@ -509,7 +529,7 @@ export function buildCombination(
               stateSearchValue(second, targetReturn, options.objective) -
               stateSearchValue(first, targetReturn, options.objective),
           )
-          .slice(0, 96),
+          .slice(0, resultLimit > 1 ? 72 : 96),
       )
       .toSorted(
         (first, second) =>
@@ -519,7 +539,53 @@ export function buildCombination(
       .slice(0, beamWidth);
   }
 
-  return best;
+  if (!best) return [];
+  if (resultLimit <= 1) return [best];
+
+  const unique = new Map<string, BuiltCombination>();
+  for (const combination of [best, ...bestByReturnBucket.values()]) {
+    const key = combination.legs
+      .map((leg) => leg.canonical?.key ?? `${leg.platform}:${leg.platformMarketId}`)
+      .toSorted()
+      .join("|");
+    const previous = unique.get(key);
+    if (
+      !previous ||
+      combination.expectedValueMultiplier > previous.expectedValueMultiplier
+    ) {
+      unique.set(key, combination);
+    }
+  }
+
+  return [...unique.values()]
+    .toSorted((first, second) => {
+      const firstScore = combinationScore(first, targetReturn, options.objective);
+      const secondScore = combinationScore(second, targetReturn, options.objective);
+      return (
+        secondScore - firstScore ||
+        second.expectedValueMultiplier - first.expectedValueMultiplier
+      );
+    })
+    .slice(0, resultLimit);
+}
+
+export function buildCombination(
+  opportunities: MarketOpportunity[],
+  options: BuilderOptions,
+): BuiltCombination | null {
+  return searchCombinations(opportunities, options, 1)[0] ?? null;
+}
+
+export function buildCombinationCandidates(
+  opportunities: MarketOpportunity[],
+  options: BuilderOptions,
+  limit = 8,
+): BuiltCombination[] {
+  return searchCombinations(
+    opportunities,
+    options,
+    Math.max(2, Math.min(limit, 12)),
+  );
 }
 
 export function buildBestAvailableCombination(

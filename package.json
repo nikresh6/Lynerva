@@ -12,7 +12,7 @@
     "test:coverage": "vitest run --coverage",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "dotenv -e .env.local -- tsx src/db/migrate.ts",
-    "db:migrate:runtime": "tsx src/db/migrate.ts",
+    "db:migrate:runtime": "node scripts/migrate-runtime.mjs",
     "db:studio": "dotenv -e .env.local -- drizzle-kit studio",
     "data:nflverse": "NODE_OPTIONS=--conditions=react-server dotenv -e .env.local -- tsx scripts/ingest-nflverse.ts",
     "smoke:auth": "tsx scripts/smoke-auth.ts",

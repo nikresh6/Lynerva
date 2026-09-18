@@ -23,11 +23,17 @@ function normalizeOrigin(value: string | undefined) {
   }
 }
 
+const LYNERVA_PRODUCTION_ORIGIN = "https://lynerva-production.up.railway.app";
+
 function resolveAuthOrigin() {
   const railwayOrigin = normalizeOrigin(process.env.RAILWAY_PUBLIC_DOMAIN);
   const configuredOrigin = normalizeOrigin(process.env.BETTER_AUTH_URL);
 
-  return railwayOrigin ?? configuredOrigin ?? undefined;
+  if (process.env.NODE_ENV === "production") {
+    return railwayOrigin ?? LYNERVA_PRODUCTION_ORIGIN;
+  }
+
+  return configuredOrigin ?? railwayOrigin ?? undefined;
 }
 
 function createAuth() {
@@ -39,6 +45,7 @@ function createAuth() {
     baseURL,
     normalizeOrigin(process.env.BETTER_AUTH_URL),
     normalizeOrigin(process.env.RAILWAY_PUBLIC_DOMAIN),
+    LYNERVA_PRODUCTION_ORIGIN,
   ].filter((value): value is string => Boolean(value));
 
   return betterAuth({
