@@ -43,6 +43,22 @@ const marketsResponseSchema = z.object({
   cursor: z.string().optional().default(""),
 });
 
+const seriesResponseSchema = z.object({
+  series: z.array(
+    z.object({
+      ticker: z.string(),
+      title: z.string().optional().default(""),
+      category: z.string().optional().default(""),
+      tags: z.array(z.string()).nullish(),
+    }).passthrough(),
+  ),
+});
+
+let discoveredSeriesCache: {
+  expiresAt: number;
+  promise: Promise<string[]>;
+} | null = null;
+
 const CORE_NFL_SERIES = [
   "KXNFLGAME",
   "KXNFLSPREAD",
@@ -56,27 +72,82 @@ const CORE_NFL_SERIES = [
 ] as const;
 
 async function fetchSeriesMarkets(seriesTicker: string) {
+  const markets: z.infer<typeof marketSchema>[] = [];
+  let cursor = "";
+
   try {
-    const url = new URL(`${KALSHI_BASE}/markets`);
-    url.searchParams.set("status", "open");
-    url.searchParams.set("series_ticker", seriesTicker);
-    url.searchParams.set("mve_filter", "exclude");
-    url.searchParams.set("limit", "200");
-    const payload = await fetchValidated(
-      "Kalshi",
-      url.toString(),
-      marketsResponseSchema,
-      { cache: "no-store" },
-    );
-    return payload.markets;
+    do {
+      const url = new URL(`${KALSHI_BASE}/markets`);
+      url.searchParams.set("status", "open");
+      url.searchParams.set("series_ticker", seriesTicker);
+      url.searchParams.set("mve_filter", "exclude");
+      url.searchParams.set("limit", "1000");
+      if (cursor) url.searchParams.set("cursor", cursor);
+
+      const payload = await fetchValidated(
+        "Kalshi",
+        url.toString(),
+        marketsResponseSchema,
+        { cache: "no-store" },
+      );
+      markets.push(...payload.markets);
+      cursor = payload.cursor;
+    } while (cursor);
+
+    return markets;
   } catch (error) {
     console.error(`Kalshi series fetch failed for ${seriesTicker}`, error);
-    return [] as z.infer<typeof marketSchema>[];
+    return markets;
   }
 }
 
+function discoverWeeklyPlayerSeries() {
+  if (discoveredSeriesCache && discoveredSeriesCache.expiresAt > Date.now()) {
+    return discoveredSeriesCache.promise;
+  }
+
+  const promise = (async () => {
+    try {
+      const url = new URL(`${KALSHI_BASE}/series`);
+      url.searchParams.set("category", "Sports");
+      url.searchParams.set("tags", "NFL");
+      const payload = await fetchValidated(
+        "Kalshi series",
+        url.toString(),
+        seriesResponseSchema,
+        { cache: "no-store" },
+      );
+
+      return payload.series
+        .filter((series) => {
+          const text = `${series.ticker} ${series.title}`;
+          const isPlayerStat =
+            /pass(?:ing)? yards?|pass(?:ing)? (?:tds?|touchdowns?)|rush(?:ing)? yards?|receiv(?:ing)? yards?|receptions?|catches|touchdowns?|longest (?:reception|catch)/i.test(
+              text,
+            );
+          const seasonOnly =
+            /season|leader|record|award|most|top\s+\d|year/i.test(text);
+          return isPlayerStat && !seasonOnly;
+        })
+        .map((series) => series.ticker)
+        .slice(0, 30);
+    } catch (error) {
+      console.error("Kalshi NFL series discovery failed", error);
+      return [] as string[];
+    }
+  })();
+
+  discoveredSeriesCache = {
+    expiresAt: Date.now() + 30 * 60_000,
+    promise,
+  };
+  return promise;
+}
+
 async function fetchCoreSeriesMarkets() {
-  const chunks = await Promise.all(CORE_NFL_SERIES.map(fetchSeriesMarkets));
+  const discovered = await discoverWeeklyPlayerSeries();
+  const tickers = [...new Set([...CORE_NFL_SERIES, ...discovered])];
+  const chunks = await Promise.all(tickers.map(fetchSeriesMarkets));
   return chunks.flat();
 }
 
