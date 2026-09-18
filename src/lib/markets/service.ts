@@ -4,6 +4,7 @@ import { fetchKalshiNflMarkets } from "@/lib/kalshi";
 import { fetchPolymarketNflMarkets } from "@/lib/polymarket";
 import { estimateMarket } from "@/lib/model";
 import { marketFixtures } from "./fixtures";
+import { isSingleLegNflProviderMarket } from "./eligibility";
 import {
   canonicalKeyWithoutRules,
   normalizeMarket,
@@ -51,7 +52,11 @@ export async function getMarketOpportunities(): Promise<MarketsPayload> {
         },
       ]
     : await Promise.all([fetchKalshiNflMarkets(), fetchPolymarketNflMarkets()]);
-  const raw = providers.flatMap((provider) => provider.markets);
+  const cleanProviders = providers.map((provider) => ({
+    ...provider,
+    markets: provider.markets.filter(isSingleLegNflProviderMarket),
+  }));
+  const raw = cleanProviders.flatMap((provider) => provider.markets);
   const normalized = raw.map((market) => ({
     market,
     canonical: normalizeMarket(market),
@@ -167,7 +172,7 @@ export async function getMarketOpportunities(): Promise<MarketsPayload> {
   });
   return {
     opportunities,
-    providers,
+    providers: cleanProviders,
     fetchedAt: new Date().toISOString(),
     fixtureMode,
   };
