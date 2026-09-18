@@ -1,6 +1,6 @@
 "use client";
 
-import { CloudSun, ExternalLink, X } from "lucide-react";
+import { ChevronDown, CloudSun, ExternalLink, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { MarketOpportunity } from "@/lib/markets/types";
 import { cn, formatPercent, relativeTime, titleCase } from "@/lib/utils";
@@ -428,12 +428,27 @@ export function MarketTable({
   emptyMessage?: string;
 }) {
   const [selected, setSelected] = useState<MarketOpportunity | null>(null);
-  const ranked = useMemo(
-    () => markets.toSorted((a, b) => (b.lynervaScore ?? -1) - (a.lynervaScore ?? -1)),
-    [markets],
-  );
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  if (!ranked.length) {
+  const groups = useMemo(() => {
+    const sorted = markets.toSorted((a, b) => (b.lynervaScore ?? -1) - (a.lynervaScore ?? -1));
+    const map = new Map<string, MarketOpportunity[]>();
+    for (const market of sorted) {
+      const canonical = market.canonical;
+      const key = canonical
+        ? [canonical.matchup, canonical.family, canonical.subject ?? "", canonical.statistic ?? "", market.recommendedSide ?? ""].join(":")
+        : `${market.platform}:${market.platformMarketId}`;
+      const group = map.get(key) ?? [];
+      group.push(market);
+      map.set(key, group);
+    }
+    return [...map.entries()]
+      .map(([key, lines]) => ({ key, lines, best: lines[0]! }))
+      .toSorted((a, b) => (b.best.lynervaScore ?? -1) - (a.best.lynervaScore ?? -1))
+      .slice(0, 30);
+  }, [markets]);
+
+  if (!groups.length) {
     return (
       <div className="rounded-xl border bg-surface px-6 py-16 text-center">
         <p className="font-medium">{emptyMessage}</p>
@@ -445,49 +460,96 @@ export function MarketTable({
   return (
     <>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {ranked.map((market, index) => {
-          const key = `${market.platform}:${market.platformMarketId}:${market.platformOutcomeId ?? "yes"}`;
+        {groups.map(({ key, lines, best: market }, index) => {
           const rate = hitRate(market);
           const profit = profitOn100(market);
+          const isExpanded = expanded.has(key);
+          const alternates = lines.slice(1);
 
           return (
-            <button
+            <div
               key={key}
-              type="button"
-              onClick={() => setSelected(market)}
-              className="group rounded-2xl border bg-surface p-4 text-left transition-[transform,border-color,box-shadow] hover:-translate-y-0.5 hover:border-border-strong hover:shadow-[0_8px_24px_rgb(0_0_0/0.06)]"
+              className="rounded-2xl border bg-surface text-left transition-[transform,border-color,box-shadow] hover:border-border-strong hover:shadow-[0_8px_24px_rgb(0_0_0/0.06)]"
             >
-              <div className="flex items-start gap-3">
-                <div className="relative">
-                  <SubjectVisual market={market} />
-                  <span className="absolute -left-1.5 -top-1.5 grid size-5 place-items-center rounded-full bg-foreground text-[9px] font-bold text-background">{index + 1}</span>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <PlatformMark platform={market.platform} />
-                    {market.isLive ? <span className="rounded-full bg-negative-bg px-1.5 py-0.5 text-[9px] font-bold uppercase text-negative">Live</span> : null}
+              <button type="button" onClick={() => setSelected(market)} className="w-full p-4 text-left">
+                <div className="flex items-start gap-3">
+                  <div className="relative">
+                    <SubjectVisual market={market} />
+                    <span className="absolute -left-1.5 -top-1.5 grid size-5 place-items-center rounded-full bg-foreground text-[9px] font-bold text-background">{index + 1}</span>
                   </div>
-                  <div className="mt-2 line-clamp-2 font-semibold leading-5">
-                    <span className="mr-1.5 text-positive">{displayPickSide(market)}</span>
-                    {displayMarketTitle(market)}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <PlatformMark platform={market.platform} />
+                      {market.isLive ? <span className="rounded-full bg-negative-bg px-1.5 py-0.5 text-[9px] font-bold uppercase text-negative">Live</span> : null}
+                    </div>
+                    <div className="mt-2 line-clamp-2 font-semibold leading-5">
+                      <span className="mr-1.5 text-positive">{displayPickSide(market)}</span>
+                      {displayMarketTitle(market)}
+                    </div>
+                    <div className="mt-1 text-[11px] text-faint">{displayContext(market)}</div>
                   </div>
-                  <div className="mt-1 text-[11px] text-faint">{displayContext(market)}</div>
+                  <ScoreRing score={market.lynervaScore} />
                 </div>
-                <ScoreRing score={market.lynervaScore} />
-              </div>
 
-              <div className="mt-4 grid grid-cols-4 gap-2 rounded-xl bg-background p-3">
-                <Metric label="Market chance" value={formatPercent(market.executablePriceBps)} />
-                <Metric label="Lynerva chance" value={formatPercent(market.recommendedProbabilityBps)} emphasis />
-                <Metric label="Hit rate" value={rate === null ? "—" : `${rate}%`} />
-                <Metric label="$100 profit" value={profit === null ? "—" : `$${profit.toFixed(0)}`} />
-              </div>
+                <div className="mt-4 grid grid-cols-4 gap-2 rounded-xl bg-background p-3">
+                  <Metric label="Market chance" value={formatPercent(market.executablePriceBps)} />
+                  <Metric label="Lynerva chance" value={formatPercent(market.recommendedProbabilityBps)} emphasis />
+                  <Metric label="Hit rate" value={rate === null ? "—" : `${rate}%`} />
+                  <Metric label="$100 profit" value={profit === null ? "—" : `$${profit.toFixed(0)}`} />
+                </div>
 
-              <div className="mt-3 flex items-center justify-between text-[10px] text-muted">
-                <span>{americanOdds(market.executablePriceBps)} equivalent</span>
-                <span>Open Bet Lab →</span>
-              </div>
-            </button>
+                <div className="mt-3 flex items-center justify-between text-[10px] text-muted">
+                  <span>{americanOdds(market.executablePriceBps)} equivalent</span>
+                  <span>Open Bet Lab →</span>
+                </div>
+              </button>
+
+              {alternates.length ? (
+                <div className="border-t">
+                  <button
+                    type="button"
+                    onClick={() => setExpanded((current) => {
+                      const next = new Set(current);
+                      if (next.has(key)) next.delete(key);
+                      else next.add(key);
+                      return next;
+                    })}
+                    className="flex w-full items-center justify-between px-4 py-3 text-xs font-medium text-muted hover:text-foreground"
+                  >
+                    <span>{alternates.length} alternate line{alternates.length === 1 ? "" : "s"}</span>
+                    <ChevronDown size={14} className={cn("transition-transform", isExpanded ? "rotate-180" : "")} />
+                  </button>
+
+                  {isExpanded ? (
+                    <div className="space-y-1 border-t bg-background p-2">
+                      {alternates.map((alt) => {
+                        const altProfit = profitOn100(alt);
+                        return (
+                          <button
+                            key={`${alt.platform}:${alt.platformMarketId}:${alt.platformOutcomeId ?? "yes"}`}
+                            type="button"
+                            onClick={() => setSelected(alt)}
+                            className="grid w-full grid-cols-[1fr_auto_auto] items-center gap-3 rounded-lg px-3 py-2 text-left text-[11px] hover:bg-surface-raised"
+                          >
+                            <div className="min-w-0">
+                              <div className="truncate font-medium">{displayPickSide(alt)} {displayMarketTitle(alt)}</div>
+                              <div className="mt-0.5 text-faint">{formatPercent(alt.executablePriceBps)} market · {formatPercent(alt.recommendedProbabilityBps)} Lynerva</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="font-bold tabular">{alt.lynervaScore ?? "—"}</div>
+                              <div className="text-[8px] uppercase text-faint">score</div>
+                            </div>
+                            <div className="min-w-12 text-right tabular text-muted">
+                              {altProfit === null ? "—" : `+$${altProfit.toFixed(0)}`}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           );
         })}
       </div>
