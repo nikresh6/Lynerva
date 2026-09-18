@@ -60,11 +60,19 @@ function candidatePool(
       if (options.live === "pregame" && market.isLive) return false;
       return true;
     })
-    .toSorted(
-      (first, second) =>
+    .toSorted((first, second) => {
+      const firstRiskAdjusted =
+        (first.expectedRoi ?? -Infinity) *
+        Math.max(first.model.reliabilityBps / 10_000, 0);
+      const secondRiskAdjusted =
+        (second.expectedRoi ?? -Infinity) *
+        Math.max(second.model.reliabilityBps / 10_000, 0);
+      return (
+        secondRiskAdjusted - firstRiskAdjusted ||
         (second.opportunityScore ?? -Infinity) -
-        (first.opportunityScore ?? -Infinity),
-    );
+          (first.opportunityScore ?? -Infinity)
+      );
+    });
 
   const selected: MarketOpportunity[] = [];
   const perGame = new Map<string, number>();
@@ -76,7 +84,7 @@ function candidatePool(
     if (count >= perGameLimit) continue;
     selected.push(market);
     perGame.set(key, count + 1);
-    if (selected.length >= 120) break;
+    if (selected.length >= 30) break;
   }
 
   return selected;
@@ -176,10 +184,21 @@ export function buildCombination(
           grossReturn <= options.maxReturn
         ) {
           const built = buildFromState(nextState);
+          const builtExpectedRoi =
+            built.impliedProbability > 0
+              ? built.estimatedEdge / built.impliedProbability
+              : -Infinity;
+          const bestExpectedRoi =
+            best && best.impliedProbability > 0
+              ? best.estimatedEdge / best.impliedProbability
+              : -Infinity;
           if (
             !best ||
-            built.estimatedEdge > best.estimatedEdge ||
-            (built.estimatedEdge === best.estimatedEdge &&
+            builtExpectedRoi > bestExpectedRoi ||
+            (builtExpectedRoi === bestExpectedRoi &&
+              built.estimatedEdge > best.estimatedEdge) ||
+            (builtExpectedRoi === bestExpectedRoi &&
+              built.estimatedEdge === best.estimatedEdge &&
               Math.abs(built.grossReturn - targetReturn) <
                 Math.abs(best.grossReturn - targetReturn))
           ) {
