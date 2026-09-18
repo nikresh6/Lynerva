@@ -489,27 +489,75 @@ function loadCbs(season: number, week: number) {
 function ffTodayRowStats(
   position: string,
   cells: string[],
-  playerIndex: number,
 ): ProjectionStats {
-  // FFToday weekly tables place Team and Opp immediately after Player.
-  // Skill positions then use: RuAtt, RuYd, RuTD, Rec, RecYd, RecTD.
-  // QB uses: Comp, Att, PaYd, PaTD, INT, RuAtt, RuYd, RuTD.
+  const numeric = cells
+    .map(toNumber)
+    .filter((value): value is number => value !== null);
+
   if (position === "QB") {
+    // FFToday QB rows end with:
+    // Cmp, Att, PassYds, PassTD, INT, RushAtt, RushYds, RushTD, FPts.
+    const values = numeric.slice(-9);
+    if (values.length < 9) return {};
     return {
-      passingYards: toNumber(cells[playerIndex + 5]) ?? undefined,
-      passingTouchdowns: toNumber(cells[playerIndex + 6]) ?? undefined,
-      rushingYards: toNumber(cells[playerIndex + 9]) ?? undefined,
-      rushingTouchdowns: toNumber(cells[playerIndex + 10]) ?? undefined,
+      passingYards: values[2],
+      passingTouchdowns: values[3],
+      rushingYards: values[6],
+      rushingTouchdowns: values[7],
     };
   }
 
+  // RB/WR/TE rows end with:
+  // RushAtt, RushYds, RushTD, Rec, RecYds, RecTD, FPts.
+  const values = numeric.slice(-7);
+  if (values.length < 7) return {};
   return {
-    rushingYards: toNumber(cells[playerIndex + 4]) ?? undefined,
-    rushingTouchdowns: toNumber(cells[playerIndex + 5]) ?? undefined,
-    receptions: toNumber(cells[playerIndex + 6]) ?? undefined,
-    receivingYards: toNumber(cells[playerIndex + 7]) ?? undefined,
-    receivingTouchdowns: toNumber(cells[playerIndex + 8]) ?? undefined,
+    rushingYards: values[1],
+    rushingTouchdowns: values[2],
+    receptions: values[3],
+    receivingYards: values[4],
+    receivingTouchdowns: values[5],
   };
+}
+
+function ffTodayPlayerFromRow(cells: string[]) {
+  const teams =
+    "(?:ARI|ATL|BAL|BUF|CAR|CHI|CIN|CLE|DAL|DEN|DET|GB|HOU|IND|JAX|KC|LV|LAC|LAR|MIA|MIN|NE|NO|NYG|NYJ|PHI|PIT|SF|SEA|TB|TEN|WAS)";
+
+  // Some FFToday responses put the team in its own cell.
+  for (let index = 0; index < cells.length - 1; index += 1) {
+    if (!new RegExp(`^${teams}$`, "i").test(cells[index + 1]?.trim() ?? "")) {
+      continue;
+    }
+    const candidate = (cells[index] ?? "")
+      .replace(/\s+(?:Risk|Upside):.*$/i, "")
+      .trim();
+    if (/^[A-Za-z][A-Za-z.'’ -]+\s+[A-Za-z][A-Za-z.'’ -]+$/.test(candidate)) {
+      return candidate;
+    }
+  }
+
+  // Other responses append the team code to the player cell.
+  const merged = cells
+    .map((cell) => cell.trim())
+    .map((cell) => {
+      const match = cell.match(
+        new RegExp(`^(.+?)\\s+${teams}$`, "i"),
+      );
+      return match?.[1]
+        ?.replace(/\s+(?:Risk|Upside):.*$/i, "")
+        .trim();
+    })
+    .find((candidate) =>
+      Boolean(
+        candidate &&
+          /^[A-Za-z][A-Za-z.'’ -]+\s+[A-Za-z][A-Za-z.'’ -]+$/.test(
+            candidate,
+          ),
+      ),
+    );
+
+  return merged ?? null;
 }
 
 function loadFfToday(season: number, week: number) {
@@ -540,32 +588,10 @@ function loadFfToday(season: number, week: number) {
 
               for (const cells of rowsFromHtml(html)) {
                 if (cells.length < 8) continue;
-
-                // FFToday currently renders the player name as plain table
-                // text in some responses rather than a stable /stats/players
-                // link. Identify the player cell structurally: it is followed
-                // by an NFL team code and then the opponent.
-                const playerIndex = cells.findIndex(
-                  (cell, index) =>
-                    index + 2 < cells.length &&
-                    /^[A-Z][A-Za-z.'’ -]+(?:\s+(?:Jr\.?|Sr\.?|II|III|IV))?(?:\s+Risk:.*)?$/i.test(
-                      cell.trim(),
-                    ) &&
-                    /^(?:ARI|ATL|BAL|BUF|CAR|CHI|CIN|CLE|DAL|DEN|DET|GB|HOU|IND|JAX|KC|LV|LAC|LAR|MIA|MIN|NE|NO|NYG|NYJ|PHI|PIT|SF|SEA|TB|TEN|WAS)$/i.test(
-                      cells[index + 1]?.trim() ?? "",
-                    ) &&
-                    /^@?(?:ARI|ATL|BAL|BUF|CAR|CHI|CIN|CLE|DAL|DEN|DET|GB|HOU|IND|JAX|KC|LV|LAC|LAR|MIA|MIN|NE|NO|NYG|NYJ|PHI|PIT|SF|SEA|TB|TEN|WAS)$/i.test(
-                      cells[index + 2]?.trim() ?? "",
-                    ),
-                );
-                if (playerIndex < 0) continue;
-
-                const player = (cells[playerIndex] ?? "")
-                  .replace(/\s+(?:Risk|Upside):.*$/i, "")
-                  .trim();
+                const player = ffTodayPlayerFromRow(cells);
                 if (!player) continue;
 
-                const stats = ffTodayRowStats(position, cells, playerIndex);
+                const stats = ffTodayRowStats(position, cells);
                 if (Object.values(stats).some((value) => value !== undefined)) {
                   mergeStats(map, player, stats);
                 }
