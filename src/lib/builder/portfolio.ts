@@ -531,13 +531,25 @@ function targetShares(
 ) {
   if (!candidates.length) return null;
 
-  const bounds = candidates.map((candidate) =>
+  let bounds = candidates.map((candidate) =>
     shareBounds(candidate.role, risk, targetReturn),
   );
   const minTotal = bounds.reduce((sum, row) => sum + row.min, 0);
-  const maxTotal = bounds.reduce((sum, row) => sum + row.max, 0);
+  let maxTotal = bounds.reduce((sum, row) => sum + row.max, 0);
 
-  if (minTotal > 1.0001 || maxTotal < 0.9999) return null;
+  if (minTotal > 1.0001) return null;
+
+  if (maxTotal < 0.9999) {
+    const fallbackCap =
+      risk === "lower" ? 0.4 : risk === "balanced" ? 0.34 : 0.4;
+    bounds = bounds.map((row) => ({
+      ...row,
+      max: Math.max(row.max, fallbackCap),
+    }));
+    maxTotal = bounds.reduce((sum, row) => sum + row.max, 0);
+  }
+
+  if (maxTotal < 0.9999) return null;
 
   const lowShares = fillExtreme(candidates, bounds, false);
   const highShares = fillExtreme(candidates, bounds, true);
