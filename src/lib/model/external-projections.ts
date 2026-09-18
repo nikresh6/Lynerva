@@ -944,9 +944,6 @@ async function sourceProjection(
   season: number,
   week: number,
 ): Promise<ProjectionPoint | null> {
-  if (source === "fftoday") {
-    return ffTodayMarketProjection(market, season, week);
-  }
   if (source === "nfl") return nflMarketProjection(market, season, week);
 
   const loader =
@@ -958,11 +955,13 @@ async function sourceProjection(
           ? loadEspn
           : source === "cbs"
             ? loadCbs
-            : source === "covers"
-              ? loadCovers
-              : source === "fourforfour"
-                ? loadFourForFour
-                : loadDimers;
+            : source === "fftoday"
+              ? loadFfToday
+              : source === "covers"
+                ? loadCovers
+                : source === "fourforfour"
+                  ? loadFourForFour
+                  : loadDimers;
 
   const map = await loader(season, week);
   // Prefer an exact normalized player name. Abbreviated fallbacks are used
