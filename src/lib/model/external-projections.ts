@@ -234,28 +234,23 @@ function loadFantasyPros(season: number, week: number) {
     const map: ProjectionMap = new Map();
     await Promise.all(
       ["qb", "rb", "wr", "te"].map(async (position) => {
-        const urls = [
-          `https://www.fantasypros.com/nfl/projections/${position}.php?week=${week}`,
-          `https://www.fantasypros.com/nfl/projections/${position}.php`,
-        ];
-        for (const url of urls) {
-          try {
-            const rows = rowsFromHtml(await fetchText(url));
-            let found = 0;
-            for (const cells of rows) {
-              if (cells.length < 3) continue;
-              const player = cells[0]?.replace(/\s+[A-Z]{2,3}\s*$/i, "").trim();
-              if (!player) continue;
-              const stats = fantasyProsStats(position, cells);
-              if (Object.values(stats).some((value) => value !== undefined)) {
-                mergeStats(map, player, stats);
-                found += 1;
-              }
+        const url =
+          `https://www.fantasypros.com/nfl/projections/${position}.php?week=${week}`;
+        try {
+          const rows = rowsFromHtml(await fetchText(url));
+          for (const cells of rows) {
+            if (cells.length < 3) continue;
+            const player = cells[0]?.replace(/\s+[A-Z]{2,3}\s*$/i, "").trim();
+            if (!player) continue;
+            const stats = fantasyProsStats(position, cells);
+            if (Object.values(stats).some((value) => value !== undefined)) {
+              mergeStats(map, player, stats);
             }
-            if (found) break;
-          } catch {
-            // Try the fallback page.
           }
+        } catch {
+          // A missing weekly page must stay missing. Never fall back to the
+          // season/draft projections, because those values are not comparable
+          // to a single-game player prop.
         }
       }),
     );
