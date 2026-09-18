@@ -584,7 +584,7 @@ export function buildCombinationCandidates(
   return searchCombinations(
     opportunities,
     options,
-    Math.max(2, Math.min(limit, 12)),
+    Math.max(2, Math.min(limit, 36)),
   );
 }
 
