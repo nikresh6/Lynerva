@@ -215,6 +215,24 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
 
   let normalized = normalizeWithSchedule(null);
 
+  if (
+    normalized.every((item) => item.market.platform !== "polymarket") &&
+    providerMarkets.some((market) => market.platform === "polymarket")
+  ) {
+    console.warn(
+      "Polymarket markets were fetched but none mapped to current NFL games",
+      providerMarkets
+        .filter((market) => market.platform === "polymarket")
+        .slice(0, 6)
+        .map((market) => ({
+          eventTitle: market.eventTitle,
+          marketTitle: market.marketTitle,
+          closesAt: market.closesAt,
+          canonical: normalizeMarket(market),
+        })),
+    );
+  }
+
   // Some serverless hosts intermittently fail to reach ESPN even while the
   // market providers are healthy. Do not turn that transient scoreboard
   // outage into an empty Lynerva feed. Fall back to the public nflverse
