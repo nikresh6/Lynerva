@@ -192,22 +192,7 @@ function findSubject(value: string, family: MarketFamily, teams: string[]) {
   return (firstClause || value).trim().slice(0, 80);
 }
 
-function eventDateFromTicker(market: ProviderMarket) {
-  const value = `${market.platformMarketId} ${market.eventTitle}`.toUpperCase();
-  const match = value.match(/(?:^|[-_])(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(?:[A-Z]|[-_]|$)/);
-  if (!match) return null;
-  const months: Record<string, string> = {
-    JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06",
-    JUL: "07", AUG: "08", SEP: "09", OCT: "10", NOV: "11", DEC: "12",
-  };
-  const month = months[match[2]!];
-  if (!month) return null;
-  return `20${match[1]}-${month}-${match[3]}`;
-}
-
 function settlementDate(market: ProviderMarket) {
-  const tickerDate = eventDateFromTicker(market);
-  if (tickerDate) return tickerDate;
   if (!market.closesAt) return null;
   const date = new Date(market.closesAt);
   return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
