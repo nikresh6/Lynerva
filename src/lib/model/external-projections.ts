@@ -13,7 +13,8 @@ export type ProjectionSource =
   | "nfl"
   | "covers"
   | "dimers"
-  | "fourforfour";
+  | "fourforfour"
+  | "rotoballer";
 
 export interface ProjectionPoint {
   source: ProjectionSource;
@@ -36,7 +37,7 @@ type ProjectionMap = Map<string, ProjectionStats>;
 const PAGE_TTL_MS = 20 * 60_000;
 const FAILURE_TTL_MS = 30_000;
 const CONSENSUS_TTL_MS = 20 * 60_000;
-const SOURCE_TIMEOUT_MS = 3_500;
+const SOURCE_TIMEOUT_MS = 2_200;
 
 const pageCache = new Map<
   string,
@@ -557,40 +558,70 @@ function loadFfToday(season: number, week: number) {
   });
 }
 
-function loadFourForFour(season: number, week: number) {
-  return cachedSource("fourforfour", season, week, async () => {
+function loadRotoBaller(season: number, week: number) {
+  return cachedSource("rotoballer", season, week, async () => {
     const map: ProjectionMap = new Map();
-    const html = await fetchText(
-      `https://www.4for4.com/fantasy-football-projections/standard/sflex/${season}/week${week}`,
-    );
+    const categoryUrl =
+      "https://www.rotoballer.com/category/nfl/fantasy-football-advice-analysis/fantasy-football-projections-articles-analysis";
+    const categoryHtml = await fetchText(categoryUrl);
+
+    const hrefs = [
+      ...categoryHtml.matchAll(/href=["'](https:\/\/www\.rotoballer\.com\/[^"'<>]+)["']/gi),
+    ]
+      .map((match) => decode(match[1] ?? ""))
+      .filter((href) => {
+        const normalized = href.toLowerCase();
+        return (
+          normalized.includes(`week-${week}`) &&
+          normalized.includes(String(season)) &&
+          normalized.includes("fantasy-football-projections")
+        );
+      });
+
+    const articleUrl =
+      hrefs.find((href) =>
+        href.toLowerCase().includes(
+          `fantasy-football-projections-for-week-${week}`,
+        ),
+      ) ??
+      hrefs.find((href) =>
+        href.toLowerCase().includes(
+          `updated-fantasy-football-projections-for-week-${week}`,
+        ),
+      ) ??
+      hrefs[0];
+
+    if (!articleUrl) return map;
+
+    const html = await fetchText(articleUrl);
     const pageText = decode(html);
     if (
-      !new RegExp(`${season}\\s+NFL\\s+Week\\s+${week}`, "i").test(
+      !new RegExp(`Week\\s+${week}\\s+Fantasy\\s+Football\\s+Projections`, "i").test(
         pageText,
-      )
+      ) ||
+      !pageText.includes(String(season))
     ) {
       return map;
     }
 
     for (const cells of rowsFromHtml(html)) {
-      // Unified Superflex table:
-      // #, Player, Pos, Team, Opp, M/U, FF Pts, PaYds, PaTD, INT, Pa1D,
-      // RuYds, RuTD, Ru1D, Rec, RecYds, RecTD, Rec1D.
-      if (cells.length < 17) continue;
-      const player = cells[1]?.trim();
+      // Player, Team, Pos, Fan Points, Pass Yards, Pass TDs, INTs,
+      // Rush, Rush Yards, Rush TDs, Rec, Rec Yards, Rec TDs.
+      if (cells.length < 13) continue;
+      const player = cells[0]?.trim();
       const position = cells[2]?.trim().toUpperCase();
       if (!player || !["QB", "RB", "WR", "TE"].includes(position ?? "")) {
         continue;
       }
 
       mergeStats(map, player, {
-        passingYards: toNumber(cells[7]) ?? undefined,
-        passingTouchdowns: toNumber(cells[8]) ?? undefined,
-        rushingYards: toNumber(cells[11]) ?? undefined,
-        rushingTouchdowns: toNumber(cells[12]) ?? undefined,
-        receptions: toNumber(cells[14]) ?? undefined,
-        receivingYards: toNumber(cells[15]) ?? undefined,
-        receivingTouchdowns: toNumber(cells[16]) ?? undefined,
+        passingYards: toNumber(cells[4]) ?? undefined,
+        passingTouchdowns: toNumber(cells[5]) ?? undefined,
+        rushingYards: toNumber(cells[8]) ?? undefined,
+        rushingTouchdowns: toNumber(cells[9]) ?? undefined,
+        receptions: toNumber(cells[10]) ?? undefined,
+        receivingYards: toNumber(cells[11]) ?? undefined,
+        receivingTouchdowns: toNumber(cells[12]) ?? undefined,
       });
     }
 
@@ -963,10 +994,10 @@ async function sourceProjection(
             ? loadCbs
             : source === "fftoday"
               ? loadFfToday
-              : source === "covers"
-                ? loadCovers
-                : source === "fourforfour"
-                  ? loadFourForFour
+              : source === "rotoballer"
+                ? loadRotoBaller
+                : source === "covers"
+                  ? loadCovers
                   : loadDimers;
 
   const map = await loader(season, week);
