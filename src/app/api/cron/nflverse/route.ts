@@ -1,4 +1,5 @@
 import { ingestNflverseSeason } from "@/lib/nfl/nflverse";
+import { runSourceLearningLoop } from "@/lib/model/source-learning";
 
 export const runtime = "nodejs";
 
@@ -12,7 +13,8 @@ async function handle(request: Request) {
   const defaultSeason = new Date().getUTCFullYear();
   const season = Number(url.searchParams.get("season") ?? defaultSeason);
   const result = await ingestNflverseSeason(season);
-  return Response.json({ ok: true, ...result });
+  const learning = await runSourceLearningLoop(season);
+  return Response.json({ ok: true, ...result, learning });
 }
 
 export const GET = handle;
