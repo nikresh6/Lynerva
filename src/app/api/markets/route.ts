@@ -3,7 +3,7 @@ import { isPricedOpportunity } from "@/lib/markets/eligibility";
 import type { MarketOpportunity } from "@/lib/markets/types";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+export const revalidate = 15;
 
 function marketKey(market: MarketOpportunity) {
   return `${market.platform}:${market.platformMarketId}:${market.platformOutcomeId ?? "yes"}`;
@@ -53,7 +53,7 @@ export async function GET() {
     },
     {
       headers: {
-        "Cache-Control": "public, s-maxage=15, stale-while-revalidate=60",
+        "Cache-Control": "public, s-maxage=15, stale-while-revalidate=120",
       },
     },
   );
