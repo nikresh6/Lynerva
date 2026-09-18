@@ -1,10 +1,20 @@
 import type { Metadata } from "next";
+import {
+  ArrowUpRight,
+  BarChart3,
+  CheckCircle2,
+  Database,
+  Gauge,
+  LineChart,
+  ShieldCheck,
+} from "lucide-react";
 import { PageHeading } from "@/components/page-heading";
 import {
   getProjectionSourcePerformance,
   PROJECTION_SOURCE_INFO,
   type ProjectionPerformanceRow,
 } from "@/lib/model/source-performance";
+import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Sources" };
 export const dynamic = "force-dynamic";
@@ -74,15 +84,25 @@ function PerformanceTable({
         b.sampleSize - a.sampleSize,
     );
 
+  const bestSource = bySource[0]?.source ?? null;
+
   return (
-    <section className="overflow-hidden rounded-xl border bg-surface">
-      <div className="border-b px-4 py-3.5 sm:px-5">
-        <h2 className="text-sm font-semibold">
-          {STAT_LABELS[statistic] ?? statistic}
-        </h2>
-        <p className="mt-1 text-[11px] text-muted">
-          Error is measured against settled regular-season NFL player stats.
-        </p>
+    <section className="overflow-hidden rounded-2xl border bg-surface shadow-[0_8px_30px_rgb(0_0_0/0.025)]">
+      <div className="flex flex-col gap-2 border-b bg-surface-raised/45 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <div>
+          <h3 className="text-sm font-semibold">
+            {STAT_LABELS[statistic] ?? statistic}
+          </h3>
+          <p className="mt-1 text-[11px] text-muted">
+            Settled regular-season player results only.
+          </p>
+        </div>
+        {bySource.length > 0 ? (
+          <span className="w-fit rounded-full border bg-surface px-2.5 py-1 text-[9px] font-medium text-muted">
+            {bySource.reduce((sum, row) => sum + row.sampleSize, 0)} graded
+            samples
+          </span>
+        ) : null}
       </div>
 
       {bySource.length === 0 ? (
@@ -90,54 +110,129 @@ function PerformanceTable({
           No settled projection samples yet.
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left text-xs">
-            <thead className="border-b bg-background text-[10px] uppercase tracking-[0.08em] text-faint">
-              <tr>
-                <th className="px-4 py-2.5 font-medium sm:px-5">Source</th>
-                <th className="px-3 py-2.5 font-medium">Typical miss</th>
-                <th className="px-3 py-2.5 font-medium">Bad miss</th>
-                <th className="px-3 py-2.5 font-medium">RMSE</th>
-                <th className="px-3 py-2.5 font-medium">Bias</th>
-                <th className="px-3 py-2.5 font-medium">Samples</th>
-                <th className="px-4 py-2.5 font-medium sm:px-5">
-                  Current weight
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {bySource.map((row) => (
-                <tr key={row.source}>
-                  <td className="px-4 py-3 font-medium sm:px-5">
-                    {sourceName(row.source)}
-                  </td>
-                  <td className="px-3 py-3 tabular">
-                    {metric(row.medianAbsoluteError, statistic)}
-                  </td>
-                  <td className="px-3 py-3 tabular text-muted">
-                    {metric(row.p90AbsoluteError, statistic)}
-                  </td>
-                  <td className="px-3 py-3 tabular text-muted">
-                    {metric(row.rmse, statistic)}
-                  </td>
-                  <td className="px-3 py-3 tabular text-muted">
-                    {biasLabel(row.bias, statistic)}
-                  </td>
-                  <td className="px-3 py-3 tabular text-muted">
-                    {row.sampleSize}
-                  </td>
-                  <td className="px-4 py-3 tabular sm:px-5">
+        <>
+          <div className="grid gap-2 p-3 sm:hidden">
+            {bySource.map((row) => (
+              <div
+                key={row.source}
+                className="rounded-xl border bg-surface-raised/35 p-3.5"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-semibold">
+                      {sourceName(row.source)}
+                    </p>
+                    <p className="mt-0.5 text-[9px] text-faint">
+                      {row.sampleSize} samples
+                    </p>
+                  </div>
+                  {row.source === bestSource ? (
+                    <span className="rounded-full bg-positive-bg px-2 py-1 text-[9px] font-semibold text-positive">
+                      Lowest typical miss
+                    </span>
+                  ) : null}
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="rounded-lg border bg-surface p-2.5">
+                    <p className="text-[9px] text-faint">Typical miss</p>
+                    <p className="mt-1 text-sm font-semibold tabular">
+                      {metric(row.medianAbsoluteError, statistic)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border bg-surface p-2.5">
+                    <p className="text-[9px] text-faint">Bad miss</p>
+                    <p className="mt-1 text-sm font-semibold tabular">
+                      {metric(row.p90AbsoluteError, statistic)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border bg-surface p-2.5">
+                    <p className="text-[9px] text-faint">RMSE</p>
+                    <p className="mt-1 text-xs font-medium tabular">
+                      {metric(row.rmse, statistic)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border bg-surface p-2.5">
+                    <p className="text-[9px] text-faint">Bias</p>
+                    <p className="mt-1 text-xs font-medium tabular">
+                      {biasLabel(row.bias, statistic)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between text-[10px] text-muted">
+                  <span>Current model weight</span>
+                  <span className="font-medium tabular text-foreground">
                     {row.weight === null
                       ? "Equal prior"
                       : `${(row.weight * 100).toFixed(1)}%${
                           row.weightWeek ? ` · W${row.weightWeek}` : ""
                         }`}
-                  </td>
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="hidden overflow-x-auto sm:block">
+            <table className="w-full min-w-[760px] text-left text-xs">
+              <thead className="border-b bg-background text-[10px] uppercase tracking-[0.08em] text-faint">
+                <tr>
+                  <th className="px-5 py-2.5 font-medium">Source</th>
+                  <th className="px-3 py-2.5 font-medium">Typical miss</th>
+                  <th className="px-3 py-2.5 font-medium">Bad miss</th>
+                  <th className="px-3 py-2.5 font-medium">RMSE</th>
+                  <th className="px-3 py-2.5 font-medium">Bias</th>
+                  <th className="px-3 py-2.5 font-medium">Samples</th>
+                  <th className="px-5 py-2.5 font-medium">Current weight</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y">
+                {bySource.map((row) => (
+                  <tr
+                    key={row.source}
+                    className="transition-colors hover:bg-surface-raised/55"
+                  >
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold">
+                          {sourceName(row.source)}
+                        </span>
+                        {row.source === bestSource ? (
+                          <span className="rounded-full bg-positive-bg px-2 py-0.5 text-[8px] font-semibold text-positive">
+                            Lowest typical miss
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="px-3 py-3.5 font-semibold tabular">
+                      {metric(row.medianAbsoluteError, statistic)}
+                    </td>
+                    <td className="px-3 py-3.5 tabular text-muted">
+                      {metric(row.p90AbsoluteError, statistic)}
+                    </td>
+                    <td className="px-3 py-3.5 tabular text-muted">
+                      {metric(row.rmse, statistic)}
+                    </td>
+                    <td className="px-3 py-3.5 tabular text-muted">
+                      {biasLabel(row.bias, statistic)}
+                    </td>
+                    <td className="px-3 py-3.5 tabular text-muted">
+                      {row.sampleSize}
+                    </td>
+                    <td className="px-5 py-3.5 tabular">
+                      {row.weight === null
+                        ? "Equal prior"
+                        : `${(row.weight * 100).toFixed(1)}%${
+                            row.weightWeek ? ` · W${row.weightWeek}` : ""
+                          }`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </section>
   );
@@ -145,90 +240,230 @@ function PerformanceTable({
 
 export default async function SourcesPage() {
   const performance = await getProjectionSourcePerformance(2026);
+  const gradedSamples = performance.rows.reduce(
+    (sum, row) => sum + row.sampleSize,
+    0,
+  );
+  const trackedStats = new Set(performance.rows.map((row) => row.statistic)).size;
+  const maxCoverage = Math.max(
+    1,
+    ...performance.sources.map((source) => source.coverageCount),
+  );
 
   return (
     <>
       <PageHeading
         title="Projection sources"
-        description="Every outside projection Lynerva uses, plus how each source has actually performed after games settle."
+        description="See exactly what feeds Lynerva, how fresh each source is, and how each one has performed once real NFL results settle."
       />
 
       <div className="space-y-6">
+        <section className="overflow-hidden rounded-2xl border bg-surface shadow-[0_12px_40px_rgb(0_0_0/0.035)]">
+          <div className="grid gap-0 md:grid-cols-[1.35fr_1fr]">
+            <div className="border-b bg-[linear-gradient(135deg,var(--surface-raised),var(--surface))] p-5 md:border-b-0 md:border-r sm:p-6">
+              <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-faint">
+                <ShieldCheck className="size-3.5" />
+                Transparent data stack
+              </div>
+              <h2 className="mt-3 max-w-xl text-xl font-semibold tracking-[-0.03em] sm:text-2xl">
+                Free weekly projections in, settled NFL results back out.
+              </h2>
+              <p className="mt-2 max-w-2xl text-xs leading-5 text-muted">
+                Lynerva only accepts the requested NFL week from these sources.
+                If a source is missing, stale, or serving season-long data, it
+                stays missing instead of being silently substituted.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2">
+              <div className="border-b border-r p-4 sm:p-5">
+                <p className="text-[10px] text-faint">Free sources</p>
+                <p className="mt-1 text-2xl font-semibold tabular">
+                  {performance.sources.length}
+                </p>
+              </div>
+              <div className="border-b p-4 sm:p-5">
+                <p className="text-[10px] text-faint">Coverage week</p>
+                <p className="mt-1 text-2xl font-semibold tabular">
+                  {performance.coverageWeek === null
+                    ? "Pending"
+                    : `W${performance.coverageWeek}`}
+                </p>
+              </div>
+              <div className="border-r p-4 sm:p-5">
+                <p className="text-[10px] text-faint">Graded samples</p>
+                <p className="mt-1 text-2xl font-semibold tabular">
+                  {gradedSamples.toLocaleString()}
+                </p>
+              </div>
+              <div className="p-4 sm:p-5">
+                <p className="text-[10px] text-faint">Stats tracked</p>
+                <p className="mt-1 text-2xl font-semibold tabular">
+                  {trackedStats || STAT_ORDER.length}
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section>
-          <div className="mb-3">
-            <h2 className="text-sm font-semibold">Active free sources</h2>
-            <p className="mt-1 max-w-3xl text-xs leading-5 text-muted">
-              These are the only outside projection sources currently allowed
-              into Lynerva. They are reachable without a paid API key or paid
-              account. Lynerva accepts only the requested NFL week. Missing
-              data stays missing instead of being replaced with season or
-              rest-of-season projections.
+          <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold">Active free sources</h2>
+              <p className="mt-1 max-w-3xl text-xs leading-5 text-muted">
+                Every outside projection source currently allowed into the
+                model. Open any card to inspect the public source directly.
+              </p>
+            </div>
+            <p className="text-[10px] text-faint">
+              No paid API key or paid account required
             </p>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {performance.sources.map((source) => (
-              <a
-                key={source.id}
-                href={source.href}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-xl border bg-surface p-4 transition-colors hover:bg-surface-raised"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-sm font-semibold">{source.name}</h3>
-                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.08em] text-faint">
-                      {source.kind}
-                    </p>
+            {performance.sources.map((source, index) => {
+              const coverageShare = source.coverageCount / maxCoverage;
+              const sourceRows = performance.rows.filter(
+                (row) => row.source === source.id,
+              );
+              const sourceSamples = sourceRows.reduce(
+                (sum, row) => sum + row.sampleSize,
+                0,
+              );
+              const coveredStats = new Set(
+                sourceRows.map((row) => row.statistic),
+              ).size;
+
+              return (
+                <a
+                  key={source.id}
+                  href={source.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="group relative overflow-hidden rounded-2xl border bg-surface p-4 transition-all hover:-translate-y-0.5 hover:border-strong hover:shadow-[0_14px_36px_rgb(0_0_0/0.06)] sm:p-5"
+                >
+                  <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--border-strong)] to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div
+                        className={cn(
+                          "grid size-10 shrink-0 place-items-center rounded-xl border bg-surface-raised text-sm font-semibold",
+                          index % 2 === 0 ? "text-foreground" : "text-muted",
+                        )}
+                      >
+                        {source.name.slice(0, 1)}
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="truncate text-sm font-semibold">
+                          {source.name}
+                        </h3>
+                        <p className="mt-0.5 truncate text-[9px] uppercase tracking-[0.08em] text-faint">
+                          {source.kind}
+                        </p>
+                      </div>
+                    </div>
+
+                    <span className="flex shrink-0 items-center gap-1 rounded-full bg-positive-bg px-2 py-1 text-[9px] font-semibold text-positive">
+                      <CheckCircle2 className="size-3" />
+                      Free
+                    </span>
                   </div>
-                  <span className="rounded-full border px-2 py-1 text-[9px] font-medium text-muted">
-                    Active
-                  </span>
-                </div>
-                <p className="mt-3 text-xs font-medium">{source.access}</p>
-                <p className="mt-1 text-[11px] tabular text-muted">
-                  {performance.coverageWeek === null
-                    ? "No current-week snapshots stored yet"
-                    : `Week ${performance.coverageWeek}: ${source.coverageCount.toLocaleString()} player-stat projections stored`}
-                </p>
-                <p className="mt-1.5 text-[11px] leading-5 text-muted">
-                  {source.note}
-                </p>
-              </a>
-            ))}
+
+                  <p className="mt-4 text-xs font-medium">{source.access}</p>
+                  <p className="mt-1.5 min-h-10 text-[11px] leading-5 text-muted">
+                    {source.note}
+                  </p>
+
+                  <div className="mt-4 rounded-xl border bg-surface-raised/45 p-3">
+                    <div className="flex items-center justify-between gap-3 text-[10px]">
+                      <span className="text-muted">
+                        {performance.coverageWeek === null
+                          ? "Current-week coverage"
+                          : `Week ${performance.coverageWeek} coverage`}
+                      </span>
+                      <span className="font-semibold tabular">
+                        {source.coverageCount.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-background">
+                      <div
+                        className="h-full rounded-full bg-foreground/70"
+                        style={{
+                          width: `${Math.max(
+                            source.coverageCount > 0 ? 4 : 0,
+                            coverageShare * 100,
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                    <div className="mt-3 flex items-center justify-between text-[9px] text-faint">
+                      <span>{sourceSamples.toLocaleString()} graded</span>
+                      <span>{coveredStats} stats with history</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between text-[10px] font-medium">
+                    <span>Open public source</span>
+                    <ArrowUpRight className="size-3.5 text-muted transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+                  </div>
+                </a>
+              );
+            })}
           </div>
         </section>
 
-        <section className="rounded-xl border bg-surface p-4 sm:p-5">
-          <h2 className="text-sm font-semibold">How accuracy is measured</h2>
-          <div className="mt-3 grid gap-4 text-xs leading-5 text-muted md:grid-cols-3">
-            <div>
-              <strong className="text-foreground">Typical miss</strong> is the
-              median absolute error. Half of that source&apos;s settled
-              projections missed by less, and half missed by more. It is much
-              less distorted by one awful projection than a simple average.
+        <section className="rounded-2xl border bg-surface p-4 shadow-[0_8px_30px_rgb(0_0_0/0.025)] sm:p-5">
+          <div className="flex items-center gap-2">
+            <Gauge className="size-4 text-muted" />
+            <h2 className="text-sm font-semibold">How accuracy is measured</h2>
+          </div>
+          <p className="mt-1 max-w-3xl text-[11px] leading-5 text-muted">
+            There is no fake universal source score. Each stat is graded in its
+            own units, then Lynerva learns weights from multiple error measures.
+          </p>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className="rounded-xl border bg-surface-raised/35 p-4">
+              <div className="grid size-8 place-items-center rounded-lg border bg-surface">
+                <BarChart3 className="size-3.5 text-muted" />
+              </div>
+              <p className="mt-3 text-xs font-semibold">Typical miss</p>
+              <p className="mt-1 text-[11px] leading-5 text-muted">
+                Median absolute error. Half of a source&apos;s settled
+                projections miss by less, and half miss by more.
+              </p>
             </div>
-            <div>
-              <strong className="text-foreground">Bad miss</strong> is the 90th
-              percentile absolute error. It shows how ugly the source&apos;s
-              worse misses tend to get instead of hiding them inside one
-              average.
+
+            <div className="rounded-xl border bg-surface-raised/35 p-4">
+              <div className="grid size-8 place-items-center rounded-lg border bg-surface">
+                <LineChart className="size-3.5 text-muted" />
+              </div>
+              <p className="mt-3 text-xs font-semibold">Bad miss</p>
+              <p className="mt-1 text-[11px] leading-5 text-muted">
+                90th percentile absolute error. It shows how ugly the worse
+                misses get instead of hiding them inside an average.
+              </p>
             </div>
-            <div>
-              <strong className="text-foreground">Bias</strong> shows direction.
-              Positive means the source tends to project too high, negative
-              means too low. Lynerva also shows RMSE because it penalizes large
-              misses more heavily.
+
+            <div className="rounded-xl border bg-surface-raised/35 p-4">
+              <div className="grid size-8 place-items-center rounded-lg border bg-surface">
+                <Database className="size-3.5 text-muted" />
+              </div>
+              <p className="mt-3 text-xs font-semibold">Bias + RMSE</p>
+              <p className="mt-1 text-[11px] leading-5 text-muted">
+                Bias shows whether a source tends high or low. RMSE adds a
+                heavier penalty when a projection misses badly.
+              </p>
             </div>
           </div>
-          <p className="mt-3 text-[10px] leading-4 text-faint">
-            Lynerva only grades projections captured before kickoff and only
-            against regular-season results. Learned weights use a robust mix of
-            typical miss, recent typical miss, and 90th-percentile miss, so one
-            freak projection cannot wreck an otherwise accurate source. Small
-            samples remain close to equal weight until enough settled
-            player-weeks accumulate.
+
+          <p className="mt-4 text-[10px] leading-4 text-faint">
+            Only projections captured before kickoff are graded, and only
+            against regular-season results. Learned source weights combine
+            typical miss, recent typical miss, and 90th-percentile miss. Small
+            samples stay close to equal weight until enough settled player-weeks
+            accumulate.
           </p>
         </section>
 
@@ -237,10 +472,10 @@ export default async function SourcesPage() {
             <h2 className="text-sm font-semibold">
               {performance.season} source accuracy by stat
             </h2>
-            <p className="mt-1 text-xs text-muted">
-              Compare sources within a stat. Yardage error and touchdown error
-              are different units, so they should not be combined into one
-              fake universal accuracy score.
+            <p className="mt-1 max-w-3xl text-xs leading-5 text-muted">
+              Compare sources within the same stat. Yardage error, receptions,
+              interceptions, and touchdowns use different units, so they are
+              intentionally kept separate.
             </p>
           </div>
           <div className="grid gap-4">
@@ -254,23 +489,33 @@ export default async function SourcesPage() {
           </div>
         </section>
 
-        <section className="rounded-xl border bg-surface p-4 sm:p-5">
-          <h2 className="text-sm font-semibold">Ground truth</h2>
-          <p className="mt-2 max-w-4xl text-xs leading-5 text-muted">
-            Settled player results come from the open-source nflverse data
-            project. Those realized NFL stats grade every stored projection and
-            feed Lynerva&apos;s source-weight learning loop. Market prices are
-            still pulled separately from Kalshi and Polymarket and are never
-            treated as an outside player projection.
-          </p>
-          <a
-            href="https://github.com/nflverse/nflverse-data"
-            target="_blank"
-            rel="noreferrer"
-            className="mt-3 inline-flex text-xs font-medium underline underline-offset-4"
-          >
-            Open nflverse on GitHub
-          </a>
+        <section className="overflow-hidden rounded-2xl border bg-surface shadow-[0_8px_30px_rgb(0_0_0/0.025)]">
+          <div className="grid md:grid-cols-[auto_1fr_auto] md:items-center">
+            <div className="grid min-h-24 place-items-center border-b bg-surface-raised p-5 md:min-h-full md:w-24 md:border-b-0 md:border-r">
+              <Database className="size-5 text-muted" />
+            </div>
+            <div className="p-4 sm:p-5">
+              <h2 className="text-sm font-semibold">Ground truth: nflverse</h2>
+              <p className="mt-1.5 max-w-4xl text-xs leading-5 text-muted">
+                Settled player results come from the open-source nflverse data
+                project. Those realized NFL stats grade every stored projection
+                and feed Lynerva&apos;s source-weight learning loop. Kalshi and
+                Polymarket prices are pulled separately and are never treated as
+                outside player projections.
+              </p>
+            </div>
+            <div className="border-t p-4 md:border-l md:border-t-0 sm:p-5">
+              <a
+                href="https://github.com/nflverse/nflverse-data"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-lg border bg-surface-raised px-3 py-2 text-xs font-medium transition-colors hover:bg-background"
+              >
+                Open on GitHub
+                <ArrowUpRight className="size-3.5" />
+              </a>
+            </div>
+          </div>
         </section>
       </div>
     </>
