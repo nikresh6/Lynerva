@@ -1,7 +1,7 @@
 import type { MarketOpportunity, Platform } from "@/lib/markets/types";
 import { clamp } from "@/lib/utils";
 import {
-  buildCombination,
+  buildCombinationCandidates,
   type BuilderMode,
   type BuilderObjective,
   type BuiltCombination,
@@ -192,26 +192,6 @@ function parlayCandidate(
   };
 }
 
-function parlayBands(targetReturn: number) {
-  const target = clamp(targetReturn, 1.25, 25);
-  const raw = [
-    [1.7, 2.7],
-    [2.5, 4.5],
-    [Math.max(3.5, target * 0.7), Math.max(5, target * 1.15)],
-    [Math.max(5, target * 1.05), Math.min(40, Math.max(8, target * 1.9))],
-  ] as const;
-
-  const seen = new Set<string>();
-  return raw.flatMap(([min, max]) => {
-    const safeMin = Math.max(1.2, Math.min(min, 39));
-    const safeMax = Math.max(safeMin + 0.3, Math.min(max, 40));
-    const key = `${safeMin.toFixed(2)}:${safeMax.toFixed(2)}`;
-    if (seen.has(key)) return [];
-    seen.add(key);
-    return [{ min: safeMin, max: safeMax }];
-  });
-}
-
 function parlayCandidates(
   opportunities: MarketOpportunity[],
   options: PortfolioPlanOptions,
@@ -231,19 +211,25 @@ function parlayCandidates(
 
   const candidates: Candidate[] = [];
   const seen = new Set<string>();
+  const maxReturn = Math.min(40, Math.max(8, targetReturn * 1.9));
 
   for (const mode of modes) {
-    for (const band of parlayBands(targetReturn)) {
-      const built = buildCombination(opportunities, {
-        minReturn: band.min,
-        maxReturn: band.max,
+    const built = buildCombinationCandidates(
+      opportunities,
+      {
+        minReturn: 1.7,
+        maxReturn,
         maxLegs: options.maxLegs,
         platform: options.platform,
         live: options.live,
         mode,
         objective,
-      });
-      const candidate = parlayCandidate(built, mode);
+      },
+      options.mode === "any" ? 6 : 8,
+    );
+
+    for (const combination of built) {
+      const candidate = parlayCandidate(combination, mode);
       if (!candidate || seen.has(candidate.id)) continue;
       seen.add(candidate.id);
       candidates.push(candidate);
