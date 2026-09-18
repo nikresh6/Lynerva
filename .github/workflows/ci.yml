@@ -26,7 +26,10 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - run: npm run smoke:live
+      - name: Verify real live NFL data
+        run: npm run smoke:live
+        env:
+          USE_MARKET_FIXTURES: "false"
       - run: npm run build
 
   build_without_runtime_env:
