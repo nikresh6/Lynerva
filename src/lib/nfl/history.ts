@@ -48,16 +48,25 @@ export async function findPublicPlayerHistory(
   const normalizedSubject = normalizePerson(subject);
   let player = playerMatchCache.get(normalizedSubject);
   if (player === undefined) {
-    const match = Object.entries(PLAYER_REGULAR_SEASON_HISTORY)
-      .filter(
-        ([normalized]) =>
+    player = PLAYER_REGULAR_SEASON_HISTORY[normalizedSubject] ?? null;
+
+    if (!player && normalizedSubject.length >= 5) {
+      let bestKey = "";
+      for (const [normalized, candidate] of Object.entries(
+        PLAYER_REGULAR_SEASON_HISTORY,
+      )) {
+        if (
           normalized.length >= 5 &&
-          (normalizedSubject === normalized ||
-            normalizedSubject.includes(normalized) ||
-            normalized.includes(normalizedSubject)),
-      )
-      .toSorted(([first], [second]) => second.length - first.length)[0];
-    player = match?.[1] ?? null;
+          (normalizedSubject.includes(normalized) ||
+            normalized.includes(normalizedSubject)) &&
+          normalized.length > bestKey.length
+        ) {
+          bestKey = normalized;
+          player = candidate;
+        }
+      }
+    }
+
     playerMatchCache.set(normalizedSubject, player);
   }
 
