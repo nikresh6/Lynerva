@@ -68,10 +68,12 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
   const fetchedAt = new Date().toISOString();
   try {
     const url = new URL(`${GAMMA_BASE}/events`);
-    url.searchParams.set("tag_slug", "nfl");
+    url.searchParams.set("series_id", "10187");
     url.searchParams.set("active", "true");
     url.searchParams.set("closed", "false");
-    url.searchParams.set("limit", "20");
+    url.searchParams.set("limit", "40");
+    url.searchParams.set("order", "startTime");
+    url.searchParams.set("ascending", "true");
     const events = await fetchValidated(
       "Polymarket Gamma",
       url.toString(),
