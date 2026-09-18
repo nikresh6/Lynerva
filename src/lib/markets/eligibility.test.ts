@@ -46,6 +46,17 @@ describe("market eligibility", () => {
     expect(isSingleLegNflProviderMarket(baseball)).toBe(false);
   });
 
+  it("rejects quarter and half markets until they have a dedicated model", () => {
+    const quarter = market({
+      platform: "polymarket",
+      platformMarketId: "3q-buf-det",
+      eventTitle: "Detroit Lions at Buffalo Bills",
+      marketTitle: "3Q Spread: Bills (-7.5)",
+      resolutionRules: "Resolves based on third-quarter scoring only.",
+    });
+    expect(isSingleLegNflProviderMarket(quarter)).toBe(false);
+  });
+
   it("rejects Kalshi cross-category multivariate contracts", () => {
     const combo = market({
       platformMarketId: "KXMVECROSSCATEGORY-S2026ABC",
