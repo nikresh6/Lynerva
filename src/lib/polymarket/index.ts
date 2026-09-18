@@ -77,6 +77,7 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
       "Polymarket Gamma",
       url.toString(),
       eventsSchema,
+      { cache: "no-store" },
     );
     const now = Date.now();
     const windowStart = now - 8 * 60 * 60 * 1_000;
