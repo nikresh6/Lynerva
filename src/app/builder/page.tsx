@@ -9,7 +9,7 @@ export default function BuilderPage() {
     <>
       <PageHeading
         title="Builder"
-        description="Choose the structure, payout range, and risk style. Lynerva searches the live NFL market for the strongest combination."
+        description="Build one parlay, or give Lynerva an amount and target payout to split across straight bets and parlays while controlling concentration and risk."
       />
       <BuilderWorkbench />
     </>
