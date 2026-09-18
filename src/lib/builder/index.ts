@@ -33,7 +33,7 @@ export function buildCombination(
         market.executablePriceBps === null ||
         market.executablePriceBps <= 0 ||
         market.executablePriceBps >= 10_000 ||
-        market.model.probabilityBps === null ||
+        market.recommendedProbabilityBps === null ||
         !market.canonical
       ) return false;
       if ((market.edgeBps ?? 0) <= 0 || market.freshness === "stale") return false;
@@ -60,7 +60,7 @@ export function buildCombination(
       if (grossReturn > options.maxReturn * 1.2) return;
       if (grossReturn >= options.minReturn && grossReturn <= options.maxReturn) {
         const probability = legs.reduce(
-          (product, leg) => product * ((leg.model.probabilityBps ?? 0) / 10_000),
+          (product, leg) => product * ((leg.recommendedProbabilityBps ?? 0) / 10_000),
           1,
         );
         const score = probability - priceProduct;
