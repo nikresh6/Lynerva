@@ -83,23 +83,130 @@ function remainingGameFraction(game: LiveNflGame | null | undefined) {
   return clamp((3600 - elapsed) / 3600, 0.02, 1);
 }
 
+function baselineGameProjection(
+  scheduleGame: NflScheduleGame,
+  liveGame?: LiveNflGame | null,
+) {
+  const live = liveGame?.state === "in" ? liveGame : null;
+  const remaining = remainingGameFraction(live);
+  const currentHome = live?.home.score ?? 0;
+  const currentAway = live?.away.score ?? 0;
+  const currentMargin = currentHome - currentAway;
+  const currentTotal = currentHome + currentAway;
+
+  return {
+    live,
+    remaining,
+    meanHomeMargin: live ? currentMargin + 1.5 * remaining : 1.5,
+    meanTotal: live ? currentTotal + 44.5 * remaining : 44.5,
+    marginStdDev: Math.max(2.5, 13.5 * Math.sqrt(remaining)),
+    totalStdDev: Math.max(3, 13 * Math.sqrt(remaining)),
+    factors: [
+      live
+        ? `Live baseline: ${live.away.team} ${live.away.score}, ${live.home.team} ${live.home.score}, ${live.status} ${live.clock}.`
+        : "League baseline used while regular-season team history loads.",
+    ],
+  };
+}
+
+function estimateGameFromDistribution(
+  canonical: CanonicalMarket,
+  scheduleGame: NflScheduleGame,
+  input: {
+    meanHomeMargin: number;
+    meanTotal: number;
+    marginStdDev: number;
+    totalStdDev: number;
+    reliability: number;
+    factors: string[];
+  },
+): ModelEstimate {
+  let probability: number | null = null;
+  const factors = [...input.factors];
+
+  if (canonical.family === "moneyline") {
+    const subjectIsHome = canonical.subject === scheduleGame.homeTeam;
+    const subjectIsAway = canonical.subject === scheduleGame.awayTeam;
+    if (!subjectIsHome && !subjectIsAway) {
+      return {
+        probabilityBps: null,
+        reliabilityBps: 0,
+        version: MODEL_VERSION,
+        evidence: emptyEvidence,
+        factors: ["Could not identify the team represented by this moneyline."],
+      };
+    }
+    const mean = subjectIsHome ? input.meanHomeMargin : -input.meanHomeMargin;
+    probability = 1 - normalCdf(0, mean, input.marginStdDev);
+    factors.push(
+      `Projected ${canonical.subject} scoring margin: ${mean >= 0 ? "+" : ""}${mean.toFixed(1)}.`,
+    );
+  } else if (canonical.family === "spread" && canonical.threshold !== null) {
+    const subjectIsHome = canonical.subject === scheduleGame.homeTeam;
+    const subjectIsAway = canonical.subject === scheduleGame.awayTeam;
+    if (!subjectIsHome && !subjectIsAway) {
+      return {
+        probabilityBps: null,
+        reliabilityBps: 0,
+        version: MODEL_VERSION,
+        evidence: emptyEvidence,
+        factors: ["Could not identify the team represented by this spread."],
+      };
+    }
+    const mean = subjectIsHome ? input.meanHomeMargin : -input.meanHomeMargin;
+    probability = 1 - normalCdf(canonical.threshold, mean, input.marginStdDev);
+    factors.push(
+      `Projected ${canonical.subject} margin: ${mean >= 0 ? "+" : ""}${mean.toFixed(1)} versus ${canonical.threshold >= 0 ? "+" : ""}${canonical.threshold.toFixed(1)}.`,
+    );
+  } else if (canonical.family === "game_total" && canonical.threshold !== null) {
+    const over = 1 - normalCdf(canonical.threshold, input.meanTotal, input.totalStdDev);
+    probability = canonical.direction === "under" ? 1 - over : over;
+    factors.push(
+      `Projected final total: ${input.meanTotal.toFixed(1)} versus ${canonical.threshold.toFixed(1)}.`,
+    );
+  }
+
+  return {
+    probabilityBps:
+      probability === null
+        ? null
+        : Math.round(clamp(probability, 0.02, 0.98) * 10_000),
+    reliabilityBps: Math.round(input.reliability * 10_000),
+    version: MODEL_VERSION,
+    evidence: emptyEvidence,
+    factors:
+      probability === null
+        ? ["This game market could not be priced reliably."]
+        : factors,
+  };
+}
+
 async function estimateGameMarket(
   canonical: CanonicalMarket,
   scheduleGame: NflScheduleGame,
   liveGame?: LiveNflGame | null,
 ): Promise<ModelEstimate> {
-  const projection = await getMatchupProjection(
+  const projectionTask = getMatchupProjection(
     scheduleGame.homeTeam,
     scheduleGame.awayTeam,
   );
+  const projection = await Promise.race([
+    projectionTask,
+    new Promise<Awaited<ReturnType<typeof getMatchupProjection>>>((resolve) => {
+      setTimeout(() => resolve(null), 450);
+    }),
+  ]);
+
   if (!projection) {
-    return {
-      probabilityBps: null,
-      reliabilityBps: 0,
-      version: MODEL_VERSION,
-      evidence: emptyEvidence,
-      factors: ["Not enough regular-season team history for this matchup."],
-    };
+    const baseline = baselineGameProjection(scheduleGame, liveGame);
+    return estimateGameFromDistribution(canonical, scheduleGame, {
+      meanHomeMargin: baseline.meanHomeMargin,
+      meanTotal: baseline.meanTotal,
+      marginStdDev: baseline.marginStdDev,
+      totalStdDev: baseline.totalStdDev,
+      reliability: baseline.live ? 0.52 : 0.34,
+      factors: baseline.factors,
+    });
   }
 
   const live = liveGame?.state === "in" ? liveGame : null;
