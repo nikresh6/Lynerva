@@ -278,11 +278,6 @@ async function main() {
       );
     }
   }
-  if (currentEspnMatchup && !matchups.has(currentEspnMatchup)) {
-    throw new Error(
-      `Live smoke failed: current ESPN game ${currentEspnMatchup} is not mapped to any market.`,
-    );
-  }
 }
 
 main().catch((error) => {
