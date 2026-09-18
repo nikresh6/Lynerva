@@ -18,12 +18,20 @@ export function BuilderWorkbench() {
     () =>
       opportunities
         .filter(isBuilderEligibleOpportunity)
-        .toSorted(
-          (first, second) =>
+        .toSorted((first, second) => {
+          const firstRiskAdjusted =
+            (first.expectedRoi ?? -Infinity) *
+            Math.max(first.model.reliabilityBps / 10_000, 0);
+          const secondRiskAdjusted =
+            (second.expectedRoi ?? -Infinity) *
+            Math.max(second.model.reliabilityBps / 10_000, 0);
+          return (
+            secondRiskAdjusted - firstRiskAdjusted ||
             (second.opportunityScore ?? -Infinity) -
-            (first.opportunityScore ?? -Infinity),
-        )
-        .slice(0, 160),
+              (first.opportunityScore ?? -Infinity)
+          );
+        })
+        .slice(0, 30),
     [opportunities],
   );
   const [minReturn, setMinReturn] = useState(3);
