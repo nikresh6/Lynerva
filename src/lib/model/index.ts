@@ -316,6 +316,7 @@ export async function estimateMarket(
   canonical: CanonicalMarket | null,
   scheduleGame?: NflScheduleGame | null,
   liveGame?: LiveNflGame | null,
+  marketBaselineBps?: number | null,
 ): Promise<ModelEstimate> {
   if (!canonical) {
     return {
@@ -396,26 +397,18 @@ export async function estimateMarket(
       });
     }
 
-    if (consensusProbability === null && statisticalProbability === null) {
-      return {
-        probabilityBps: null,
-        reliabilityBps: 0,
-        version: MODEL_VERSION,
-        evidence: {
-          ...emptyEvidence,
-          sampleSize: values.length,
-          recentValues: values.slice(0, 10),
-        },
-        factors: [
-          "No independent projection source is currently available for this prop.",
-          values.length < 4
-            ? `Only ${values.length} current-season games are available; the statistical model stays off until four.`
-            : "The four-game statistical model could not produce a usable estimate.",
-        ],
-      };
-    }
+    const marketBaselineProbability =
+      marketBaselineBps !== null &&
+      marketBaselineBps !== undefined &&
+      marketBaselineBps > 0 &&
+      marketBaselineBps < 10_000
+        ? marketBaselineBps / 10_000
+        : 0.5;
 
-    let probability = consensusProbability ?? statisticalProbability ?? 0.5;
+    let probability =
+      consensusProbability ??
+      statisticalProbability ??
+      marketBaselineProbability;
     if (consensusProbability !== null && statisticalProbability !== null) {
       const statisticalWeight = clamp(0.30 + (values.length - 4) * 0.05, 0.30, 0.55);
       probability =
@@ -497,7 +490,13 @@ export async function estimateMarket(
             0.25,
           );
     const sourceReliability =
-      sourceCount >= 2 ? 0.66 : sourceCount === 1 ? 0.52 : 0.38;
+      sourceCount >= 2
+        ? 0.66
+        : sourceCount === 1
+          ? 0.52
+          : statisticalProbability !== null
+            ? 0.46
+            : 0.28;
     const historyBoost =
       values.length >= 4 ? clamp(values.length / 40, 0.08, 0.22) : 0;
     const reliability = clamp(
@@ -509,7 +508,7 @@ export async function estimateMarket(
     const factors = [
       external.projection !== null
         ? `Independent projection consensus: ${external.projection.toFixed(1)} from ${sourceCount} source${sourceCount === 1 ? "" : "s"} (${external.points.map((point) => point.source).join(", ")}).`
-        : "Independent projection consensus unavailable.",
+        : "Independent projections unavailable, using the live market as a low-confidence baseline so the prop remains rated.",
       values.length >= 4
         ? `Four-game statistical model active using ${values.length} current-season regular-season games.`
         : `Statistical model locked until four current-season games; ${values.length} available now.`,
