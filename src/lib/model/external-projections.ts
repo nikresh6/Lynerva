@@ -899,9 +899,28 @@ async function sourceProjection(
               : loadDimers;
 
   const map = await loader(season, week);
-  const found = [...map.entries()].find(([name]) =>
-    namesMatch(name, market.subject),
-  )?.[1];
+  const target = normalizePerson(market.subject);
+
+  // Always prefer the exact normalized player name. This matters for players
+  // such as Bijan Robinson and Brian Robinson Jr., who both collapse to
+  // "B. Robinson" in some source tables. The old first-match lookup could
+  // assign Bijan's projection to Brian simply because Bijan appeared first.
+  const exact = map.get(target);
+  let found = exact;
+
+  if (!found) {
+    const matches = [...map.entries()].filter(([name]) =>
+      namesMatch(name, market.subject),
+    );
+
+    // An abbreviated-name fallback is safe only when it identifies exactly
+    // one player. If two B. Robinsons (or similar collisions) exist, omit
+    // that source rather than attach another player's projection.
+    if (matches.length === 1) {
+      found = matches[0]?.[1];
+    }
+  }
+
   const value = sourceValue(found, market.family);
   if (value === null || !Number.isFinite(value) || value < 0) return null;
 
