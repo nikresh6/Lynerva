@@ -176,8 +176,47 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
     (provider) => provider.markets,
   );
 
+  const playerOnlyScheduleFallback = (
+    canonical: NonNullable<ReturnType<typeof normalizeMarket>>,
+  ): NflScheduleGame | null => {
+    if (
+      !canonical.matchup ||
+      !canonical.settlementDate ||
+      ["moneyline", "spread", "game_total"].includes(canonical.family)
+    ) {
+      return null;
+    }
+    const kickoff = new Date(`${canonical.settlementDate}T17:00:00Z`);
+    const timestamp = kickoff.getTime();
+    const now = Date.now();
+    const currentSeason = new Date(now).getUTCFullYear();
+    if (
+      Number.isNaN(timestamp) ||
+      !canonical.settlementDate.startsWith(`${currentSeason}-`) ||
+      timestamp < now - 8 * 60 * 60 * 1_000 ||
+      timestamp > now + 10 * 24 * 60 * 60 * 1_000
+    ) {
+      return null;
+    }
+    const [first, second] = canonical.matchup.split("-");
+    if (!first || !second) return null;
+    return {
+      gameId: `market:${canonical.settlementDate}:${canonical.matchup}`,
+      season: currentSeason,
+      week: null,
+      seasonType: "REG",
+      gameday: canonical.settlementDate,
+      kickoffAt: kickoff.toISOString(),
+      homeTeam: first,
+      awayTeam: second,
+      stadium: null,
+      roof: null,
+    };
+  };
+
   const normalizeWithSchedule = (
     scheduleGames: NflScheduleGame[] | null,
+    allowPlayerFallback = false,
   ) => {
     const items: NormalizedItem[] = [];
     for (const market of providerMarkets) {
@@ -192,7 +231,8 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
         (liveGame ? scheduleGameFromEspn(liveGame) : null) ??
         (scheduleGames
           ? findEligibleScheduleGame(canonical, scheduleGames)
-          : null);
+          : null) ??
+        (allowPlayerFallback ? playerOnlyScheduleFallback(canonical) : null);
       if (!scheduleGame) continue;
 
       if (
@@ -221,9 +261,10 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
   // regular-season schedule only when ESPN produced no usable mappings.
   if (normalized.length === 0 && providerMarkets.length > 0) {
     try {
-      normalized = normalizeWithSchedule(await loadNflSchedule());
+      normalized = normalizeWithSchedule(await loadNflSchedule(), true);
     } catch (error) {
       console.error("NFL schedule fallback unavailable", error);
+      normalized = normalizeWithSchedule(null, true);
     }
   }
 
