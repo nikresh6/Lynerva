@@ -47,7 +47,7 @@ export function buildCombination(
         (b.opportunityScore ?? -Infinity) -
         (a.opportunityScore ?? -Infinity),
     )
-    .slice(0, 28);
+    .slice(0, 18);
 
   let best: BuiltCombination | null = null;
   const visit = (start: number, legs: MarketOpportunity[]) => {
