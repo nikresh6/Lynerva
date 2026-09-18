@@ -35,7 +35,7 @@ interface MarketDataContextValue extends MarketClientPayload {
 
 const MarketDataContext = createContext<MarketDataContextValue | null>(null);
 
-const STORAGE_KEY = "lynerva-market-snapshot-v3";
+const STORAGE_KEY = "lynerva-market-snapshot-v4";
 const STORAGE_MAX_AGE = 5 * 1_000;
 
 function readStored(): MarketClientPayload | null {
