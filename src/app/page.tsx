@@ -5,11 +5,11 @@ export default function MarketsPage() {
   return (
     <>
       <PageHeading
-        title="Today’s top picks"
-        description="We scan current NFL markets and show the 30 bets that look best based on the odds, our model, recent results, and how active the market is. Higher score means a stronger overall setup."
+        title="Today’s top player props"
+        description="Lynerva ranks current NFL player props using independent projection consensus, live game context, weather, market pricing, and, after four games, a separate current-season statistical model."
       />
       <MarketExplorer
-        emptyMessage="No positive-edge NFL picks are available in the current snapshot."
+        emptyMessage="No positive-edge NFL player props are available in the current snapshot."
       />
     </>
   );
