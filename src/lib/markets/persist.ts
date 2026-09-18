@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   marketEvents,
@@ -13,7 +13,10 @@ import {
   sourceHealth,
   sourceProjections,
 } from "@/db/schema";
-import { normalizeLearningPlayer } from "@/lib/model/source-learning";
+import {
+  ensureSourceLearningSchema,
+  normalizeLearningPlayer,
+} from "@/lib/model/source-learning";
 import type { MarketsPayload } from "./service";
 
 function stableId(prefix: string, value: string) {
@@ -104,19 +107,23 @@ export async function persistMarkets(payload: MarketsPayload) {
   }
 
   const projectionRows = [...projectionSnapshots.values()];
-  for (const row of projectionRows) {
+  if (projectionRows.length) {
+    await ensureSourceLearningSchema();
+  }
+  for (let index = 0; index < projectionRows.length; index += 100) {
+    const chunk = projectionRows.slice(index, index + 100);
     await db
       .insert(sourceProjections)
-      .values(row)
+      .values(chunk)
       .onConflictDoUpdate({
         target: sourceProjections.id,
         set: {
-          projectedValue: row.projectedValue,
-          capturedAt: now,
+          projectedValue: sql`excluded.projected_value`,
+          capturedAt: sql`excluded.captured_at`,
           updatedAt: now,
         },
       });
-    sourceProjectionsStored += 1;
+    sourceProjectionsStored += chunk.length;
   }
 
   for (const provider of payload.providers) {
