@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   Sparkles,
   Target,
+  WalletCards,
   Zap,
 } from "lucide-react";
 import {
@@ -15,6 +16,10 @@ import {
   type BuilderMode,
   type BuilderObjective,
 } from "@/lib/builder";
+import {
+  buildPortfolioPlan,
+  type PortfolioRisk,
+} from "@/lib/builder/portfolio";
 import { isBuilderEligibleOpportunity } from "@/lib/markets/eligibility";
 import type { MarketOpportunity } from "@/lib/markets/types";
 import { cn, formatEdge, formatPercent } from "@/lib/utils";
@@ -163,6 +168,11 @@ export function BuilderWorkbench() {
   const [mode, setMode] = useState<BuilderMode>("multi_game");
   const [objective, setObjective] = useState<BuilderObjective>("balanced");
   const [stake, setStake] = useState(100);
+  const [builderView, setBuilderView] = useState<"parlay" | "portfolio">("parlay");
+  const [planAmount, setPlanAmount] = useState(100);
+  const [targetPayout, setTargetPayout] = useState(250);
+  const [portfolioRisk, setPortfolioRisk] =
+    useState<PortfolioRisk>("balanced");
 
   const combination = useMemo(
     () =>
@@ -184,6 +194,29 @@ export function BuilderWorkbench() {
       mode,
       objective,
       platform,
+    ],
+  );
+
+  const portfolioPlan = useMemo(
+    () =>
+      buildPortfolioPlan(currentMarkets, {
+        amount: planAmount,
+        targetPayout,
+        risk: portfolioRisk,
+        platform,
+        live,
+        mode,
+        maxLegs,
+      }),
+    [
+      currentMarkets,
+      live,
+      maxLegs,
+      mode,
+      planAmount,
+      platform,
+      portfolioRisk,
+      targetPayout,
     ],
   );
 
