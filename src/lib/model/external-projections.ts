@@ -515,19 +515,19 @@ function loadFfToday(season: number, week: number) {
                 return;
               }
 
-              for (const row of html.match(/<tr\\b[\\s\\S]*?<\\/tr>/gi) ?? []) {
+              for (const row of html.match(/<tr\b[\s\S]*?<\/tr>/gi) ?? []) {
                 const rawCells = [
-                  ...row.matchAll(/<td\\b[^>]*>([\\s\\S]*?)<\\/td>/gi),
+                  ...row.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi),
                 ];
                 if (!rawCells.length) continue;
 
                 const playerIndex = rawCells.findIndex((match) =>
-                  /stats\\/players\\/\\d+/i.test(match[1] ?? ""),
+                  /stats\/players\/\d+/i.test(match[1] ?? ""),
                 );
                 if (playerIndex < 0) continue;
 
                 const playerMatch = (rawCells[playerIndex]?.[1] ?? "").match(
-                  /<a[^>]*>([\\s\\S]*?)<\\/a>/i,
+                  /<a[^>]*>([\s\S]*?)<\/a>/i,
                 );
                 const player = playerMatch ? decode(playerMatch[1] ?? "") : "";
                 if (!player) continue;
