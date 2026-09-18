@@ -123,7 +123,7 @@ export function MarketDataProvider({
     }
     void refresh();
 
-    const intervalMs = pathname === "/live" ? 10_000 : 30_000;
+    const intervalMs = pathname === "/live" ? 10_000 : 60_000;
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void refresh();
     }, intervalMs);
