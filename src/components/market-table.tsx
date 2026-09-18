@@ -84,6 +84,7 @@ function MarketDrawer({ market, onClose }: { market: MarketOpportunity; onClose:
   const modelProbability = formatPercent(market.recommendedProbabilityBps);
   const pickSide = displayPickSide(market);
   const edge = formatEdge(market.edgeBps);
+  const hasPositiveEdge = (market.edgeBps ?? 0) > 0;
   useEffect(() => {
     const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", close);
@@ -101,9 +102,19 @@ function MarketDrawer({ market, onClose }: { market: MarketOpportunity; onClose:
         </div>
         {market.arbitrage ? <div className={cn("mb-6 rounded-md border p-3 text-xs leading-5", market.arbitrage.classification === "arbitrage" ? "border-positive/30 bg-positive-bg text-positive" : "border-warning/30 bg-warning-bg text-warning")}><strong className="block font-semibold">{market.arbitrage.classification === "arbitrage" ? "Executable arbitrage" : "Price dislocation"}</strong>{market.arbitrage.reason}</div> : null}
         <section className="mb-7 rounded-lg border bg-background p-4">
-          <h3 className="text-sm font-semibold">Why Lynerva likes it</h3>
+          <h3 className="text-sm font-semibold">
+            {hasPositiveEdge ? "Why Lynerva likes it" : "Model view"}
+          </h3>
           <p className="mt-2 text-xs leading-5 text-muted">
-            Lynerva likes the <strong className="font-semibold text-foreground">{pickSide}</strong> side. The model prices that side at {modelProbability} versus a current executable price of {price}, an estimated edge of {edge}. That difference is why it appears in Top Picks.
+            {hasPositiveEdge ? (
+              <>
+                Lynerva likes the <strong className="font-semibold text-foreground">{pickSide}</strong> side. The model prices that side at {modelProbability} versus a current executable price of {price}, an estimated edge of {edge}.
+              </>
+            ) : (
+              <>
+                The model currently prefers the <strong className="font-semibold text-foreground">{pickSide}</strong> side at {modelProbability} versus an executable price of {price}, but the estimated edge is {edge}, so Lynerva is not flagging this as a Top Pick.
+              </>
+            )}
           </p>
           <ul className="mt-3 space-y-2 text-xs leading-5 text-muted">
             {market.model.factors.map((factor) => (
