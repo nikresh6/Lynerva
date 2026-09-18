@@ -35,7 +35,7 @@ type ProjectionMap = Map<string, ProjectionStats>;
 const PAGE_TTL_MS = 20 * 60_000;
 const FAILURE_TTL_MS = 30_000;
 const CONSENSUS_TTL_MS = 20 * 60_000;
-const SOURCE_TIMEOUT_MS = 1_200;
+const SOURCE_TIMEOUT_MS = 3_500;
 
 const pageCache = new Map<
   string,
@@ -193,12 +193,17 @@ function cachedSource(
   const cached = sourceCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.promise;
 
-  const promise = loader().catch(() => new Map<string, ProjectionStats>());
-  sourceCache.set(key, {
+  const entry = {
     expiresAt: Date.now() + PAGE_TTL_MS,
-    promise,
+    promise: loader(),
+  };
+  sourceCache.set(key, entry);
+
+  return entry.promise.catch(() => {
+    const current = sourceCache.get(key);
+    if (current === entry) current.expiresAt = Date.now() + FAILURE_TTL_MS;
+    return new Map<string, ProjectionStats>();
   });
-  return promise;
 }
 
 function fantasyProsStats(position: string, cells: string[]): ProjectionStats {
@@ -368,16 +373,12 @@ function loadEspn(season: number, week: number) {
     for (const entry of payload.players ?? []) {
       const player = entry.player;
       if (!player?.fullName) continue;
-      const projection =
-        player.stats?.find(
-          (stat) =>
-            stat.statSourceId === 1 &&
-            stat.statSplitTypeId === 1 &&
-            stat.scoringPeriodId === week,
-        ) ??
-        player.stats?.find(
-          (stat) => stat.statSourceId === 1 && stat.statSplitTypeId === 1,
-        );
+      const projection = player.stats?.find(
+        (stat) =>
+          stat.statSourceId === 1 &&
+          stat.statSplitTypeId === 1 &&
+          stat.scoringPeriodId === week,
+      );
       const stats = projection?.stats;
       if (!stats) continue;
       mergeStats(map, player.fullName, {
