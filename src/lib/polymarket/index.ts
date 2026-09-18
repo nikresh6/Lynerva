@@ -72,7 +72,6 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
     const windowEnd = now + 8 * 24 * 60 * 60 * 1_000;
     const url = new URL(`${GAMMA_BASE}/events`);
     url.searchParams.set("series_id", "10187");
-    url.searchParams.set("tag_id", "100639");
     url.searchParams.set("active", "true");
     url.searchParams.set("closed", "false");
     url.searchParams.set("limit", "40");
