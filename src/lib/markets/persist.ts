@@ -73,6 +73,7 @@ export async function persistMarkets(payload: MarketsPayload) {
     const week = components?.projectionWeek;
     if (
       !opportunity.canonical ||
+      opportunity.isLive ||
       !season ||
       !week ||
       !components?.projectionSources?.length
