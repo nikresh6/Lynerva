@@ -98,10 +98,20 @@ export function isTopOpportunity(market: MarketOpportunity) {
   ) {
     return true;
   }
-  // The public top-30 can include low-confidence early-season estimates.
-  // Reliability is already penalized heavily in Lynerva Score. Builder keeps
-  // its stricter reliability requirement.
   if (!isModelBackedOpportunity(market)) return false;
+  const isPlayerProp = Boolean(
+    market.canonical &&
+      !["moneyline", "spread", "game_total"].includes(market.canonical.family),
+  );
+  // Keep weakly sourced props searchable/rated, but do not promote them into
+  // the public top picks until at least four independent weekly sources agree
+  // on the underlying player projection.
+  if (
+    isPlayerProp &&
+    (market.model.components?.projectionSourceCount ?? 0) < 4
+  ) {
+    return false;
+  }
   if ((market.edgeBps ?? 0) < 75) return false;
   return true;
 }
