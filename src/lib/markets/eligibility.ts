@@ -81,7 +81,7 @@ export function isBuilderEligibleOpportunity(market: MarketOpportunity) {
   );
   if (
     isPlayerProp &&
-    (market.model.components?.projectionSourceCount ?? 0) < 4
+    (market.model.components?.projectionSourceCount ?? 0) < 5
   ) {
     return false;
   }
@@ -104,11 +104,11 @@ export function isTopOpportunity(market: MarketOpportunity) {
       !["moneyline", "spread", "game_total"].includes(market.canonical.family),
   );
   // Keep weakly sourced props searchable/rated, but do not promote them into
-  // the public top picks until at least four independent weekly sources agree
+  // the public top picks until at least five independent weekly sources agree
   // on the underlying player projection.
   if (
     isPlayerProp &&
-    (market.model.components?.projectionSourceCount ?? 0) < 4
+    (market.model.components?.projectionSourceCount ?? 0) < 5
   ) {
     return false;
   }

@@ -12,8 +12,11 @@ export const dynamic = "force-dynamic";
 const STAT_LABELS: Record<string, string> = {
   passing_yards: "Passing yards",
   passing_touchdowns: "Passing TDs",
+  passing_interceptions: "Interceptions thrown",
   rushing_yards: "Rushing yards",
+  rushing_touchdowns: "Rushing TDs",
   receiving_yards: "Receiving yards",
+  receiving_touchdowns: "Receiving TDs",
   receptions: "Receptions",
   touchdowns: "Any TDs",
 };
@@ -21,8 +24,11 @@ const STAT_LABELS: Record<string, string> = {
 const STAT_ORDER = [
   "passing_yards",
   "passing_touchdowns",
+  "passing_interceptions",
   "rushing_yards",
+  "rushing_touchdowns",
   "receiving_yards",
+  "receiving_touchdowns",
   "receptions",
   "touchdowns",
 ];
@@ -38,6 +44,7 @@ function sourceName(source: string) {
 function unit(stat: string) {
   if (stat.includes("yards")) return " yd";
   if (stat === "receptions") return " rec";
+  if (stat === "passing_interceptions") return " INT";
   return " TD";
 }
 
@@ -151,10 +158,11 @@ export default async function SourcesPage() {
           <div className="mb-3">
             <h2 className="text-sm font-semibold">Active free sources</h2>
             <p className="mt-1 max-w-3xl text-xs leading-5 text-muted">
-              These sources require no paid API key or Lynerva subscription.
-              Lynerva accepts only the requested NFL week. Missing data stays
-              missing instead of being replaced with season or rest-of-season
-              projections.
+              These are the only outside projection sources currently allowed
+              into Lynerva. They are reachable without a paid API key or paid
+              account. Lynerva accepts only the requested NFL week. Missing
+              data stays missing instead of being replaced with season or
+              rest-of-season projections.
             </p>
           </div>
 

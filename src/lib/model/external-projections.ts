@@ -2,7 +2,10 @@ import "server-only";
 
 import type { CanonicalMarket } from "@/lib/markets/types";
 import { getLearnedSourceWeights } from "./source-learning";
-import { ACTIVE_PROJECTION_SOURCES } from "./source-weighting";
+import {
+  ACTIVE_PROJECTION_SOURCES,
+  type ActiveProjectionSource,
+} from "./source-weighting";
 
 export type ProjectionSource =
   | "fantasypros"
@@ -24,13 +27,16 @@ export interface ProjectionPoint {
 }
 
 interface ProjectionStats {
+  position?: "QB" | "RB" | "WR" | "TE";
   passingYards?: number;
   passingTouchdowns?: number;
+  passingInterceptions?: number;
   rushingYards?: number;
   rushingTouchdowns?: number;
   receptions?: number;
   receivingYards?: number;
   receivingTouchdowns?: number;
+  totalTouchdowns?: number;
 }
 
 type ProjectionMap = Map<string, ProjectionStats>;
@@ -178,6 +184,7 @@ function sourceValue(
   if (family === "receptions") return stats.receptions ?? null;
   if (family === "receiving_yards") return stats.receivingYards ?? null;
   if (family === "touchdowns") {
+    if (stats.totalTouchdowns !== undefined) return stats.totalTouchdowns;
     const rushing = stats.rushingTouchdowns ?? 0;
     const receiving = stats.receivingTouchdowns ?? 0;
     const total = rushing + receiving;
@@ -187,7 +194,7 @@ function sourceValue(
 }
 
 function cachedSource(
-  source: ProjectionSource,
+  source: string,
   season: number,
   week: number,
   loader: () => Promise<ProjectionMap>,
@@ -213,14 +220,17 @@ function fantasyProsStats(position: string, cells: string[]): ProjectionStats {
   const values = cells.slice(1).map(toNumber);
   if (position === "qb") {
     return {
+      position: "QB",
       passingYards: values[2] ?? undefined,
       passingTouchdowns: values[3] ?? undefined,
+      passingInterceptions: values[4] ?? undefined,
       rushingYards: values[6] ?? undefined,
       rushingTouchdowns: values[7] ?? undefined,
     };
   }
   if (position === "rb") {
     return {
+      position: "RB",
       rushingYards: values[1] ?? undefined,
       rushingTouchdowns: values[2] ?? undefined,
       receptions: values[3] ?? undefined,
@@ -229,6 +239,7 @@ function fantasyProsStats(position: string, cells: string[]): ProjectionStats {
     };
   }
   return {
+    position: position.toUpperCase() as "WR" | "TE",
     receptions: values[0] ?? undefined,
     receivingYards: values[1] ?? undefined,
     receivingTouchdowns: values[2] ?? undefined,
@@ -301,18 +312,21 @@ function loadNumberFire(season: number, week: number) {
             if (!player) continue;
             if (position === "qb") {
               mergeStats(map, player, {
+                position: "QB",
                 passingYards: toNumber(cells[playerIndex + 2]) ?? undefined,
                 passingTouchdowns: toNumber(cells[playerIndex + 3]) ?? undefined,
               });
             } else if (position === "wr" || position === "te") {
               mergeStats(map, player, {
+                position: position.toUpperCase() as "WR" | "TE",
                 receptions: toNumber(cells[playerIndex + 2]) ?? undefined,
                 receivingYards: toNumber(cells[playerIndex + 3]) ?? undefined,
-                receivingTouchdowns: toNumber(cells[playerIndex + 4]) ?? undefined,
+                totalTouchdowns: toNumber(cells[playerIndex + 4]) ?? undefined,
               });
             } else {
               mergeStats(map, player, {
-                rushingTouchdowns: toNumber(cells[playerIndex + 3]) ?? undefined,
+                position: "RB",
+                totalTouchdowns: toNumber(cells[playerIndex + 3]) ?? undefined,
               });
             }
           }
@@ -378,6 +392,7 @@ function loadEspn(season: number, week: number) {
         id?: number;
         player?: {
           fullName?: string;
+          defaultPositionId?: number;
           stats?: Array<{
             statSourceId?: number;
             statSplitTypeId?: number;
@@ -399,9 +414,17 @@ function loadEspn(season: number, week: number) {
       );
       const stats = projection?.stats;
       if (!stats) continue;
+      const espnPosition = ({
+        1: "QB",
+        2: "RB",
+        3: "WR",
+        4: "TE",
+      } as const)[player.defaultPositionId as 1 | 2 | 3 | 4];
       mergeStats(map, player.fullName, {
+        position: espnPosition,
         passingYards: toNumber(stats["3"]) ?? undefined,
         passingTouchdowns: toNumber(stats["4"]) ?? undefined,
+        passingInterceptions: toNumber(stats["20"]) ?? undefined,
         rushingYards: toNumber(stats["24"]) ?? undefined,
         rushingTouchdowns: toNumber(stats["25"]) ?? undefined,
         receptions: toNumber(stats["53"]) ?? undefined,
@@ -417,8 +440,10 @@ function cbsStats(position: string, cells: string[]): ProjectionStats {
   // CBS uses stable, position-specific projection tables. Cell 0 is the player.
   if (position === "QB") {
     return {
+      position: "QB",
       passingYards: toNumber(cells[4]) ?? undefined,
       passingTouchdowns: toNumber(cells[6]) ?? undefined,
+      passingInterceptions: toNumber(cells[7]) ?? undefined,
       rushingYards: toNumber(cells[10]) ?? undefined,
       rushingTouchdowns: toNumber(cells[12]) ?? undefined,
     };
@@ -426,6 +451,7 @@ function cbsStats(position: string, cells: string[]): ProjectionStats {
 
   if (position === "RB") {
     return {
+      position: "RB",
       rushingYards: toNumber(cells[3]) ?? undefined,
       rushingTouchdowns: toNumber(cells[5]) ?? undefined,
       receptions: toNumber(cells[7]) ?? undefined,
@@ -436,6 +462,7 @@ function cbsStats(position: string, cells: string[]): ProjectionStats {
 
   if (position === "WR") {
     return {
+      position: "WR",
       receptions: toNumber(cells[3]) ?? undefined,
       receivingYards: toNumber(cells[4]) ?? undefined,
       receivingTouchdowns: toNumber(cells[7]) ?? undefined,
@@ -445,6 +472,7 @@ function cbsStats(position: string, cells: string[]): ProjectionStats {
   }
 
   return {
+    position: "TE",
     receptions: toNumber(cells[3]) ?? undefined,
     receivingYards: toNumber(cells[4]) ?? undefined,
     receivingTouchdowns: toNumber(cells[7]) ?? undefined,
@@ -719,8 +747,10 @@ function loadRotoBaller(season: number, week: number) {
       }
 
       mergeStats(map, player, {
+        position: position as "QB" | "RB" | "WR" | "TE",
         passingYards: toNumber(cells[4]) ?? undefined,
         passingTouchdowns: toNumber(cells[5]) ?? undefined,
+        passingInterceptions: toNumber(cells[6]) ?? undefined,
         rushingYards: toNumber(cells[8]) ?? undefined,
         rushingTouchdowns: toNumber(cells[9]) ?? undefined,
         receptions: toNumber(cells[10]) ?? undefined,
@@ -783,8 +813,14 @@ function loadSleeper(season: number, week: number) {
             if (!player) continue;
 
             mergeStats(map, player, {
+              position: (row.player?.position?.toUpperCase() ?? position) as
+                | "QB"
+                | "RB"
+                | "WR"
+                | "TE",
               passingYards: toNumber(row.stats.pass_yd) ?? undefined,
               passingTouchdowns: toNumber(row.stats.pass_td) ?? undefined,
+              passingInterceptions: toNumber(row.stats.pass_int) ?? undefined,
               rushingYards: toNumber(row.stats.rush_yd) ?? undefined,
               rushingTouchdowns: toNumber(row.stats.rush_td) ?? undefined,
               receptions: toNumber(row.stats.rec) ?? undefined,
@@ -1137,6 +1173,116 @@ function loadDimers(season: number, week: number) {
   });
 }
 
+export type ProjectionStatistic =
+  | "passing_yards"
+  | "passing_touchdowns"
+  | "passing_interceptions"
+  | "rushing_yards"
+  | "rushing_touchdowns"
+  | "receptions"
+  | "receiving_yards"
+  | "receiving_touchdowns"
+  | "touchdowns";
+
+export interface WeeklyProjectionStatSnapshot {
+  source: ProjectionSource;
+  playerName: string;
+  playerKey: string;
+  statistic: ProjectionStatistic;
+  value: number;
+}
+
+function activeSourceMap(
+  source: (typeof ACTIVE_PROJECTION_SOURCES)[number],
+  season: number,
+  week: number,
+) {
+  if (source === "fantasypros") return loadFantasyPros(season, week);
+  if (source === "numberfire") return loadNumberFire(season, week);
+  if (source === "espn") return loadEspn(season, week);
+  if (source === "cbs") return loadCbs(season, week);
+  if (source === "rotoballer") return loadRotoBaller(season, week);
+  return loadSleeper(season, week);
+}
+
+function plausibleStatProjection(statistic: ProjectionStatistic, value: number) {
+  if (!Number.isFinite(value) || value < 0) return false;
+  if (statistic === "passing_yards") return value <= 600;
+  if (statistic === "passing_touchdowns") return value <= 6;
+  if (statistic === "passing_interceptions") return value <= 5;
+  if (statistic === "rushing_yards") return value <= 300;
+  if (statistic === "rushing_touchdowns") return value <= 3;
+  if (statistic === "receptions") return value <= 20;
+  if (statistic === "receiving_yards") return value <= 300;
+  return value <= 3;
+}
+
+export async function getWeeklyProjectionStatSnapshots(
+  season: number,
+  week: number,
+) {
+  const settled = await Promise.allSettled(
+    ACTIVE_PROJECTION_SOURCES.map(async (source) => ({
+      source,
+      map: await activeSourceMap(source, season, week),
+    })),
+  );
+
+  const snapshots: WeeklyProjectionStatSnapshot[] = [];
+  for (const result of settled) {
+    if (result.status !== "fulfilled") continue;
+    const { source, map } = result.value;
+
+    for (const [playerKey, stats] of map.entries()) {
+      const fields: Array<[ProjectionStatistic, number | undefined]> = [];
+      if (stats.totalTouchdowns !== undefined) {
+        fields.push(["touchdowns", stats.totalTouchdowns]);
+      }
+
+      if (stats.position === "QB") {
+        fields.push(
+          ["passing_yards", stats.passingYards],
+          ["passing_touchdowns", stats.passingTouchdowns],
+          ["passing_interceptions", stats.passingInterceptions],
+          ["rushing_yards", stats.rushingYards],
+          ["rushing_touchdowns", stats.rushingTouchdowns],
+        );
+      } else if (stats.position === "RB") {
+        fields.push(
+          ["rushing_yards", stats.rushingYards],
+          ["rushing_touchdowns", stats.rushingTouchdowns],
+          ["receptions", stats.receptions],
+          ["receiving_yards", stats.receivingYards],
+          ["receiving_touchdowns", stats.receivingTouchdowns],
+        );
+      } else if (stats.position === "WR" || stats.position === "TE") {
+        fields.push(
+          ["receptions", stats.receptions],
+          ["receiving_yards", stats.receivingYards],
+          ["receiving_touchdowns", stats.receivingTouchdowns],
+          ["rushing_yards", stats.rushingYards],
+          ["rushing_touchdowns", stats.rushingTouchdowns],
+        );
+      }
+
+      for (const [statistic, value] of fields) {
+        if (value === undefined || !plausibleStatProjection(statistic, value)) {
+          continue;
+        }
+        snapshots.push({
+          source,
+          playerName: playerKey,
+          playerKey,
+          statistic,
+          value,
+        });
+      }
+    }
+  }
+
+  return snapshots;
+}
+
 export function resolveProjectionPlayer<T>(
   entries: Array<[string, T]>,
   subject: string,
@@ -1150,33 +1296,12 @@ export function resolveProjectionPlayer<T>(
 }
 
 async function sourceProjection(
-  source: ProjectionSource,
+  source: ActiveProjectionSource,
   market: CanonicalMarket,
   season: number,
   week: number,
 ): Promise<ProjectionPoint | null> {
-  if (source === "nfl") return nflMarketProjection(market, season, week);
-
-  const loader =
-    source === "fantasypros"
-      ? loadFantasyPros
-      : source === "numberfire"
-        ? loadNumberFire
-        : source === "espn"
-          ? loadEspn
-          : source === "cbs"
-            ? loadCbs
-            : source === "fftoday"
-              ? loadFfToday
-              : source === "rotoballer"
-                ? loadRotoBaller
-                : source === "sleeper"
-                  ? loadSleeper
-                  : source === "covers"
-                    ? loadCovers
-                    : loadDimers;
-
-  const map = await loader(season, week);
+  const map = await activeSourceMap(source, season, week);
   // Prefer an exact normalized player name. Abbreviated fallbacks are used
   // only when they identify exactly one player, so B. Robinson can never
   // silently map Brian Robinson Jr. to Bijan Robinson.
@@ -1231,7 +1356,7 @@ async function buildConsensus(
   season: number,
   week: number,
 ) {
-  const sources: readonly ProjectionSource[] = ACTIVE_PROJECTION_SOURCES;
+  const sources: readonly ActiveProjectionSource[] = ACTIVE_PROJECTION_SOURCES;
   const [settled, learned] = await Promise.all([
     Promise.allSettled(
       sources.map((source) => sourceProjection(source, market, season, week)),
