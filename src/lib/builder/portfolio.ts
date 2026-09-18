@@ -81,13 +81,18 @@ function playerStatKey(market: MarketOpportunity) {
   ].join("|");
 }
 
-function candidateLegKeys(candidate: Candidate) {
-  return new Set(candidate.legs.map(marketKey));
+function candidateExposureKeys(candidate: Candidate) {
+  const keys = new Set<string>();
+  for (const leg of candidate.legs) {
+    keys.add(`market:${marketKey(leg)}`);
+    keys.add(`player-stat:${playerStatKey(leg)}`);
+  }
+  return keys;
 }
 
 function overlapShare(first: Candidate, second: Candidate) {
-  const firstKeys = candidateLegKeys(first);
-  const secondKeys = candidateLegKeys(second);
+  const firstKeys = candidateExposureKeys(first);
+  const secondKeys = candidateExposureKeys(second);
   let overlap = 0;
 
   for (const key of firstKeys) {
@@ -101,7 +106,6 @@ function straightCandidates(
   opportunities: MarketOpportunity[],
   options: PortfolioPlanOptions,
 ) {
-  const seenPlayerStats = new Set<string>();
   const rows: Candidate[] = [];
 
   for (const market of opportunities) {
@@ -124,9 +128,6 @@ function straightCandidates(
     }
     if (options.live === "live" && !market.isLive) continue;
     if (options.live === "pregame" && market.isLive) continue;
-
-    const key = playerStatKey(market);
-    if (seenPlayerStats.has(key)) continue;
 
     const price = market.executablePriceBps / 10_000;
     const probability = adjustedProbability(market);
@@ -151,10 +152,24 @@ function straightCandidates(
       score,
       parlayMode: null,
     });
-    seenPlayerStats.add(key);
   }
 
-  return rows
+  const bestByPlayerStat = new Map<string, Candidate>();
+  for (const candidate of rows.toSorted(
+    (first, second) =>
+      second.score - first.score ||
+      second.probability - first.probability ||
+      second.expectedValueMultiplier - first.expectedValueMultiplier,
+  )) {
+    const market = candidate.legs[0];
+    if (!market) continue;
+    const key = playerStatKey(market);
+    if (!bestByPlayerStat.has(key)) {
+      bestByPlayerStat.set(key, candidate);
+    }
+  }
+
+  return [...bestByPlayerStat.values()]
     .toSorted(
       (first, second) =>
         second.score - first.score ||
@@ -261,7 +276,9 @@ function pickDiverse(
       const overlap = references.length
         ? Math.max(...references.map((row) => overlapShare(candidate, row)))
         : 0;
-      const score = candidate.score - 0.8 * overlap;
+      if (overlap >= 0.95) continue;
+
+      const score = candidate.score - 1.0 * overlap;
 
       if (score > bestScore) {
         best = candidate;
