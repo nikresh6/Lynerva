@@ -1,6 +1,6 @@
 import "server-only";
 
-import { desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, max } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   sourceProjectionGrades,
@@ -82,7 +82,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
     await ensureSourceLearningSchema();
     const db = getDb();
 
-    const [gradeRows, weightRows] = await Promise.all([
+    const [gradeRows, weightRows, latestProjectionWeekRows] = await Promise.all([
       db
         .select({
           source: sourceProjections.source,
@@ -108,7 +108,32 @@ export async function getProjectionSourcePerformance(season = 2026) {
         .from(sourceWeightHistory)
         .where(eq(sourceWeightHistory.season, season))
         .orderBy(desc(sourceWeightHistory.effectiveWeek)),
+      db
+        .select({ week: max(sourceProjections.week) })
+        .from(sourceProjections)
+        .where(eq(sourceProjections.season, season)),
     ]);
+
+    const coverageWeek = latestProjectionWeekRows[0]?.week ?? null;
+    const coverageRows =
+      coverageWeek === null
+        ? []
+        : await db
+            .select({
+              source: sourceProjections.source,
+              count: count(),
+            })
+            .from(sourceProjections)
+            .where(
+              and(
+                eq(sourceProjections.season, season),
+                eq(sourceProjections.week, coverageWeek),
+              ),
+            )
+            .groupBy(sourceProjections.source);
+    const coverageBySource = new Map(
+      coverageRows.map((row) => [row.source, Number(row.count)]),
+    );
 
     const latestWeights = new Map<
       string,
@@ -188,9 +213,11 @@ export async function getProjectionSourcePerformance(season = 2026) {
     return {
       season,
       rows,
+      coverageWeek,
       sources: ACTIVE_PROJECTION_SOURCES.map((source) => ({
         id: source,
         ...PROJECTION_SOURCE_INFO[source],
+        coverageCount: coverageBySource.get(source) ?? 0,
       })),
     };
   } catch (error) {
@@ -198,9 +225,11 @@ export async function getProjectionSourcePerformance(season = 2026) {
     return {
       season,
       rows: [] as ProjectionPerformanceRow[],
+      coverageWeek: null as number | null,
       sources: ACTIVE_PROJECTION_SOURCES.map((source) => ({
         id: source,
         ...PROJECTION_SOURCE_INFO[source],
+        coverageCount: 0,
       })),
     };
   }
