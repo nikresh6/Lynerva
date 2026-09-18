@@ -59,6 +59,21 @@ export function isModelBackedOpportunity(market: MarketOpportunity) {
   );
 }
 
+export function isBuilderEligibleOpportunity(market: MarketOpportunity) {
+  if (!isModelBackedOpportunity(market)) return false;
+  if (
+    market.executablePriceBps === null ||
+    market.executablePriceBps < 800 ||
+    market.executablePriceBps > 9_200
+  ) {
+    return false;
+  }
+  if (market.model.reliabilityBps < 4_500) return false;
+  if ((market.edgeBps ?? 0) < 100) return false;
+  if (market.spreadBps !== null && market.spreadBps > 1_200) return false;
+  return true;
+}
+
 export function isTopOpportunity(market: MarketOpportunity) {
   if (
     market.arbitrage?.classification === "arbitrage" &&
@@ -66,5 +81,7 @@ export function isTopOpportunity(market: MarketOpportunity) {
   ) {
     return true;
   }
-  return isModelBackedOpportunity(market);
+  if (!isBuilderEligibleOpportunity(market)) return false;
+  if ((market.edgeBps ?? 0) < 150) return false;
+  return true;
 }
