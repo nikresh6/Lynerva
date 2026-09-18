@@ -78,6 +78,15 @@ export interface ModelEstimate {
   version: string;
   evidence: HistoricalEvidence;
   factors: string[];
+  components?: {
+    consensusProjection: number | null;
+    consensusProbabilityBps: number | null;
+    statisticalProbabilityBps: number | null;
+    contextAdjustmentBps: number;
+    projectionSourceCount: number;
+    learnedCalibrationSample: number;
+    learnedCalibrationActive: boolean;
+  };
 }
 
 export interface MarketOpportunity extends ProviderMarket {
