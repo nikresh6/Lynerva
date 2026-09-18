@@ -2,7 +2,10 @@ import "server-only";
 
 import { getDb } from "@/db";
 import { nflGames, nflPlayers, playerGameStats } from "@/db/schema";
-import { runSourceLearningLoop } from "@/lib/model/source-learning";
+import {
+  ensureSourceLearningSchema,
+  runSourceLearningLoop,
+} from "@/lib/model/source-learning";
 
 type CsvRow = Record<string, string>;
 
@@ -73,6 +76,7 @@ export async function ingestNflverseSeason(season: number) {
     ),
   ]);
   const db = getDb();
+  await ensureSourceLearningSchema();
   const seasonGames = games.filter((row) => Number(row.season) === season);
   const validGameIds = new Set<string>();
   const gameByTeamWeek = new Map<string, string>();
@@ -157,6 +161,7 @@ export async function ingestNflverseSeason(season: number) {
           passingYards: numberOrNull(row.passing_yards),
           passingAttempts: numberOrNull(row.attempts),
           passingTouchdowns: numberOrNull(row.passing_tds),
+          passingInterceptions: numberOrNull(row.interceptions),
           rushingYards: numberOrNull(row.rushing_yards),
           rushingAttempts: numberOrNull(row.carries),
           rushingTouchdowns: numberOrNull(row.rushing_tds),
@@ -172,6 +177,7 @@ export async function ingestNflverseSeason(season: number) {
             passingYards: numberOrNull(row.passing_yards),
             passingAttempts: numberOrNull(row.attempts),
             passingTouchdowns: numberOrNull(row.passing_tds),
+            passingInterceptions: numberOrNull(row.interceptions),
             rushingYards: numberOrNull(row.rushing_yards),
             rushingAttempts: numberOrNull(row.carries),
             rushingTouchdowns: numberOrNull(row.rushing_tds),
