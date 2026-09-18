@@ -1,10 +1,8 @@
 import "server-only";
 
-import { unstable_cache } from "next/cache";
 import type { CanonicalMarket } from "@/lib/markets/types";
+import type { NflScheduleGame } from "@/lib/nfl/schedule-match";
 import { OpenMeteoProvider, type WeatherPoint } from "@/lib/weather";
-
-type CsvRow = Record<string, string>;
 
 const TEAM_COORDS: Record<string, { latitude: number; longitude: number }> = {
   ARI: { latitude: 33.5276, longitude: -112.2626 },
@@ -41,6 +39,20 @@ const TEAM_COORDS: Record<string, { latitude: number; longitude: number }> = {
   WAS: { latitude: 38.9078, longitude: -76.8645 },
 };
 
+const WEATHER_NEUTRAL_HOME_TEAMS = new Set([
+  "ARI",
+  "ATL",
+  "DAL",
+  "DET",
+  "HOU",
+  "IND",
+  "LV",
+  "LAC",
+  "LAR",
+  "MIN",
+  "NO",
+]);
+
 export interface GameWeatherContext {
   homeTeam: string;
   awayTeam: string;
@@ -50,159 +62,47 @@ export interface GameWeatherContext {
   weather: WeatherPoint | null;
 }
 
-function parseCsvLine(line: string) {
-  const values: string[] = [];
-  let value = "";
-  let quoted = false;
-  for (let index = 0; index < line.length; index += 1) {
-    const character = line[index];
-    if (character === '"') {
-      if (quoted && line[index + 1] === '"') {
-        value += '"';
-        index += 1;
-      } else {
-        quoted = !quoted;
-      }
-    } else if (character === "," && !quoted) {
-      values.push(value);
-      value = "";
-    } else {
-      value += character;
-    }
-  }
-  values.push(value);
-  return values;
-}
+const forecastPromises = new Map<string, Promise<WeatherPoint | null>>();
 
-function parseCsv(text: string) {
-  const lines = text.replaceAll("\r\n", "\n").split("\n").filter(Boolean);
-  const headers = parseCsvLine(lines[0] ?? "");
-  return lines.slice(1).map((line): CsvRow => {
-    const values = parseCsvLine(line);
-    return Object.fromEntries(
-      headers.map((header, index) => [header, values[index] ?? ""]),
-    );
-  });
-}
+function getForecast(homeTeam: string, kickoffAt: string) {
+  const coords = TEAM_COORDS[homeTeam];
+  if (!coords) return Promise.resolve(null);
 
-const loadSchedule = unstable_cache(
-  async () => {
-    const response = await fetch(
-      "https://cdn.jsdelivr.net/gh/nflverse/nfldata@master/data/games.csv",
-      {
-        headers: { "User-Agent": "Lynerva/1.0 game-context" },
-        signal: AbortSignal.timeout(30_000),
-      },
-    );
-    if (!response.ok) {
-      throw new Error(`nflverse schedule returned ${response.status}`);
-    }
-    return parseCsv(await response.text());
-  },
-  ["lynerva-nfl-schedule-context-v1"],
-  { revalidate: 60 * 60 },
-);
+  const key = `${homeTeam}:${kickoffAt.slice(0, 13)}`;
+  const existing = forecastPromises.get(key);
+  if (existing) return existing;
 
-function kickoff(row: CsvRow) {
-  if (!row.gameday) return null;
-  const time = row.gametime || "13:00";
-  const [year, month, day] = row.gameday.split("-").map(Number);
-  const [hour, minute] = time.split(":").map(Number);
-  if (![year, month, day, hour, minute].every(Number.isFinite)) return null;
-
-  const desiredLocalAsUtc = Date.UTC(year, month - 1, day, hour, minute);
-  const guess = new Date(desiredLocalAsUtc);
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(guess);
-  const valueOf = (type: Intl.DateTimeFormatPartTypes) =>
-    Number(parts.find((part) => part.type === type)?.value);
-  const representedUtc = Date.UTC(
-    valueOf("year"),
-    valueOf("month") - 1,
-    valueOf("day"),
-    valueOf("hour"),
-    valueOf("minute"),
-  );
-  const easternOffset = representedUtc - guess.getTime();
-  const value = new Date(desiredLocalAsUtc - easternOffset);
-  return Number.isNaN(value.getTime()) ? null : value;
-}
-
-function matchupKey(homeTeam: string, awayTeam: string) {
-  return [homeTeam, awayTeam].toSorted().join("-");
-}
-
-function dateDistanceDays(first: string, second: string) {
-  const a = new Date(`${first}T12:00:00Z`).getTime();
-  const b = new Date(`${second}T12:00:00Z`).getTime();
-  return Math.abs(a - b) / 86_400_000;
-}
-
-const getForecast = unstable_cache(
-  async (homeTeam: string, kickoffAt: string) => {
-    const coords = TEAM_COORDS[homeTeam];
-    if (!coords) return null;
-    const provider = new OpenMeteoProvider();
-    return provider.getForecast({
+  const task = new OpenMeteoProvider()
+    .getForecast({
       ...coords,
       kickoffAt: new Date(kickoffAt),
+    })
+    .catch((error) => {
+      console.error("Weather forecast unavailable", error);
+      return null;
     });
-  },
-  ["lynerva-open-meteo-game-forecast-v1"],
-  { revalidate: 15 * 60 },
-);
+
+  forecastPromises.set(key, task);
+  return task;
+}
 
 export async function getGameWeatherContext(
   canonical: CanonicalMarket,
+  scheduleGame?: NflScheduleGame | null,
 ): Promise<GameWeatherContext | null> {
-  if (!canonical.matchup || !canonical.settlementDate) return null;
+  if (!canonical.matchup || !scheduleGame) return null;
 
-  try {
-    const rows = await loadSchedule();
-    const candidates = rows
-      .filter(
-        (row) =>
-          row.home_team &&
-          row.away_team &&
-          matchupKey(row.home_team, row.away_team) === canonical.matchup,
-      )
-      .map((row) => ({
-        row,
-        distance: row.gameday
-          ? dateDistanceDays(row.gameday, canonical.settlementDate!)
-          : Infinity,
-      }))
-      .filter((item) => item.distance <= 2)
-      .toSorted((a, b) => a.distance - b.distance);
+  const indoor = WEATHER_NEUTRAL_HOME_TEAMS.has(scheduleGame.homeTeam);
+  const weather = indoor
+    ? null
+    : await getForecast(scheduleGame.homeTeam, scheduleGame.kickoffAt);
 
-    const row = candidates[0]?.row;
-    if (!row?.home_team || !row.away_team) return null;
-    const kickoffAt = kickoff(row);
-    if (!kickoffAt) return null;
-
-    const roof = row.roof || null;
-    const indoor = /dome|closed/i.test(roof ?? "");
-    const weather = indoor
-      ? null
-      : await getForecast(row.home_team, kickoffAt.toISOString());
-
-    return {
-      homeTeam: row.home_team,
-      awayTeam: row.away_team,
-      kickoffAt: kickoffAt.toISOString(),
-      roof,
-      indoor,
-      weather,
-    };
-  } catch (error) {
-    console.error("NFL game weather context failed", error);
-    return null;
-  }
+  return {
+    homeTeam: scheduleGame.homeTeam,
+    awayTeam: scheduleGame.awayTeam,
+    kickoffAt: scheduleGame.kickoffAt,
+    roof: indoor ? "indoor/retractable" : null,
+    indoor,
+    weather,
+  };
 }
