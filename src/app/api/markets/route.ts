@@ -44,12 +44,14 @@ export async function GET() {
       opportunities,
       providers: payload.providers.map((provider) => ({
         provider: provider.provider,
-        count: opportunities.filter(
+        count: payload.opportunities.filter(
           (market) => market.platform === provider.provider,
         ).length,
         fetchedAt: provider.fetchedAt,
         error: provider.error,
       })),
+      ratedCount: payload.opportunities.length,
+      displayedCount: opportunities.length,
       fetchedAt: payload.fetchedAt,
     },
     {
