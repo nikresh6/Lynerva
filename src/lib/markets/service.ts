@@ -22,6 +22,7 @@ import {
   expectedRoi,
   freshnessFrom,
   opportunityScore,
+  lynervaScore,
   riskReturn,
 } from "./math";
 import type {
@@ -55,54 +56,6 @@ const modelSnapshotCache = new Map<
   }
 >();
 
-const WARMING_MODEL: Awaited<ReturnType<typeof estimateMarket>> = {
-  probabilityBps: null,
-  reliabilityBps: 0,
-  version: "regular-season-v4-warming",
-  evidence: {
-    last5Hits: null,
-    last10Hits: null,
-    seasonHits: null,
-    seasonGames: null,
-    sampleSize: 0,
-  },
-  factors: ["Historical model is warming. Live market prices are already current."],
-};
-
-async function estimateWithDeadline(
-  item: NormalizedItem,
-  key: string,
-) {
-  const cached = modelSnapshotCache.get(key);
-  if (cached && Date.now() - cached.storedAt < 15 * 60 * 1_000) {
-    return cached.estimate;
-  }
-
-  const task = estimateMarket(
-    item.canonical,
-    item.scheduleGame,
-    item.liveGame,
-  ).then((estimate) => {
-    modelSnapshotCache.set(key, {
-      estimate,
-      storedAt: Date.now(),
-    });
-    return estimate;
-  });
-
-  const isGameMarket = ["moneyline", "spread", "game_total"].includes(
-    item.canonical.family,
-  );
-  const deadlineMs = isGameMarket ? 3_000 : 1_200;
-
-  return Promise.race([
-    task,
-    new Promise<Awaited<ReturnType<typeof estimateMarket>>>((resolve) => {
-      setTimeout(() => resolve(WARMING_MODEL), deadlineMs);
-    }),
-  ]);
-}
-
 function scheduleGameFromEspn(game: LiveNflGame): NflScheduleGame | null {
   if (game.seasonType !== 2 || !game.seasonYear) return null;
   const kickoff = new Date(game.startsAt);
@@ -119,49 +72,6 @@ function scheduleGameFromEspn(game: LiveNflGame): NflScheduleGame | null {
     stadium: null,
     roof: null,
   };
-}
-
-function candidateQuality(item: NormalizedItem) {
-  const executable =
-    (item.market.yesAskBps ?? 0) > 0 || (item.market.noAskBps ?? 0) > 0;
-  return (
-    (executable ? 1_000_000_000 : 0) +
-    (item.market.liquidityCents ?? 0) * 10 +
-    (item.market.volumeCents ?? 0)
-  );
-}
-
-function selectModelCandidates(items: NormalizedItem[]) {
-  const ranked = items.toSorted(
-    (first, second) => candidateQuality(second) - candidateQuality(first),
-  );
-  const selected: NormalizedItem[] = [];
-  const gameCounts = new Map<string, number>();
-  const playerCounts = new Map<string, number>();
-
-  for (const item of ranked) {
-    const matchup = item.canonical.matchup ?? item.market.eventTitle;
-    const isGameMarket = ["moneyline", "spread", "game_total"].includes(
-      item.canonical.family,
-    );
-    const counts = isGameMarket ? gameCounts : playerCounts;
-    const perMatchupLimit = isGameMarket ? 2 : 1;
-    const count = counts.get(matchup) ?? 0;
-    if (count >= perMatchupLimit) continue;
-    if (
-      !isGameMarket &&
-      (item.market.yesAskBps ?? 0) <= 0 &&
-      (item.market.noAskBps ?? 0) <= 0
-    ) {
-      continue;
-    }
-
-    selected.push(item);
-    counts.set(matchup, count + 1);
-    if (selected.length >= 36) break;
-  }
-
-  return selected;
 }
 
 function bestExecutableSide(input: {
@@ -317,7 +227,11 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
     }
   }
 
-  const modeled = selectModelCandidates(normalized);
+  const modeled = normalized.filter(
+    (item) =>
+      (item.market.yesAskBps ?? 0) > 0 ||
+      (item.market.noAskBps ?? 0) > 0,
+  );
   const accepted = new Set(
     modeled.map((item) => marketKey(item.market)),
   );
@@ -337,7 +251,17 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
           ? `:${item.liveGame.period}:${item.liveGame.clock}:${item.liveGame.home.score}:${item.liveGame.away.score}`
           : ":pregame";
       const key = `${item.canonical.key}${liveKey}`;
-      return estimateWithDeadline(item, key);
+      const cached = modelSnapshotCache.get(key);
+      if (cached && Date.now() - cached.storedAt < 15 * 60 * 1_000) {
+        return cached.estimate;
+      }
+      const estimate = await estimateMarket(
+        item.canonical,
+        item.scheduleGame,
+        item.liveGame,
+      );
+      modelSnapshotCache.set(key, { estimate, storedAt: Date.now() });
+      return estimate;
     }),
   );
 
@@ -417,6 +341,27 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
       );
       const peer = comparison.get(index);
 
+      const roi =
+        side.probabilityBps !== null && side.priceBps !== null
+          ? expectedRoi(side.probabilityBps, side.priceBps)
+          : null;
+      const score = lynervaScore({
+        probabilityBps: side.probabilityBps,
+        edgeBps: side.edgeBps,
+        priceBps: side.priceBps,
+        expectedRoi: roi,
+        reliabilityBps: model.reliabilityBps,
+        seasonHits: model.evidence.seasonHits,
+        seasonGames: model.evidence.seasonGames,
+        last10Hits: model.evidence.last10Hits,
+        sampleSize: model.evidence.sampleSize,
+        recommendedSide: side.side,
+        liquidityCents: market.liquidityCents,
+        volumeCents: market.volumeCents,
+        spreadBps,
+        ageSeconds,
+      });
+
       return {
         ...market,
         isLive: live,
@@ -426,10 +371,7 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
         recommendedProbabilityBps: side.probabilityBps,
         executablePriceBps: side.priceBps,
         edgeBps: side.edgeBps,
-        expectedRoi:
-          side.probabilityBps !== null && side.priceBps !== null
-            ? expectedRoi(side.probabilityBps, side.priceBps)
-            : null,
+        expectedRoi: roi,
         riskReturn:
           side.priceBps === null ? null : riskReturn(side.priceBps),
         spreadBps,
@@ -444,6 +386,8 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
                 ageSeconds,
               })
             : null,
+        lynervaScore: score?.score ?? null,
+        scoreBreakdown: score?.breakdown ?? null,
         freshness: freshnessFrom(market.updatedAt, now),
         discrepancyBps: peer?.discrepancyBps ?? null,
         equivalentPlatform: peer?.equivalentPlatform ?? null,

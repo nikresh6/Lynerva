@@ -1,28 +1,25 @@
 import { getMarketOpportunities } from "@/lib/markets/service";
+import { isTopOpportunity } from "@/lib/markets/eligibility";
 import type { MarketOpportunity } from "@/lib/markets/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function score(market: MarketOpportunity) {
-  return market.opportunityScore ?? -Infinity;
+  return market.lynervaScore ?? -Infinity;
 }
 
-function balancedSnapshot(opportunities: MarketOpportunity[]) {
-  const ranked = opportunities.toSorted((first, second) => score(second) - score(first));
-  const selected: MarketOpportunity[] = [];
+function topSnapshot(opportunities: MarketOpportunity[]) {
   const seen = new Set<string>();
-  const perMatchup = new Map<string, number>();
+  const selected: MarketOpportunity[] = [];
 
-  for (const market of ranked) {
-    const matchup = market.canonical?.matchup ?? "unknown";
-    const count = perMatchup.get(matchup) ?? 0;
-    if (count >= 4) continue;
+  for (const market of opportunities.toSorted(
+    (first, second) => score(second) - score(first),
+  )) {
     const key = `${market.platform}:${market.platformMarketId}:${market.platformOutcomeId ?? "yes"}`;
     if (seen.has(key)) continue;
-    selected.push(market);
     seen.add(key);
-    perMatchup.set(matchup, count + 1);
+    selected.push(market);
     if (selected.length >= 30) break;
   }
 
@@ -31,7 +28,9 @@ function balancedSnapshot(opportunities: MarketOpportunity[]) {
 
 export async function GET() {
   const payload = await getMarketOpportunities();
-  const opportunities = balancedSnapshot(payload.opportunities).map((market) => ({
+  const opportunities = topSnapshot(
+    payload.opportunities.filter(isTopOpportunity),
+  ).map((market) => ({
     ...market,
     resolutionRules: market.resolutionRules?.slice(0, 240) ?? null,
     model: {
@@ -45,12 +44,14 @@ export async function GET() {
       opportunities,
       providers: payload.providers.map((provider) => ({
         provider: provider.provider,
-        count: opportunities.filter(
+        count: payload.opportunities.filter(
           (market) => market.platform === provider.provider,
         ).length,
         fetchedAt: provider.fetchedAt,
         error: provider.error,
       })),
+      ratedCount: payload.opportunities.length,
+      displayedCount: opportunities.length,
       fetchedAt: payload.fetchedAt,
     },
     {

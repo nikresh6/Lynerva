@@ -1,12 +1,17 @@
 import "server-only";
 
-import { PLAYER_REGULAR_SEASON_HISTORY } from "@/data/player-regular-season-history";
+import {
+  PLAYER_REGULAR_SEASON_HISTORY,
+  type StaticPlayerHistory,
+} from "@/data/player-regular-season-history";
 
 export interface HistoricalValue {
   season: number;
   week: number;
   value: number;
 }
+
+const playerMatchCache = new Map<string, StaticPlayerHistory | null>();
 
 function normalizePerson(value: string) {
   return value
@@ -41,21 +46,24 @@ export async function findPublicPlayerHistory(
   statistic: string,
 ) {
   const normalizedSubject = normalizePerson(subject);
-  const match = Object.entries(PLAYER_REGULAR_SEASON_HISTORY)
-    .filter(
-      ([normalized]) =>
-        normalized.length >= 5 &&
-        (normalizedSubject === normalized ||
-          normalizedSubject.includes(normalized) ||
-          normalized.includes(normalizedSubject)),
-    )
-    .toSorted(([first], [second]) => second.length - first.length)[0];
-
-  if (!match) {
-    return { playerName: null, values: [] as HistoricalValue[] };
+  let player = playerMatchCache.get(normalizedSubject);
+  if (player === undefined) {
+    const match = Object.entries(PLAYER_REGULAR_SEASON_HISTORY)
+      .filter(
+        ([normalized]) =>
+          normalized.length >= 5 &&
+          (normalizedSubject === normalized ||
+            normalizedSubject.includes(normalized) ||
+            normalized.includes(normalizedSubject)),
+      )
+      .toSorted(([first], [second]) => second.length - first.length)[0];
+    player = match?.[1] ?? null;
+    playerMatchCache.set(normalizedSubject, player);
   }
 
-  const [, player] = match;
+  if (!player) {
+    return { playerName: null, values: [] as HistoricalValue[] };
+  }
   const values = player.g
     .map((game): HistoricalValue | null => {
       const value = valueFromTuple(game, statistic);

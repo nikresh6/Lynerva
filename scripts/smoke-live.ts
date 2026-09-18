@@ -80,8 +80,8 @@ async function main() {
     .filter(isTopOpportunity)
     .toSorted(
       (a, b) =>
-        (b.opportunityScore ?? -Infinity) -
-        (a.opportunityScore ?? -Infinity),
+        (b.lynervaScore ?? -Infinity) -
+        (a.lynervaScore ?? -Infinity),
     );
 
   const gameMarkets = payload.opportunities.filter((market) =>
@@ -202,6 +202,7 @@ async function main() {
           price: pick.executablePriceBps,
           model: pick.recommendedProbabilityBps,
           edge: pick.edgeBps,
+          score: pick.lynervaScore,
           live: pick.isLive,
         })),
       },
@@ -216,7 +217,7 @@ async function main() {
       `Page smoke failed: ${slowPage.path} took ${slowPage.elapsedMs}ms.`,
     );
   }
-  if (apiElapsedMs > 6_000) {
+  if (apiElapsedMs > 3_000) {
     throw new Error(
       `Live smoke failed: cold market API took ${apiElapsedMs}ms.`,
     );
@@ -232,8 +233,8 @@ async function main() {
   if (payload.opportunities.length === 0) {
     throw new Error("Live smoke failed: zero eligible NFL opportunities.");
   }
-  if (gameMarkets.length === 0) {
-    throw new Error("Live smoke failed: zero current NFL game markets.");
+  if (payload.opportunities.some((market) => market.lynervaScore === null)) {
+    throw new Error("Live smoke failed: displayed pick is missing a Lynerva score.");
   }
   if (playerPropMarkets.length === 0) {
     throw new Error("Live smoke failed: zero regular-season player props were modeled.");
@@ -276,11 +277,6 @@ async function main() {
         `Live smoke warning: ${provider.provider} returned zero accepted markets for this snapshot.`,
       );
     }
-  }
-  if (currentEspnMatchup && !matchups.has(currentEspnMatchup)) {
-    throw new Error(
-      `Live smoke failed: current ESPN game ${currentEspnMatchup} is not mapped to any market.`,
-    );
   }
 }
 

@@ -21,6 +21,8 @@ export interface ProviderSummary {
 interface MarketClientPayload {
   opportunities: MarketOpportunity[];
   providers: ProviderSummary[];
+  ratedCount: number;
+  displayedCount: number;
   fetchedAt: string;
 }
 
@@ -33,7 +35,7 @@ interface MarketDataContextValue extends MarketClientPayload {
 
 const MarketDataContext = createContext<MarketDataContextValue | null>(null);
 
-const STORAGE_KEY = "lynerva-market-snapshot-v3";
+const STORAGE_KEY = "lynerva-market-snapshot-v4";
 const STORAGE_MAX_AGE = 5 * 1_000;
 
 function readStored(): MarketClientPayload | null {
@@ -76,6 +78,8 @@ export function MarketDataProvider({
   const [data, setData] = useState<MarketClientPayload>({
     opportunities: [],
     providers: [],
+    ratedCount: 0,
+    displayedCount: 0,
     fetchedAt: "",
   });
   const [loading, setLoading] = useState(true);

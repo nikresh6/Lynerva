@@ -6,11 +6,11 @@ import { isNflText } from "@/lib/markets/normalize";
 import {
   dollarsToBps,
   dollarsToCents,
-  fetchValidated
+  fetchValidated,
+  safeIso,
 } from "@/lib/providers/http";
 
 const GAMMA_BASE = "https://gamma-api.polymarket.com";
-const CLOB_BASE = "https://clob.polymarket.com";
 
 const polymarketMarketSchema = z
   .object({
@@ -54,14 +54,6 @@ const eventSchema = z
 
 const eventsSchema = z.array(eventSchema);
 
-const bookSchema = z.object({
-  market: z.string().optional(),
-  asset_id: z.string(),
-  bids: z.array(z.object({ price: z.string(), size: z.string() })).default([]),
-  asks: z.array(z.object({ price: z.string(), size: z.string() })).default([]),
-});
-const booksSchema = z.array(bookSchema);
-
 function parseStringArray(value: string | string[] | null | undefined) {
   if (Array.isArray(value)) return value;
   if (!value) return [];
@@ -71,49 +63,6 @@ function parseStringArray(value: string | string[] | null | undefined) {
   } catch {
     return [];
   }
-}
-
-function extrema(entries: Array<{ price: string }>, mode: "min" | "max") {
-  const values = entries.map((entry) => Number(entry.price)).filter(Number.isFinite);
-  if (!values.length) return null;
-  return mode === "min" ? Math.min(...values) : Math.max(...values);
-}
-
-async function fetchBooks(tokenIds: string[]) {
-  const map = new Map<string, z.infer<typeof bookSchema>>();
-  const unique = [...new Set(tokenIds)].slice(0, 120);
-  const chunks: string[][] = [];
-  for (let index = 0; index < unique.length; index += 100) {
-    chunks.push(unique.slice(index, index + 100));
-  }
-
-  const results = await Promise.all(
-    chunks.map(async (tokenChunk) => {
-      try {
-        return await fetchValidated(
-          "Polymarket CLOB",
-          `${CLOB_BASE}/books`,
-          booksSchema,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(
-              tokenChunk.map((tokenId) => ({ token_id: tokenId })),
-            ),
-            cache: "no-store",
-          },
-        );
-      } catch (error) {
-        console.error("Polymarket order book batch failed", error);
-        return [] as z.infer<typeof bookSchema>[];
-      }
-    }),
-  );
-
-  for (const books of results) {
-    for (const book of books) map.set(book.asset_id, book);
-  }
-  return map;
 }
 
 export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
@@ -128,6 +77,7 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
       "Polymarket Gamma",
       url.toString(),
       eventsSchema,
+      { cache: "no-store" },
     );
     const now = Date.now();
     const windowStart = now - 8 * 60 * 60 * 1_000;
@@ -160,10 +110,6 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
       }))
       .filter((event) => event.markets.length > 0);
 
-    const allTokens = nflEvents.flatMap((event) =>
-      event.markets.flatMap((market) => parseStringArray(market.clobTokenIds)),
-    );
-    const books = await fetchBooks(allTokens);
     const markets: ProviderMarket[] = [];
 
     for (const event of nflEvents) {
@@ -176,19 +122,11 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
           0,
           outcomes.findIndex((outcome) => /yes|over/i.test(outcome)),
         );
-        const noIndex = outcomes.findIndex((outcome) => /no|under/i.test(outcome));
         const yesToken = tokens[yesIndex] ?? tokens[0] ?? null;
-        const noToken = noIndex >= 0 ? tokens[noIndex] : tokens[1] ?? null;
-        const yesBook = yesToken ? books.get(yesToken) : undefined;
-        const noBook = noToken ? books.get(noToken) : undefined;
-        const yesAsk = yesBook
-          ? extrema(yesBook.asks, "min")
-          : Number(market.bestAsk ?? NaN);
-        const yesBid = yesBook
-          ? extrema(yesBook.bids, "max")
-          : Number(market.bestBid ?? NaN);
-        const noAsk = noBook ? extrema(noBook.asks, "min") : null;
-        const noBid = noBook ? extrema(noBook.bids, "max") : null;
+        const yesAsk = Number(market.bestAsk ?? prices[yesIndex] ?? NaN);
+        const yesBid = Number(market.bestBid ?? NaN);
+        const noAsk = Number.isFinite(yesBid) ? 1 - yesBid : null;
+        const noBid = Number.isFinite(yesAsk) ? 1 - yesAsk : null;
         const rules = [
           market.sportsMarketType
             ? `Sports market type: ${market.sportsMarketType}`
@@ -223,7 +161,7 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
           ),
           volumeCents: dollarsToCents(market.volumeNum ?? market.volume ?? null),
           closesAt: market.endDate ?? event.endDate ?? null,
-          updatedAt: fetchedAt,
+          updatedAt: safeIso(market.updatedAt ?? event.updatedAt, fetchedAt),
           sourceUrl: `https://polymarket.com/event/${event.slug}`,
         });
       }

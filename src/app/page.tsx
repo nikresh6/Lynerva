@@ -6,7 +6,7 @@ export default function MarketsPage() {
     <>
       <PageHeading
         title="Today’s top picks"
-        description="Current regular-season NFL markets only. Lynerva evaluates both sides of each contract and ranks the side with the best modeled edge."
+        description="The 30 strongest current NFL opportunities, ranked by a 0–100 score combining risk-adjusted value, hit evidence, model confidence, edge and market quality."
       />
       <MarketExplorer
         emptyMessage="No positive-edge NFL picks are available in the current snapshot."

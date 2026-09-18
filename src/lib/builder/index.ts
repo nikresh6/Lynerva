@@ -61,16 +61,11 @@ function candidatePool(
       return true;
     })
     .toSorted((first, second) => {
-      const firstRiskAdjusted =
-        (first.expectedRoi ?? -Infinity) *
-        Math.max(first.model.reliabilityBps / 10_000, 0);
-      const secondRiskAdjusted =
-        (second.expectedRoi ?? -Infinity) *
-        Math.max(second.model.reliabilityBps / 10_000, 0);
       return (
-        secondRiskAdjusted - firstRiskAdjusted ||
-        (second.opportunityScore ?? -Infinity) -
-          (first.opportunityScore ?? -Infinity)
+        (second.lynervaScore ?? -Infinity) -
+          (first.lynervaScore ?? -Infinity) ||
+        (second.expectedRoi ?? -Infinity) -
+          (first.expectedRoi ?? -Infinity)
       );
     });
 
@@ -129,7 +124,7 @@ export function buildCombination(
   if (eligible.length === 0) return null;
 
   const targetReturn = Math.sqrt(options.minReturn * options.maxReturn);
-  const beamWidth = 600;
+  const beamWidth = 250;
   let frontier: SearchState[] = [
     {
       legs: [],
