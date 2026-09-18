@@ -63,8 +63,8 @@ export async function selfCalibrateProbability(probability: number) {
   return {
     probability: clamp(
       probability * (1 - learningWeight) + empirical * learningWeight,
-      0.02,
-      0.98,
+      0.001,
+      0.999,
     ),
     sampleSize: evidence.count,
     learned: true,
