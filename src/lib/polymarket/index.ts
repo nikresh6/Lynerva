@@ -180,7 +180,13 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
           : Number(market.bestBid ?? NaN);
         const noAsk = noBook ? extrema(noBook.asks, "min") : null;
         const noBid = noBook ? extrema(noBook.bids, "max") : null;
-        const rules = [market.description, market.resolutionSource]
+        const rules = [
+          market.sportsMarketType
+            ? `Sports market type: ${market.sportsMarketType}`
+            : null,
+          market.description,
+          market.resolutionSource,
+        ]
           .filter(Boolean)
           .join("\n\n");
         const status = market.closed ? "closed" : market.active ? "open" : "unavailable";
