@@ -95,9 +95,17 @@ export function MarketDataProvider({
     const request = (async () => {
       setRefreshing(true);
       try {
-        const response = await fetch("/api/markets", {
-          headers: { Accept: "application/json" },
-        });
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 5_000);
+        let response: Response;
+        try {
+          response = await fetch("/api/markets", {
+            headers: { Accept: "application/json" },
+            signal: controller.signal,
+          });
+        } finally {
+          window.clearTimeout(timeout);
+        }
         if (!response.ok) {
           throw new Error(`Market feed returned ${response.status}`);
         }
@@ -107,7 +115,11 @@ export function MarketDataProvider({
         setError(null);
       } catch (caught) {
         setError(
-          caught instanceof Error ? caught.message : "Market feed unavailable",
+          caught instanceof DOMException && caught.name === "AbortError"
+            ? "Fresh odds are taking too long. Showing the latest saved picks."
+            : caught instanceof Error
+              ? caught.message
+              : "Market feed unavailable",
         );
       } finally {
         setLoading(false);
