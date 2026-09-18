@@ -2,7 +2,6 @@ import "server-only";
 
 import { z } from "zod";
 import type { ProviderMarket, ProviderResult } from "@/lib/markets/types";
-import { isNflText } from "@/lib/markets/normalize";
 import {
   dollarsToBps,
   dollarsToCents,
@@ -72,7 +71,7 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
     url.searchParams.set("tag_slug", "nfl");
     url.searchParams.set("active", "true");
     url.searchParams.set("closed", "false");
-    url.searchParams.set("limit", "30");
+    url.searchParams.set("limit", "20");
     const events = await fetchValidated(
       "Polymarket Gamma",
       url.toString(),
@@ -83,9 +82,6 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
     const windowStart = now - 8 * 60 * 60 * 1_000;
     const windowEnd = now + 8 * 24 * 60 * 60 * 1_000;
     const nflEvents = events
-      .filter((event) =>
-        isNflText(event.title, event.slug, event.description),
-      )
       .map((event) => ({
         ...event,
         markets: event.markets.filter((market) => {
