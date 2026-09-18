@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { buildCombination } from "@/lib/builder";
+import { buildBestAvailableCombination } from "@/lib/builder";
 import { isBuilderEligibleOpportunity } from "@/lib/markets/eligibility";
 import type { MarketOpportunity } from "@/lib/markets/types";
 import { formatCents, formatEdge, formatPercent } from "@/lib/utils";
@@ -30,10 +30,10 @@ export function BuilderWorkbench() {
   const [maxReturn, setMaxReturn] = useState(5);
   const [maxLegs, setMaxLegs] = useState(4);
   const [platform, setPlatform] = useState<"either" | "kalshi" | "polymarket">("either");
-  const [live, setLive] = useState<"all" | "pregame" | "live">("pregame");
+  const [live, setLive] = useState<"all" | "pregame" | "live">("all");
   const [excludeSameGame, setExcludeSameGame] = useState(true);
   const combination = useMemo(
-    () => buildCombination(currentMarkets, { minReturn, maxReturn, maxLegs, platform, live, excludeSameGame }),
+    () => buildBestAvailableCombination(currentMarkets, { minReturn, maxReturn, maxLegs, platform, live, excludeSameGame }),
     [excludeSameGame, live, currentMarkets, maxLegs, maxReturn, minReturn, platform],
   );
   return (
@@ -58,7 +58,7 @@ export function BuilderWorkbench() {
           <>
             <div className="border-b px-5 py-4"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-[11px] font-medium uppercase tracking-[0.1em] text-faint">Lynerva custom build</p><p className="mt-1 text-xl font-semibold tabular">{combination.grossReturn.toFixed(2)}x gross return</p></div><div className="grid grid-cols-3 gap-6 text-right"><div><p className="text-[10px] text-faint">Model</p><p className="mt-1 font-medium tabular">{formatPercent(Math.round(combination.estimatedProbability * 10_000), 1)}</p></div><div><p className="text-[10px] text-faint">Implied</p><p className="mt-1 font-medium tabular">{formatPercent(Math.round(combination.impliedProbability * 10_000), 1)}</p></div><div><p className="text-[10px] text-faint">Combined edge</p><p className="mt-1 font-medium text-positive tabular">{formatEdge(Math.round(combination.estimatedEdge * 10_000))}</p></div></div></div></div>
             <ol className="divide-y">{combination.legs.map((leg, index) => <li key={`${leg.platform}:${leg.platformMarketId}`} className="grid grid-cols-[28px_1fr_auto] gap-3 px-5 py-4"><span className="grid size-6 place-items-center rounded-full border text-[10px] text-muted">{index + 1}</span><div><p className="font-medium leading-5">{leg.recommendedSide?.toUpperCase()} · {leg.marketTitle}</p><div className="mt-1"><PlatformMark platform={leg.platform} /></div></div><div className="text-right"><p className="font-medium tabular">{formatCents(leg.executablePriceBps)}</p><p className="mt-1 text-[11px] text-positive tabular">{formatEdge(leg.edgeBps)}</p></div></li>)}</ol>
-            <div className="border-t bg-surface-raised px-5 py-4 text-xs leading-5 text-muted"><strong className="font-medium text-foreground">Built by Lynerva from single NFL contracts.</strong> Provider parlays and combo markets are never used as legs. {combination.correlationWarning ? "One or more legs share a game; independence is uncertain and the combined probability may be overstated." : "Legs are drawn from different games to reduce obvious correlation risk."}</div>
+            <div className="border-t bg-surface-raised px-5 py-4 text-xs leading-5 text-muted"><strong className="font-medium text-foreground">Built by Lynerva from single NFL contracts.</strong> Provider parlays and combo markets are never used as legs. {combination.correlationWarning ? " One or more legs share a game; correlation is not fully modeled, so treat the combined probability conservatively." : " Legs are drawn from different games to reduce obvious correlation risk."}{combination.relaxedConstraints.length ? <ul className="mt-2 list-disc space-y-1 pl-4">{combination.relaxedConstraints.map((item) => <li key={item}>{item}</li>)}</ul> : null}</div>
           </>
         )}
       </section>
