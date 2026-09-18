@@ -1,54 +1,37 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { buildCombination } from "@/lib/builder";
 import { isModelBackedOpportunity } from "@/lib/markets/eligibility";
 import type { MarketOpportunity } from "@/lib/markets/types";
 import { formatCents, formatEdge, formatPercent } from "@/lib/utils";
 import { PlatformMark } from "./platform-mark";
+import { useMarketData } from "./market-data-provider";
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <span className="mb-1.5 block text-[11px] font-medium text-muted">{children}</span>;
 }
 
-export function BuilderWorkbench({ markets }: { markets: MarketOpportunity[] }) {
-  const [currentMarkets, setCurrentMarkets] = useState(markets);
+export function BuilderWorkbench() {
+  const { opportunities, loading } = useMarketData();
+  const currentMarkets = useMemo(
+    () =>
+      opportunities
+        .filter(isModelBackedOpportunity)
+        .toSorted(
+          (first, second) =>
+            (second.opportunityScore ?? -Infinity) -
+            (first.opportunityScore ?? -Infinity),
+        )
+        .slice(0, 160),
+    [opportunities],
+  );
   const [minReturn, setMinReturn] = useState(3);
   const [maxReturn, setMaxReturn] = useState(5);
   const [maxLegs, setMaxLegs] = useState(4);
   const [platform, setPlatform] = useState<"either" | "kalshi" | "polymarket">("either");
   const [live, setLive] = useState<"all" | "pregame" | "live">("pregame");
   const [excludeSameGame, setExcludeSameGame] = useState(true);
-  useEffect(() => {
-    setCurrentMarkets(markets);
-  }, [markets]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const refresh = async () => {
-      if (document.visibilityState !== "visible") return;
-      try {
-        const response = await fetch("/api/markets", { cache: "no-store" });
-        if (!response.ok) return;
-        const payload = (await response.json()) as {
-          opportunities: MarketOpportunity[];
-        };
-        if (!cancelled) {
-          setCurrentMarkets(
-            payload.opportunities.filter(isModelBackedOpportunity),
-          );
-        }
-      } catch {
-        // Keep the last good builder snapshot.
-      }
-    };
-    const timer = window.setInterval(refresh, 10_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, []);
-
   const combination = useMemo(
     () => buildCombination(currentMarkets, { minReturn, maxReturn, maxLegs, platform, live, excludeSameGame }),
     [excludeSameGame, live, currentMarkets, maxLegs, maxReturn, minReturn, platform],
@@ -67,8 +50,10 @@ export function BuilderWorkbench({ markets }: { markets: MarketOpportunity[] }) 
         <label className="mt-4 flex items-start gap-2 text-xs leading-5"><input type="checkbox" checked={excludeSameGame} onChange={(event) => setExcludeSameGame(event.target.checked)} className="mt-0.5" /><span>Exclude same-game combinations <span className="text-muted">when correlation cannot be measured reliably.</span></span></label>
       </section>
       <section className="rounded-lg border bg-surface">
-        {!combination ? (
-          <div className="px-6 py-20 text-center"><p className="font-medium">No combination fits this target</p><p className="mt-1 text-xs text-muted">Only fresh markets with a positive modeled edge are eligible. Try a wider return range.</p></div>
+        {loading && currentMarkets.length === 0 ? (
+          <div className="px-6 py-20 text-center"><p className="font-medium">Loading live picks…</p><p className="mt-1 text-xs text-muted">The builder will update automatically as soon as the market snapshot arrives.</p></div>
+        ) : !combination ? (
+          <div className="px-6 py-20 text-center"><p className="font-medium">No combination fits this target</p><p className="mt-1 text-xs text-muted">Try a wider return range, more legs, or include both platforms.</p></div>
         ) : (
           <>
             <div className="border-b px-5 py-4"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-[11px] font-medium uppercase tracking-[0.1em] text-faint">Lynerva custom build</p><p className="mt-1 text-xl font-semibold tabular">{combination.grossReturn.toFixed(2)}x gross return</p></div><div className="grid grid-cols-3 gap-6 text-right"><div><p className="text-[10px] text-faint">Model</p><p className="mt-1 font-medium tabular">{formatPercent(Math.round(combination.estimatedProbability * 10_000), 1)}</p></div><div><p className="text-[10px] text-faint">Implied</p><p className="mt-1 font-medium tabular">{formatPercent(Math.round(combination.impliedProbability * 10_000), 1)}</p></div><div><p className="text-[10px] text-faint">Combined edge</p><p className="mt-1 font-medium text-positive tabular">{formatEdge(Math.round(combination.estimatedEdge * 10_000))}</p></div></div></div></div>
