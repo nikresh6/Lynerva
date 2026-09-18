@@ -20,8 +20,11 @@ import {
 const LEARNABLE_STATISTICS = new Set([
   "passing_yards",
   "passing_touchdowns",
+  "passing_interceptions",
   "rushing_yards",
+  "rushing_touchdowns",
   "receiving_yards",
+  "receiving_touchdowns",
   "receptions",
   "touchdowns",
 ]);
@@ -47,6 +50,21 @@ export function ensureSourceLearningSchema() {
 
   schemaPromise = (async () => {
     const db = getDb();
+    try {
+      await db.run(
+        sql.raw(
+          "ALTER TABLE player_game_stats ADD COLUMN passing_interceptions real",
+        ),
+      );
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        !/duplicate column name/i.test(error.message)
+      ) {
+        throw error;
+      }
+    }
+
     await db.run(sql.raw(`
       CREATE TABLE IF NOT EXISTS source_projections (
         id text PRIMARY KEY NOT NULL,
@@ -199,6 +217,7 @@ function actualForStatistic(
   row: {
     passingYards: number | null;
     passingTouchdowns: number | null;
+    passingInterceptions: number | null;
     rushingYards: number | null;
     rushingTouchdowns: number | null;
     receivingYards: number | null;
@@ -208,8 +227,11 @@ function actualForStatistic(
 ) {
   if (statistic === "passing_yards") return row.passingYards;
   if (statistic === "passing_touchdowns") return row.passingTouchdowns;
+  if (statistic === "passing_interceptions") return row.passingInterceptions;
   if (statistic === "rushing_yards") return row.rushingYards;
+  if (statistic === "rushing_touchdowns") return row.rushingTouchdowns;
   if (statistic === "receiving_yards") return row.receivingYards;
+  if (statistic === "receiving_touchdowns") return row.receivingTouchdowns;
   if (statistic === "receptions") return row.receptions;
   if (statistic === "touchdowns") {
     if (
@@ -252,6 +274,7 @@ async function gradeNewSourceProjections(season: number) {
         week: nflGames.week,
         passingYards: playerGameStats.passingYards,
         passingTouchdowns: playerGameStats.passingTouchdowns,
+        passingInterceptions: playerGameStats.passingInterceptions,
         rushingYards: playerGameStats.rushingYards,
         rushingTouchdowns: playerGameStats.rushingTouchdowns,
         receivingYards: playerGameStats.receivingYards,
