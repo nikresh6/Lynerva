@@ -9,7 +9,7 @@ function score(market: MarketOpportunity) {
   return market.lynervaScore ?? -Infinity;
 }
 
-function topSnapshot(opportunities: MarketOpportunity[]) {
+function topSnapshot(opportunities: MarketOpportunity[], limit = 30) {
   const seen = new Set<string>();
   const selected: MarketOpportunity[] = [];
 
@@ -20,17 +20,34 @@ function topSnapshot(opportunities: MarketOpportunity[]) {
     if (seen.has(key)) continue;
     seen.add(key);
     selected.push(market);
-    if (selected.length >= 30) break;
+    if (selected.length >= limit) break;
   }
 
   return selected;
 }
 
+function browserShortlist(opportunities: MarketOpportunity[]) {
+  const globalTop = topSnapshot(opportunities, 30);
+  const byPlatform = ["kalshi", "polymarket"].flatMap((platform) =>
+    topSnapshot(
+      opportunities.filter((market) => market.platform === platform),
+      30,
+    ),
+  );
+  const seen = new Set<string>();
+
+  return [...globalTop, ...byPlatform].filter((market) => {
+    const key = `${market.platform}:${market.platformMarketId}:${market.platformOutcomeId ?? "yes"}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export async function GET() {
   const payload = await getMarketOpportunities();
-  const opportunities = topSnapshot(
-    payload.opportunities.filter(isTopOpportunity),
-  ).map((market) => ({
+  const eligible = payload.opportunities.filter(isTopOpportunity);
+  const opportunities = browserShortlist(eligible).map((market) => ({
     ...market,
     resolutionRules: market.resolutionRules?.slice(0, 240) ?? null,
     model: {
@@ -51,7 +68,7 @@ export async function GET() {
         error: provider.error,
       })),
       ratedCount: payload.opportunities.length,
-      displayedCount: opportunities.length,
+      displayedCount: Math.min(30, eligible.length),
       fetchedAt: payload.fetchedAt,
     },
     {
