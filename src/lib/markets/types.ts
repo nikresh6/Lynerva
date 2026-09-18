@@ -73,6 +73,8 @@ export interface ModelEstimate {
 export interface MarketOpportunity extends ProviderMarket {
   canonical: CanonicalMarket | null;
   model: ModelEstimate;
+  recommendedSide: MarketSide | null;
+  recommendedProbabilityBps: number | null;
   executablePriceBps: number | null;
   edgeBps: number | null;
   expectedRoi: number | null;
