@@ -23,6 +23,14 @@ export function hasExecutableYesPrice(market: ProviderMarket) {
 export function isSingleLegNflProviderMarket(market: ProviderMarket) {
   if (market.status !== "open") return false;
   if (isProviderComboMarket(market)) return false;
+  const identity = `${market.eventTitle} ${market.marketTitle} ${market.resolutionRules ?? ""}`;
+  if (
+    /\b(?:1q|2q|3q|4q|1h|2h|first quarter|second quarter|third quarter|fourth quarter|first half|second half)\b/i.test(
+      identity,
+    )
+  ) {
+    return false;
+  }
   if (
     !isNflText(
       market.eventTitle,
