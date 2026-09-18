@@ -1,0 +1,59 @@
+import type { MarketOpportunity, ProviderMarket } from "./types";
+import { isNflText } from "./normalize";
+
+function repeatedYesNoClauses(value: string) {
+  return (value.match(/(?:^|,)\s*(?:yes|no)\b/gi) ?? []).length;
+}
+
+export function isProviderComboMarket(market: ProviderMarket) {
+  const identity = `${market.platformMarketId} ${market.eventTitle} ${market.marketTitle}`;
+  if (/\b(?:parlay|same game parlay|sgp|multivariate)\b/i.test(identity)) return true;
+  if (/KXMVE|CROSSCATEGORY/i.test(identity)) return true;
+  return repeatedYesNoClauses(market.marketTitle) >= 2;
+}
+
+export function hasExecutableYesPrice(market: ProviderMarket) {
+  return (
+    market.yesAskBps !== null &&
+    market.yesAskBps > 0 &&
+    market.yesAskBps < 10_000
+  );
+}
+
+export function isSingleLegNflProviderMarket(market: ProviderMarket) {
+  if (market.status !== "open") return false;
+  if (isProviderComboMarket(market)) return false;
+  if (
+    !isNflText(
+      market.eventTitle,
+      market.marketTitle,
+      market.outcomeLabel,
+      market.resolutionRules,
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function isModelBackedOpportunity(market: MarketOpportunity) {
+  return (
+    market.canonical !== null &&
+    market.canonical.parseConfidence !== "low" &&
+    hasExecutableYesPrice(market) &&
+    market.freshness !== "stale" &&
+    market.model.probabilityBps !== null &&
+    market.edgeBps !== null &&
+    market.edgeBps > 0
+  );
+}
+
+export function isTopOpportunity(market: MarketOpportunity) {
+  if (
+    market.arbitrage?.classification === "arbitrage" &&
+    hasExecutableYesPrice(market)
+  ) {
+    return true;
+  }
+  return isModelBackedOpportunity(market);
+}
