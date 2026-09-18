@@ -58,7 +58,7 @@ export function buildCombination(
     if (count >= perGameLimit) continue;
     eligible.push(market);
     perGame.set(key, count + 1);
-    if (eligible.length >= 24) break;
+    if (eligible.length >= 18) break;
   }
 
   let best: BuiltCombination | null = null;
@@ -123,41 +123,5 @@ export function buildBestAvailableCombination(
   opportunities: MarketOpportunity[],
   options: BuilderOptions,
 ): BuiltCombination | null {
-  const strict = buildCombination(opportunities, options);
-  if (strict) return strict;
-
-  if (options.live !== "all") {
-    const withAllStates = buildCombination(opportunities, {
-      ...options,
-      live: "all",
-    });
-    if (withAllStates) {
-      return {
-        ...withAllStates,
-        relaxedConstraints: ["Included both pregame and live markets because the requested state had no valid combination."],
-      };
-    }
-  }
-
-  if (options.excludeSameGame) {
-    const withSameGame = buildCombination(opportunities, {
-      ...options,
-      live: "all",
-      excludeSameGame: false,
-    });
-    if (withSameGame) {
-      return {
-        ...withSameGame,
-        correlationWarning: true,
-        relaxedConstraints: [
-          ...(options.live !== "all"
-            ? ["Included both pregame and live markets because the requested state had no valid combination."]
-            : []),
-          "Allowed same-game legs because no cross-game combination fit the target return.",
-        ],
-      };
-    }
-  }
-
-  return null;
+  return buildCombination(opportunities, options);
 }
