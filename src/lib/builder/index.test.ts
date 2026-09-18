@@ -68,4 +68,99 @@ describe("combination builder", () => {
     ], { minReturn: 3.5, maxReturn: 4.5, maxLegs: 3, platform: "either", live: "pregame", excludeSameGame: true });
     expect(result).toBeNull();
   });
+  it("optimizes the parlay instead of blindly taking the highest-score legs", () => {
+    const decoys = Array.from({ length: 35 }, (_, index) => ({
+      ...opportunity("D" + index, "DEC" + index + "-OPP" + index, 5_000, 5_150),
+      lynervaScore: 95 - (index % 5),
+    }));
+    const bestOne = {
+      ...opportunity("VALUE1", "KC-BUF", 5_000, 7_000),
+      lynervaScore: 55,
+    };
+    const bestTwo = {
+      ...opportunity("VALUE2", "DAL-PHI", 5_000, 6_900),
+      lynervaScore: 54,
+    };
+
+    const result = buildCombination(
+      [...decoys, bestOne, bestTwo],
+      {
+        minReturn: 3.9,
+        maxReturn: 4.1,
+        maxLegs: 2,
+        platform: "either",
+        live: "pregame",
+        excludeSameGame: true,
+      },
+    );
+
+    expect(result?.legs.map((leg) => leg.platformMarketId).sort()).toEqual([
+      "VALUE1",
+      "VALUE2",
+    ]);
+    expect(result?.estimatedProbability ?? 0).toBeGreaterThan(0.4);
+  });
+
+  it("does not stack alternate lines from the same player and stat", () => {
+    const first = opportunity("CHASE70", "CIN-HOU", 5_000, 6_500);
+    first.canonical = {
+      ...first.canonical!,
+      key: "chase-over-70",
+      family: "receiving_yards",
+      statistic: "receiving_yards",
+      subject: "Ja'Marr Chase",
+      threshold: 70.5,
+      direction: "over",
+    };
+
+    const second = opportunity("CHASE80", "CIN-HOU", 5_000, 6_400);
+    second.canonical = {
+      ...second.canonical!,
+      key: "chase-over-80",
+      family: "receiving_yards",
+      statistic: "receiving_yards",
+      subject: "Ja'Marr Chase",
+      threshold: 80.5,
+      direction: "over",
+    };
+
+    const other = opportunity("OTHER", "DAL-PHI", 5_000, 6_200);
+    const result = buildCombination(
+      [first, second, other],
+      {
+        minReturn: 3.9,
+        maxReturn: 4.1,
+        maxLegs: 2,
+        platform: "either",
+        live: "pregame",
+        excludeSameGame: false,
+      },
+    );
+
+    expect(result?.legs).toHaveLength(2);
+    expect(
+      result?.legs.filter(
+        (leg) =>
+          leg.canonical?.subject === "Ja'Marr Chase" &&
+          leg.canonical?.family === "receiving_yards",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("never returns a single leg as a parlay", () => {
+    const result = buildCombination(
+      [opportunity("LONGSHOT", "KC-BUF", 2_500, 3_200)],
+      {
+        minReturn: 3.5,
+        maxReturn: 4.5,
+        maxLegs: 2,
+        platform: "either",
+        live: "pregame",
+        excludeSameGame: true,
+      },
+    );
+
+    expect(result).toBeNull();
+  });
+
 });
