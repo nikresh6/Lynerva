@@ -6,17 +6,12 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const payload = await getMarketOpportunities();
   const opportunities = payload.opportunities
-    .filter(
-      (market) =>
-        market.model.probabilityBps !== null ||
-        market.arbitrage?.classification === "arbitrage",
-    )
     .toSorted(
       (first, second) =>
         (second.opportunityScore ?? -Infinity) -
         (first.opportunityScore ?? -Infinity),
     )
-    .slice(0, 400);
+    .slice(0, 800);
 
   return Response.json(
     {
