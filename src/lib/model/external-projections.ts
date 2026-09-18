@@ -187,7 +187,15 @@ function cachedSource(
   const cached = sourceCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.promise;
 
-  const promise = loader().catch(() => new Map<string, ProjectionStats>());
+  const promise = loader()
+    .then((map) => {
+      console.info("Projection source loaded", source, map.size);
+      return map;
+    })
+    .catch((error) => {
+      console.error("Projection source failed", source, error);
+      return new Map<string, ProjectionStats>();
+    });
   sourceCache.set(key, {
     expiresAt: Date.now() + PAGE_TTL_MS,
     promise,
