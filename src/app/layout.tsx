@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
+import { MarketDataProvider } from "@/components/market-data-provider";
 import { SiteHeader } from "@/components/site-header";
 import "./globals.css";
 
@@ -37,10 +38,12 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <Script id="lynerva-theme" strategy="beforeInteractive">
           {themeScript}
         </Script>
-        <SiteHeader />
-        <main className="mx-auto w-full max-w-[1480px] px-4 pb-12 pt-8 sm:px-6 lg:px-8">
-          {children}
-        </main>
+        <MarketDataProvider>
+          <SiteHeader />
+          <main className="mx-auto w-full max-w-[1480px] px-4 pb-12 pt-8 sm:px-6 lg:px-8">
+            {children}
+          </main>
+        </MarketDataProvider>
         <footer className="mx-auto max-w-[1480px] border-t px-4 py-6 text-xs text-muted sm:px-6 lg:px-8">
           Probabilities are model estimates, not guarantees. Lynerva does not place trades.
         </footer>
