@@ -243,20 +243,13 @@ async function buildConsensus(
   market: CanonicalMarket,
   week: number | null,
 ) {
-  const settled = await Promise.allSettled([
-    fantasyProsProjection(market, week),
-    coversProjection(market),
-  ]);
+  // Covers is warmed opportunistically, but it is not allowed to hold up the
+  // critical market response. FantasyPros is the verified synchronous source
+  // until the secondary parser is precise enough to trust independently.
+  void coversProjection(market).catch(() => null);
 
-  const points = settled
-    .flatMap((result) =>
-      result.status === "fulfilled" && result.value ? [result.value] : [],
-    )
-    .filter(
-      (point, index, all) =>
-        all.findIndex((candidate) => candidate.source === point.source) ===
-        index,
-    );
+  const primary = await fantasyProsProjection(market, week);
+  const points = primary ? [primary] : [];
 
   if (!points.length) {
     return {
