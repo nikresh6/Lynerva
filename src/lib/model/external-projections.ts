@@ -908,8 +908,6 @@ async function buildConsensus(
     "numberfire",
     "espn",
     "cbs",
-    "fftoday",
-    "nfl",
     "covers",
     "dimers",
   ];
