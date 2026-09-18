@@ -163,6 +163,28 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
       }
     }
 
+    if (markets.length === 0) {
+      console.warn("Polymarket NFL discovery produced zero markets", {
+        events: events.length,
+        eligibleEvents: nflEvents.length,
+        samples: events.slice(0, 4).map((event) => ({
+          title: event.title,
+          endDate: event.endDate,
+          marketCount: event.markets.length,
+          firstMarket: event.markets[0]
+            ? {
+                question: event.markets[0].question,
+                gameStartTime: event.markets[0].gameStartTime,
+                endDate: event.markets[0].endDate,
+                active: event.markets[0].active,
+                closed: event.markets[0].closed,
+                acceptingOrders: event.markets[0].acceptingOrders,
+              }
+            : null,
+        })),
+      });
+    }
+
     return { provider: "polymarket", markets, fetchedAt, error: null };
   } catch (error) {
     const message =
