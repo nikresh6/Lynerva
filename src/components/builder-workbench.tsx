@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { buildCombination } from "@/lib/builder";
-import { isModelBackedOpportunity } from "@/lib/markets/eligibility";
+import { isBuilderEligibleOpportunity } from "@/lib/markets/eligibility";
 import type { MarketOpportunity } from "@/lib/markets/types";
 import { formatCents, formatEdge, formatPercent } from "@/lib/utils";
 import { PlatformMark } from "./platform-mark";
@@ -17,7 +17,7 @@ export function BuilderWorkbench() {
   const currentMarkets = useMemo(
     () =>
       opportunities
-        .filter(isModelBackedOpportunity)
+        .filter(isBuilderEligibleOpportunity)
         .toSorted(
           (first, second) =>
             (second.opportunityScore ?? -Infinity) -
