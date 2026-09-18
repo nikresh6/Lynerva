@@ -1,6 +1,7 @@
 import "server-only";
 
 import { unstable_cache } from "next/cache";
+import { z } from "zod";
 
 type CsvRow = Record<string, string>;
 
@@ -60,6 +61,139 @@ function parseCsv(text: string) {
   });
 }
 
+const espnCompetitorSchema = z.object({
+  homeAway: z.enum(["home", "away"]),
+  score: z.string().optional().default(""),
+  team: z.object({ abbreviation: z.string() }),
+});
+
+const espnScoreboardSchema = z.object({
+  events: z
+    .array(
+      z.object({
+        season: z.object({ year: z.number(), type: z.number() }).optional(),
+        week: z.object({ number: z.number() }).optional(),
+        status: z.object({
+          type: z.object({ completed: z.boolean() }),
+        }),
+        competitions: z.array(
+          z.object({
+            competitors: z.array(espnCompetitorSchema),
+          }),
+        ),
+      }),
+    )
+    .default([]),
+});
+
+async function fetchEspnWeek(season: number, week: number) {
+  try {
+    const url = new URL(
+      "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard",
+    );
+    url.searchParams.set("season", String(season));
+    url.searchParams.set("week", String(week));
+    url.searchParams.set("seasontype", "2");
+    url.searchParams.set("limit", "100");
+    const response = await fetch(url, {
+      headers: { "User-Agent": "Lynerva/1.0 team-history-fallback" },
+      signal: AbortSignal.timeout(5_000),
+      cache: "no-store",
+    });
+    if (!response.ok) return [] as TeamGame[];
+    const parsed = espnScoreboardSchema.safeParse(await response.json());
+    if (!parsed.success) return [] as TeamGame[];
+
+    const games: TeamGame[] = [];
+    for (const event of parsed.data.events) {
+      if (
+        event.season?.type !== 2 ||
+        !event.status.type.completed ||
+        !event.competitions[0]
+      ) {
+        continue;
+      }
+      const competitors = event.competitions[0].competitors;
+      const home = competitors.find((team) => team.homeAway === "home");
+      const away = competitors.find((team) => team.homeAway === "away");
+      if (!home || !away || !home.score.trim() || !away.score.trim()) continue;
+      const homeScore = Number(home.score);
+      const awayScore = Number(away.score);
+      if (!Number.isFinite(homeScore) || !Number.isFinite(awayScore)) continue;
+      const eventSeason = event.season?.year ?? season;
+      const eventWeek = event.week?.number ?? week;
+      games.push(
+        {
+          season: eventSeason,
+          week: eventWeek,
+          team: home.team.abbreviation,
+          opponent: away.team.abbreviation,
+          isHome: true,
+          pointsFor: homeScore,
+          pointsAgainst: awayScore,
+        },
+        {
+          season: eventSeason,
+          week: eventWeek,
+          team: away.team.abbreviation,
+          opponent: home.team.abbreviation,
+          isHome: false,
+          pointsFor: awayScore,
+          pointsAgainst: homeScore,
+        },
+      );
+    }
+    return games;
+  } catch {
+    return [] as TeamGame[];
+  }
+}
+
+async function fetchEspnRegularSeasonHistory() {
+  const now = new Date();
+  const currentSeason = now.getUTCFullYear();
+
+  let currentWeek = 2;
+  try {
+    const response = await fetch(
+      "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard",
+      {
+        headers: { "User-Agent": "Lynerva/1.0 team-history-fallback" },
+        signal: AbortSignal.timeout(5_000),
+        cache: "no-store",
+      },
+    );
+    if (response.ok) {
+      const parsed = espnScoreboardSchema.safeParse(await response.json());
+      const week = parsed.success
+        ? parsed.data.events.find((event) => event.week?.number)?.week?.number
+        : null;
+      if (week) currentWeek = week;
+    }
+  } catch {
+    // The explicit week requests below still provide the prior season baseline.
+  }
+
+  const requests: Array<[number, number]> = [];
+  for (let week = 1; week <= 18; week += 1) {
+    requests.push([currentSeason - 1, week]);
+  }
+  for (let week = 1; week < currentWeek; week += 1) {
+    requests.push([currentSeason, week]);
+  }
+
+  const games: TeamGame[] = [];
+  const batchSize = 6;
+  for (let index = 0; index < requests.length; index += batchSize) {
+    const batch = requests.slice(index, index + batchSize);
+    const results = await Promise.all(
+      batch.map(([season, week]) => fetchEspnWeek(season, week)),
+    );
+    games.push(...results.flat());
+  }
+  return games;
+}
+
 function mean(values: number[]) {
   return values.length
     ? values.reduce((sum, value) => sum + value, 0) / values.length
@@ -77,70 +211,73 @@ function stdDev(values: number[]) {
 
 const loadRegularSeasonTeamGames = unstable_cache(
   async (): Promise<TeamGame[]> => {
-    const response = await fetch(
-      "https://cdn.jsdelivr.net/gh/nflverse/nfldata@master/data/games.csv",
-      {
-        headers: { "User-Agent": "Lynerva/1.0 team-history" },
-        signal: AbortSignal.timeout(30_000),
-      },
-    );
-    if (!response.ok) {
-      throw new Error(`nflverse games returned ${response.status}`);
+    try {
+      const response = await fetch(
+        "https://cdn.jsdelivr.net/gh/nflverse/nfldata@master/data/games.csv",
+        {
+          headers: { "User-Agent": "Lynerva/1.0 team-history" },
+          signal: AbortSignal.timeout(3_500),
+        },
+      );
+      if (!response.ok) throw new Error(`nflverse games returned ${response.status}`);
+
+      const currentSeason = new Date().getUTCFullYear();
+      const rows = parseCsv(await response.text());
+      const games: TeamGame[] = [];
+
+      for (const row of rows) {
+        const season = Number(row.season);
+        if (
+          !Number.isFinite(season) ||
+          season < currentSeason - 2 ||
+          season > currentSeason ||
+          row.game_type !== "REG"
+        ) {
+          continue;
+        }
+        if (
+          !row.home_team ||
+          !row.away_team ||
+          !row.home_score?.trim() ||
+          !row.away_score?.trim()
+        ) {
+          continue;
+        }
+        const homeScore = Number(row.home_score);
+        const awayScore = Number(row.away_score);
+        if (!Number.isFinite(homeScore) || !Number.isFinite(awayScore)) continue;
+
+        const week = Number(row.week || 0);
+        games.push(
+          {
+            season,
+            week,
+            team: row.home_team,
+            opponent: row.away_team,
+            isHome: true,
+            pointsFor: homeScore,
+            pointsAgainst: awayScore,
+          },
+          {
+            season,
+            week,
+            team: row.away_team,
+            opponent: row.home_team,
+            isHome: false,
+            pointsFor: awayScore,
+            pointsAgainst: homeScore,
+          },
+        );
+      }
+      if (games.length >= 500) return games;
+    } catch (error) {
+      console.warn("nflverse team history unavailable, using ESPN fallback", error);
     }
 
-    const currentSeason = new Date().getUTCFullYear();
-    const rows = parseCsv(await response.text());
-    const games: TeamGame[] = [];
-
-    for (const row of rows) {
-      const season = Number(row.season);
-      if (
-        !Number.isFinite(season) ||
-        season < currentSeason - 2 ||
-        season > currentSeason ||
-        row.game_type !== "REG"
-      ) {
-        continue;
-      }
-      if (
-        !row.home_team ||
-        !row.away_team ||
-        !row.home_score?.trim() ||
-        !row.away_score?.trim()
-      ) {
-        continue;
-      }
-      const homeScore = Number(row.home_score);
-      const awayScore = Number(row.away_score);
-      if (!Number.isFinite(homeScore) || !Number.isFinite(awayScore)) {
-        continue;
-      }
-
-      const week = Number(row.week || 0);
-      games.push({
-        season,
-        week,
-        team: row.home_team,
-        opponent: row.away_team,
-        isHome: true,
-        pointsFor: homeScore,
-        pointsAgainst: awayScore,
-      });
-      games.push({
-        season,
-        week,
-        team: row.away_team,
-        opponent: row.home_team,
-        isHome: false,
-        pointsFor: awayScore,
-        pointsAgainst: homeScore,
-      });
-    }
-
-    return games;
+    return fetchEspnRegularSeasonHistory();
   },
-  ["lynerva-regular-season-team-history-v1"],
-  { revalidate: 60 * 60 },
+  ["lynerva-regular-season-team-history-v2"],
+  { revalidate: 6 * 60 * 60 },
 );
 
 export async function getTeamProfile(team: string): Promise<TeamProfile | null> {
