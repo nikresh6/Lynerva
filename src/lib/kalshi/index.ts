@@ -189,7 +189,7 @@ export async function fetchKalshiNflMarkets(): Promise<ProviderResult> {
     const recent = await fetchRecentlyUpdatedNflMarkets();
     for (const market of recent) raw.set(market.ticker, market);
 
-    if (raw.size < 40) {
+    if (raw.size < 5) {
       const core = await fetchCoreSeriesMarkets();
       for (const market of core) raw.set(market.ticker, market);
     }
