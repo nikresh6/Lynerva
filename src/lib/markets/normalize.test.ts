@@ -32,7 +32,7 @@ describe("market normalization", () => {
       threshold: 250,
       subject: "Josh Allen",
       matchup: "BUF-DET",
-      settlementDate: "2026-09-18",
+      settlementDate: "2026-09-17",
       parseConfidence: "high",
     });
   });
