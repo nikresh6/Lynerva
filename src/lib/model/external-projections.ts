@@ -1,6 +1,10 @@
 import "server-only";
 
 import type { CanonicalMarket } from "@/lib/markets/types";
+import {
+  ACTIVE_PROJECTION_SOURCES,
+  getLearnedSourceWeights,
+} from "./source-learning";
 
 export type ProjectionSource =
   | "fantasypros"
@@ -55,6 +59,8 @@ const consensusCache = new Map<
       projection: number | null;
       points: ProjectionPoint[];
       dispersion: number | null;
+      sourceWeights: Record<string, number> | null;
+      weightWeek: number | null;
     }>;
   }
 >();
@@ -903,17 +909,13 @@ async function buildConsensus(
   season: number,
   week: number,
 ) {
-  const sources: ProjectionSource[] = [
-    "fantasypros",
-    "numberfire",
-    "espn",
-    "cbs",
-    "covers",
-    "dimers",
-  ];
-  const settled = await Promise.allSettled(
-    sources.map((source) => sourceProjection(source, market, season, week)),
-  );
+  const sources: readonly ProjectionSource[] = ACTIVE_PROJECTION_SOURCES;
+  const [settled, learned] = await Promise.all([
+    Promise.allSettled(
+      sources.map((source) => sourceProjection(source, market, season, week)),
+    ),
+    getLearnedSourceWeights(market.family, season, week),
+  ]);
 
   const points = settled
     .flatMap((result) =>
@@ -930,21 +932,35 @@ async function buildConsensus(
       projection: null,
       points: [] as ProjectionPoint[],
       dispersion: null,
+      sourceWeights: learned?.weights ?? null,
+      weightWeek: learned?.effectiveWeek ?? null,
     };
   }
 
-  const projection =
-    points.reduce((sum, point) => sum + point.value, 0) / points.length;
-  const variance =
-    points.reduce(
-      (sum, point) => sum + (point.value - projection) ** 2,
-      0,
-    ) / points.length;
+  const availableWeights = points.map((point) => ({
+    point,
+    weight: learned?.weights[point.source] ?? 1,
+  }));
+  const weightTotal =
+    availableWeights.reduce((sum, item) => sum + item.weight, 0) || 1;
+  const projection = availableWeights.reduce(
+    (sum, item) => sum + item.point.value * (item.weight / weightTotal),
+    0,
+  );
+  const variance = availableWeights.reduce(
+    (sum, item) =>
+      sum +
+      (item.weight / weightTotal) *
+        (item.point.value - projection) ** 2,
+    0,
+  );
 
   return {
     projection,
     points,
     dispersion: points.length > 1 ? Math.sqrt(variance) : null,
+    sourceWeights: learned?.weights ?? null,
+    weightWeek: learned?.effectiveWeek ?? null,
   };
 }
 
