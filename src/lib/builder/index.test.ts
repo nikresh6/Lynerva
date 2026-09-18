@@ -287,6 +287,39 @@ describe("combination builder", () => {
     expect(result?.maxOddsContributionShare ?? 0).toBeGreaterThan(0.7);
   });
 
+  it("does not let one ordinary longshot carry a five-leg max-EV parlay", () => {
+    const concentrated = [
+      opportunity("HURTS150", "PHI-TEN", 8_100, 9_000),
+      opportunity("BARKLEY50", "PHI-TEN", 8_100, 9_000),
+      opportunity("SMITH40", "PHI-TEN", 7_200, 8_600),
+      opportunity("GOEDERT25", "PHI-TEN", 7_000, 7_800),
+      opportunity("BARKLEY25REC", "PHI-TEN", 2_200, 4_300),
+    ];
+
+    const distributed = [
+      opportunity("MID1", "PHI-TEN", 6_000, 7_200),
+      opportunity("MID2", "PHI-TEN", 6_000, 7_150),
+      opportunity("MID3", "PHI-TEN", 6_000, 7_100),
+      opportunity("MID4", "PHI-TEN", 6_000, 7_050),
+      opportunity("MID5", "PHI-TEN", 6_000, 7_000),
+    ];
+
+    const result = buildCombination([...concentrated, ...distributed], {
+      ...baseOptions,
+      minReturn: 12,
+      maxReturn: 15,
+      maxLegs: 5,
+      mode: "sgp",
+      objective: "max_ev",
+    });
+
+    expect(result?.legs).toHaveLength(5);
+    expect(result?.maxOddsContributionShare ?? 1).toBeLessThanOrEqual(0.42);
+    expect(
+      result?.legs.some((leg) => leg.platformMarketId === "BARKLEY25REC"),
+    ).toBe(false);
+  });
+
   it("never returns a single leg as a parlay", () => {
     const result = buildCombination(
       [opportunity("LONGSHOT", "KC-BUF", 2_500, 3_200)],
