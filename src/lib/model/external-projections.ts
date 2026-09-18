@@ -244,7 +244,16 @@ function loadFantasyPros(season: number, week: number) {
         const url =
           `https://www.fantasypros.com/nfl/projections/${position}.php?week=${week}`;
         try {
-          const rows = rowsFromHtml(await fetchText(url));
+          const html = await fetchText(url);
+          if (
+            !new RegExp(
+              `Fantasy\\s+Football\\s+Projections\\s*-?\\s*Week\\s+${week}\\b`,
+              "i",
+            ).test(decode(html))
+          ) {
+            return;
+          }
+          const rows = rowsFromHtml(html);
           for (const cells of rows) {
             if (cells.length < 3) continue;
             const player = cells[0]?.replace(/\s+[A-Z]{2,3}\s*$/i, "").trim();
@@ -450,6 +459,13 @@ function loadCbs(season: number, week: number) {
           const html = await fetchText(
             `https://www.cbssports.com/fantasy/football/stats/${position}/${season}/${week}/projections/nonppr/`,
           );
+          if (
+            !new RegExp(`Week\\s+${week}\\s+Proj\\s+Fantasy\\s+Football`, "i").test(
+              decode(html),
+            )
+          ) {
+            return;
+          }
           for (const row of html.match(/<tr\b[^>]*TableBase-bodyTr[^>]*>[\s\S]*?<\/tr>/gi) ?? []) {
             const nameMatch = row.match(
               /CellPlayerName--long[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i,
