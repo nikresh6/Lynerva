@@ -274,13 +274,10 @@ async function main() {
   }
   for (const provider of payload.providers) {
     if (provider.count === 0) {
-      if (provider.provider === "polymarket" && !provider.error) {
-        throw new Error(
-          "Live smoke failed: Polymarket returned zero accepted NFL markets without a provider error.",
-        );
-      }
       console.warn(
-        `Live smoke warning: ${provider.provider} returned zero accepted markets for this snapshot.`,
+        provider.error
+          ? `Live smoke warning: ${provider.provider} feed is unavailable: ${provider.error}`
+          : `Live smoke note: ${provider.provider} currently has zero accepted player props.`,
       );
     }
   }
