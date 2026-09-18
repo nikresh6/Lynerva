@@ -6,13 +6,15 @@ import { getMatchupProjection } from "@/lib/nfl/team-history";
 import type { NflScheduleGame } from "@/lib/nfl/schedule-match";
 import type { LiveNflGame } from "@/lib/nfl/live";
 import { empiricalPlayerProbability } from "./player-probability";
+import { getExternalProjectionConsensus } from "./external-projections";
+import { selfCalibrateProbability } from "./self-learning";
 import type {
   CanonicalMarket,
   HistoricalEvidence,
   ModelEstimate,
 } from "@/lib/markets/types";
 
-const MODEL_VERSION = "current-season-2026-v1";
+const MODEL_VERSION = "hybrid-consensus-context-v2";
 
 const emptyEvidence: HistoricalEvidence = {
   last5Hits: null,
@@ -350,36 +352,52 @@ export async function estimateMarket(
     );
     const sample = history.values.slice(0, 20);
     const values = sample.map((row) => row.value);
+    const threshold = canonical.threshold;
 
-    if (!history.playerName) {
+    const external = await getExternalProjectionConsensus(
+      canonical,
+      scheduleGame?.week ?? null,
+    );
+
+    const distributionStdDev: Partial<Record<CanonicalMarket["family"], number>> = {
+      passing_yards: 58,
+      passing_touchdowns: 1.05,
+      rushing_yards: 26,
+      receiving_yards: 29,
+      receptions: 2.25,
+      touchdowns: 0.62,
+    };
+
+    let consensusProbability: number | null = null;
+    if (external.projection !== null) {
+      const stdDev = distributionStdDev[canonical.family] ?? Math.max(1, threshold * 0.35);
+      const overProbability = 1 - normalCdf(threshold, external.projection, stdDev);
+      consensusProbability =
+        canonical.direction === "under" ? 1 - overProbability : overProbability;
+    }
+
+    let statisticalProbability: number | null = null;
+    let recentHits: number | null = null;
+    let seasonHitCount: number | null = null;
+
+    if (values.length >= 4) {
+      const last5 = values.slice(0, 5);
+      const historicalHits = hits(values, threshold, canonical.direction);
+      recentHits = hits(last5, threshold, canonical.direction);
+      const average = last5.reduce((sum, value) => sum + value, 0) / last5.length;
+      seasonHitCount = historicalHits;
+      statisticalProbability = empiricalPlayerProbability({
+        historicalHitRate: historicalHits / values.length,
+        recentHitRate: recentHits / last5.length,
+        recentPerformanceRatio: threshold === 0 ? 1 : average / threshold,
+        sampleSize: values.length,
+      });
+    }
+
+    if (consensusProbability === null && statisticalProbability === null) {
       return {
         probabilityBps: null,
         reliabilityBps: 0,
-        version: MODEL_VERSION,
-        evidence: emptyEvidence,
-        factors: ["No verified current-season history matches this player prop."],
-      };
-    }
-
-    const threshold = canonical.threshold;
-
-    // Before four current-season games, keep those results display-only.
-    // Still price the prop from a deliberately conservative, history-free
-    // prior so player props remain rankable without contaminating the model
-    // with a 1-3 game sample.
-    if (values.length < 4) {
-      const familyPrior: Partial<Record<CanonicalMarket["family"], number>> = {
-        passing_yards: 0.50,
-        passing_touchdowns: 0.50,
-        rushing_yards: 0.50,
-        receiving_yards: 0.50,
-        receptions: 0.50,
-        touchdowns: 0.35,
-      };
-      const probability = familyPrior[canonical.family] ?? 0.50;
-      return {
-        probabilityBps: Math.round(probability * 10_000),
-        reliabilityBps: 3000,
         version: MODEL_VERSION,
         evidence: {
           ...emptyEvidence,
@@ -387,42 +405,98 @@ export async function estimateMarket(
           recentValues: values.slice(0, 10),
         },
         factors: [
-          `Only ${values.length} current-season game${values.length === 1 ? "" : "s"} available; those results are display-only until 4 games.`,
-          "Lynerva is rating this prop with a conservative history-free prior until the four-game threshold is reached.",
+          "No independent projection source is currently available for this prop.",
+          values.length < 4
+            ? `Only ${values.length} current-season games are available; the statistical model stays off until four.`
+            : "The four-game statistical model could not produce a usable estimate.",
         ],
       };
     }
-    const last5 = values.slice(0, 5);
-    const last10 = values.slice(0, 10);
-    const historicalHits = hits(values, threshold, canonical.direction);
-    const recentHits = hits(last5, threshold, canonical.direction);
-    const average = last5.reduce((sum, value) => sum + value, 0) / last5.length;
-    const currentSeason = new Date().getUTCFullYear();
-    const seasonValues = sample
-      .filter((row) => row.season === currentSeason)
-      .map((row) => row.value);
-    const seasonHitCount = hits(
-      seasonValues,
-      threshold,
-      canonical.direction,
+
+    let probability = consensusProbability ?? statisticalProbability ?? 0.5;
+    if (consensusProbability !== null && statisticalProbability !== null) {
+      const statisticalWeight = clamp(0.30 + (values.length - 4) * 0.05, 0.30, 0.55);
+      probability =
+        consensusProbability * (1 - statisticalWeight) +
+        statisticalProbability * statisticalWeight;
+    }
+
+    let contextAdjustment = 0;
+    const gameProjection =
+      scheduleGame
+        ? getMatchupProjection(
+            scheduleGame.homeTeam,
+            scheduleGame.awayTeam,
+            scheduleGame.season,
+            scheduleGame.week ?? 1,
+          )
+        : null;
+    if (gameProjection) {
+      const environment =
+        gameProjection.projectedTotal >= 49
+          ? 0.012
+          : gameProjection.projectedTotal <= 39
+            ? -0.012
+            : 0;
+      const environmentSensitive = [
+        "passing_yards",
+        "passing_touchdowns",
+        "receiving_yards",
+        "receptions",
+        "touchdowns",
+      ].includes(canonical.family);
+      if (environmentSensitive && environment !== 0) {
+        contextAdjustment +=
+          canonical.direction === "under" ? -environment : environment;
+      }
+    }
+
+    probability = clamp(probability + contextAdjustment, 0.02, 0.98);
+    const calibrated = await selfCalibrateProbability(probability);
+    probability = calibrated.probability;
+
+    const sourceCount = external.points.length;
+    const dispersionPenalty =
+      external.dispersion === null || external.projection === null
+        ? 0
+        : clamp(
+            external.dispersion / Math.max(Math.abs(external.projection), 1),
+            0,
+            0.25,
+          );
+    const sourceReliability =
+      sourceCount >= 2 ? 0.66 : sourceCount === 1 ? 0.52 : 0.38;
+    const historyBoost =
+      values.length >= 4 ? clamp(values.length / 40, 0.08, 0.22) : 0;
+    const reliability = clamp(
+      sourceReliability + historyBoost - dispersionPenalty,
+      0.30,
+      0.88,
     );
 
-    const baseProbability = empiricalPlayerProbability({
-      historicalHitRate: historicalHits / values.length,
-      recentHitRate: recentHits / last5.length,
-      recentPerformanceRatio: threshold === 0 ? 1 : average / threshold,
-      sampleSize: values.length,
-    });
-    // Early-season estimates are intentionally low-confidence. We would
-    // rather show fewer picks than inflate confidence with last year's data.
-    const reliability = clamp(values.length / 10, 0, 1) * 0.78;
     const factors = [
-      `${history.playerName} cleared this line in ${recentHits} of ${last5.length} current-season game${last5.length === 1 ? "" : "s"}.`,
-      `Current-season sample: ${historicalHits} of ${values.length} at this threshold.`,
-      `Last-5 average: ${average.toFixed(1)} versus a ${threshold} line.`,
+      external.projection !== null
+        ? `Independent projection consensus: ${external.projection.toFixed(1)} from ${sourceCount} source${sourceCount === 1 ? "" : "s"} (${external.points.map((point) => point.source).join(", ")}).`
+        : "Independent projection consensus unavailable.",
+      values.length >= 4
+        ? `Four-game statistical model active using ${values.length} current-season regular-season games.`
+        : `Statistical model locked until four current-season games; ${values.length} available now.`,
     ];
-
-    const probability = clamp(baseProbability, 0.03, 0.97);
+    if (gameProjection) {
+      factors.push(
+        `Game context retained: projected scoring environment ${gameProjection.projectedTotal.toFixed(1)} points from current regular-season team data.`,
+      );
+    }
+    if (contextAdjustment !== 0) {
+      factors.push(
+        `Context layer adjusted probability by ${(contextAdjustment * 100).toFixed(1)} percentage points.`,
+      );
+    }
+    if (calibrated.learned) {
+      factors.push(
+        `Self-calibration active using ${calibrated.sampleSize} settled predictions in this probability bucket.`,
+      );
+    }
 
     return {
       probabilityBps: Math.round(probability * 10_000),
@@ -430,13 +504,31 @@ export async function estimateMarket(
       version: MODEL_VERSION,
       evidence: {
         last5Hits: recentHits,
-        last10Hits: hits(last10, threshold, canonical.direction),
-        seasonHits: seasonValues.length ? seasonHitCount : null,
-        seasonGames: seasonValues.length || null,
+        last10Hits:
+          values.length >= 4
+            ? hits(values.slice(0, 10), threshold, canonical.direction)
+            : null,
+        seasonHits: seasonHitCount,
+        seasonGames: values.length || null,
         sampleSize: values.length,
         recentValues: values.slice(0, 10),
       },
       factors,
+      components: {
+        consensusProjection: external.projection,
+        consensusProbabilityBps:
+          consensusProbability === null
+            ? null
+            : Math.round(consensusProbability * 10_000),
+        statisticalProbabilityBps:
+          statisticalProbability === null
+            ? null
+            : Math.round(statisticalProbability * 10_000),
+        contextAdjustmentBps: Math.round(contextAdjustment * 10_000),
+        projectionSourceCount: sourceCount,
+        learnedCalibrationSample: calibrated.sampleSize,
+        learnedCalibrationActive: calibrated.learned,
+      },
     };
   } catch (error) {
     console.error("Model estimate failed", error);
