@@ -53,6 +53,73 @@ const eventSchema = z
 
 const eventsSchema = z.array(eventSchema);
 
+const sportsSchema = z.array(
+  z
+    .object({
+      sport: z.string(),
+      name: z.string().optional().default(""),
+      series: z.union([z.string(), z.number()]).transform(String),
+    })
+    .passthrough(),
+);
+
+let nflSeriesCache: { id: string; storedAt: number } | null = null;
+
+async function getNflSeriesId() {
+  if (
+    nflSeriesCache &&
+    Date.now() - nflSeriesCache.storedAt < 6 * 60 * 60 * 1_000
+  ) {
+    return nflSeriesCache.id;
+  }
+
+  const sports = await fetchValidated(
+    "Polymarket Sports",
+    `${GAMMA_BASE}/sports`,
+    sportsSchema,
+    { cache: "force-cache" },
+  );
+  const nfl = sports.find(
+    (item) =>
+      item.sport.trim().toLowerCase() === "nfl" ||
+      item.name.trim().toLowerCase() === "nfl",
+  );
+  if (!nfl?.series) {
+    throw new Error("Polymarket NFL series metadata is unavailable");
+  }
+
+  nflSeriesCache = { id: nfl.series, storedAt: Date.now() };
+  return nfl.series;
+}
+
+async function fetchNflEvents(seriesId: string) {
+  const url = new URL(`${GAMMA_BASE}/events`);
+  url.searchParams.set("series_id", seriesId);
+  url.searchParams.set("active", "true");
+  url.searchParams.set("closed", "false");
+  url.searchParams.set("limit", "100");
+
+  const events = await fetchValidated(
+    "Polymarket Gamma",
+    url.toString(),
+    eventsSchema,
+    { cache: "no-store" },
+  );
+  if (events.length) return events;
+
+  const fallback = new URL(`${GAMMA_BASE}/events`);
+  fallback.searchParams.set("tag_slug", "nfl");
+  fallback.searchParams.set("active", "true");
+  fallback.searchParams.set("closed", "false");
+  fallback.searchParams.set("limit", "80");
+  return fetchValidated(
+    "Polymarket Gamma",
+    fallback.toString(),
+    eventsSchema,
+    { cache: "no-store" },
+  );
+}
+
 function parseStringArray(value: string | string[] | null | undefined) {
   if (Array.isArray(value)) return value;
   if (!value) return [];
@@ -70,19 +137,8 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
     const now = Date.now();
     const windowStart = now - 8 * 60 * 60 * 1_000;
     const windowEnd = now + 8 * 24 * 60 * 60 * 1_000;
-    const url = new URL(`${GAMMA_BASE}/events`);
-    url.searchParams.set("tag_slug", "nfl");
-    url.searchParams.set("active", "true");
-    url.searchParams.set("closed", "false");
-    url.searchParams.set("start_date_min", new Date(windowStart).toISOString());
-    url.searchParams.set("start_date_max", new Date(windowEnd).toISOString());
-    url.searchParams.set("limit", "100");
-    const events = await fetchValidated(
-      "Polymarket Gamma",
-      url.toString(),
-      eventsSchema,
-      { cache: "no-store" },
-    );
+    const seriesId = await getNflSeriesId();
+    const events = await fetchNflEvents(seriesId);
     const nflEvents = events
       .map((event) => ({
         ...event,
@@ -160,7 +216,7 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
           volumeCents: dollarsToCents(market.volumeNum ?? market.volume ?? null),
           closesAt: market.endDate ?? event.endDate ?? null,
           updatedAt: safeIso(market.updatedAt ?? event.updatedAt, fetchedAt),
-          sourceUrl: `https://polymarket.com/event/${event.slug}`,
+          sourceUrl: `https://polymarket.com/sports/nfl/${event.slug}`,
         });
       }
     }
