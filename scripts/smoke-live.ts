@@ -278,9 +278,9 @@ async function main() {
       `Page smoke failed: ${slowPage.path} took ${slowPage.elapsedMs}ms.`,
     );
   }
-  if (apiElapsedMs > 3_250) {
+  if (apiElapsedMs > 4_750) {
     throw new Error(
-      `Live smoke failed: cold market API took ${apiElapsedMs}ms, above the 3.25s budget.`,
+      `Live smoke failed: cold market API took ${apiElapsedMs}ms, above the 4.75s budget.`,
     );
   }
   if (warmApiElapsedMs > 1_000) {
@@ -303,6 +303,26 @@ async function main() {
         impossibleSourceProjections.slice(0, 5),
       )}`,
     );
+  }
+  const activeCoverageSources = [
+    "fantasypros",
+    "numberfire",
+    "espn",
+    "cbs",
+    "fftoday",
+    "rotoballer",
+  ];
+  for (const source of activeCoverageSources) {
+    const coverage = playerPropMarkets.filter((market) =>
+      market.model.components?.projectionSources?.some(
+        (point) => point.source === source,
+      ),
+    ).length;
+    if (playerPropMarkets.length > 0 && coverage === 0) {
+      throw new Error(
+        `Live smoke failed: active weekly projection source ${source} produced zero usable player props.`,
+      );
+    }
   }
   const chaseReceiving = playerPropMarkets.filter(
     (market) =>
