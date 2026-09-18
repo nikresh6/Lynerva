@@ -9,9 +9,23 @@ export interface TeamProfile extends StaticTeamProfile {
   team: string;
 }
 
-export function getTeamProfile(team: string): TeamProfile | null {
+export function getTeamProfile(
+  team: string,
+  currentSeason?: number,
+): TeamProfile | null {
   const profile = TEAM_REGULAR_SEASON_PROFILES[team];
   if (!profile) return null;
+
+  // The bundled profile aggregates prior seasons. Until we have a
+  // current-season-only team profile, do not let old seasons influence
+  // current NFL picks.
+  if (
+    currentSeason !== undefined &&
+    (profile.latestSeason !== currentSeason || profile.games > profile.latestWeek)
+  ) {
+    return null;
+  }
+
   return {
     team,
     ...profile,
@@ -21,11 +35,11 @@ export function getTeamProfile(team: string): TeamProfile | null {
 export function getMatchupProjection(
   homeTeam: string,
   awayTeam: string,
-  _currentSeason?: number,
+  currentSeason?: number,
   _currentWeek?: number,
 ) {
-  const home = getTeamProfile(homeTeam);
-  const away = getTeamProfile(awayTeam);
+  const home = getTeamProfile(homeTeam, currentSeason);
+  const away = getTeamProfile(awayTeam, currentSeason);
   if (!home || !away) return null;
 
   const weighted = (full: number, recent: number) =>
