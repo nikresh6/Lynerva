@@ -36,12 +36,12 @@ function game(overrides: Partial<NflScheduleGame> = {}): NflScheduleGame {
 }
 
 describe("NFL schedule eligibility", () => {
-  it("accepts regular season and playoff game types", () => {
+  it("accepts regular season and rejects playoff game types", () => {
     expect(isEligibleNflSeasonType("REG")).toBe(true);
-    expect(isEligibleNflSeasonType("WC")).toBe(true);
-    expect(isEligibleNflSeasonType("DIV")).toBe(true);
-    expect(isEligibleNflSeasonType("CON")).toBe(true);
-    expect(isEligibleNflSeasonType("SB")).toBe(true);
+    expect(isEligibleNflSeasonType("WC")).toBe(false);
+    expect(isEligibleNflSeasonType("DIV")).toBe(false);
+    expect(isEligibleNflSeasonType("CON")).toBe(false);
+    expect(isEligibleNflSeasonType("SB")).toBe(false);
   });
 
   it("rejects preseason games", () => {
