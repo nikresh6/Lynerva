@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
-import { and, desc, eq, isNull, lte } from "drizzle-orm";
+import { and, desc, eq, isNull, lte, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   nflGames,
@@ -58,6 +58,83 @@ const weightCache = new Map<
     } | null;
   }
 >();
+
+let schemaPromise: Promise<void> | null = null;
+
+export function ensureSourceLearningSchema() {
+  if (schemaPromise) return schemaPromise;
+
+  schemaPromise = (async () => {
+    const db = getDb();
+    await db.run(sql.raw(`
+      CREATE TABLE IF NOT EXISTS source_projections (
+        id text PRIMARY KEY NOT NULL,
+        season integer NOT NULL,
+        week integer NOT NULL,
+        player_name text NOT NULL,
+        player_key text NOT NULL,
+        statistic text NOT NULL,
+        source text NOT NULL,
+        projected_value real NOT NULL,
+        captured_at integer NOT NULL,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        updated_at integer DEFAULT (unixepoch()) NOT NULL
+      )
+    `));
+    await db.run(sql.raw(`
+      CREATE UNIQUE INDEX IF NOT EXISTS source_projection_unique
+      ON source_projections (season, week, player_key, statistic, source)
+    `));
+    await db.run(sql.raw(`
+      CREATE INDEX IF NOT EXISTS source_projection_stat_week_idx
+      ON source_projections (season, week, statistic)
+    `));
+    await db.run(sql.raw(`
+      CREATE TABLE IF NOT EXISTS source_projection_grades (
+        projection_id text PRIMARY KEY NOT NULL,
+        actual_value real NOT NULL,
+        absolute_error real NOT NULL,
+        squared_error real NOT NULL,
+        graded_at integer NOT NULL,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        FOREIGN KEY (projection_id) REFERENCES source_projections(id)
+          ON UPDATE no action ON DELETE cascade
+      )
+    `));
+    await db.run(sql.raw(`
+      CREATE INDEX IF NOT EXISTS source_projection_grades_time_idx
+      ON source_projection_grades (graded_at)
+    `));
+    await db.run(sql.raw(`
+      CREATE TABLE IF NOT EXISTS source_weight_history (
+        id text PRIMARY KEY NOT NULL,
+        season integer NOT NULL,
+        effective_week integer NOT NULL,
+        statistic text NOT NULL,
+        source text NOT NULL,
+        weight real NOT NULL,
+        sample_size integer NOT NULL,
+        mae real,
+        recent_mae real,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        updated_at integer DEFAULT (unixepoch()) NOT NULL
+      )
+    `));
+    await db.run(sql.raw(`
+      CREATE UNIQUE INDEX IF NOT EXISTS source_weight_unique
+      ON source_weight_history (season, effective_week, statistic, source)
+    `));
+    await db.run(sql.raw(`
+      CREATE INDEX IF NOT EXISTS source_weight_lookup_idx
+      ON source_weight_history (season, statistic, effective_week)
+    `));
+  })().catch((error) => {
+    schemaPromise = null;
+    throw error;
+  });
+
+  return schemaPromise;
+}
 
 function stableId(prefix: string, value: string) {
   return `${prefix}_${createHash("sha256")
@@ -159,6 +236,7 @@ export async function getLearnedSourceWeights(
   }
 
   try {
+    await ensureSourceLearningSchema();
     const db = getDb();
     const rows = await db
       .select({
@@ -396,6 +474,7 @@ async function recomputeSourceWeights(season: number) {
 
 export async function runSourceLearningLoop(season: number) {
   try {
+    await ensureSourceLearningSchema();
     const graded = await gradeNewSourceProjections(season);
     const weights = await recomputeSourceWeights(season);
     return {
