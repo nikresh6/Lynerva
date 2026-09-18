@@ -164,6 +164,7 @@ export const playerGameStats = sqliteTable(
     passingYards: real("passing_yards"),
     passingAttempts: real("passing_attempts"),
     passingTouchdowns: real("passing_touchdowns"),
+    passingInterceptions: real("passing_interceptions"),
     rushingYards: real("rushing_yards"),
     rushingAttempts: real("rushing_attempts"),
     rushingTouchdowns: real("rushing_touchdowns"),
