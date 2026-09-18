@@ -78,10 +78,19 @@ async function main() {
     ),
   );
   const livePicks = picks.filter((market) => market.isLive);
+  const pregamePicks = picks.filter((market) => !market.isLive);
   const builderMarkets = payload.opportunities.filter(
     isBuilderEligibleOpportunity,
   );
   const defaultBuild = buildBestAvailableCombination(builderMarkets, {
+    minReturn: 3,
+    maxReturn: 5,
+    maxLegs: 4,
+    platform: "either",
+    live: "all",
+    excludeSameGame: true,
+  });
+  const pregameBuild = buildBestAvailableCombination(builderMarkets, {
     minReturn: 3,
     maxReturn: 5,
     maxLegs: 4,
@@ -128,8 +137,10 @@ async function main() {
         gameMarkets: gameMarkets.length,
         topPicks: picks.length,
         liveTopPicks: livePicks.length,
+        pregameTopPicks: pregamePicks.length,
         builderEligible: builderMarkets.length,
         defaultBuilderWorks: Boolean(defaultBuild),
+        pregameBuilderWorks: Boolean(pregameBuild),
         unsupportedPeriodMarkets: unsupportedPeriodMarkets.length,
         matchups: [...matchups].slice(0, 20),
         currentEspnGame,
@@ -168,8 +179,14 @@ async function main() {
   if (currentEspnGame?.state === "in" && livePicks.length === 0) {
     throw new Error("Live smoke failed: live game exists but there are zero quality live picks.");
   }
+  if (pregamePicks.length === 0) {
+    throw new Error("Live smoke failed: upcoming regular-season slate has zero quality pregame picks.");
+  }
   if (!defaultBuild) {
     throw new Error("Live smoke failed: the default 3x-5x Builder could not construct a combination.");
+  }
+  if (!pregameBuild) {
+    throw new Error("Live smoke failed: the 3x-5x Builder could not construct a pregame combination.");
   }
   if (unsupportedPeriodMarkets.length > 0) {
     throw new Error("Live smoke failed: unsupported quarter/half markets leaked into the feed.");
