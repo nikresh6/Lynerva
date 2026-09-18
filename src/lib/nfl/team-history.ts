@@ -102,14 +102,17 @@ const loadRegularSeasonTeamGames = unstable_cache(
       ) {
         continue;
       }
-      const homeScore = Number(row.home_score);
-      const awayScore = Number(row.away_score);
       if (
         !row.home_team ||
         !row.away_team ||
-        !Number.isFinite(homeScore) ||
-        !Number.isFinite(awayScore)
+        !row.home_score?.trim() ||
+        !row.away_score?.trim()
       ) {
+        continue;
+      }
+      const homeScore = Number(row.home_score);
+      const awayScore = Number(row.away_score);
+      if (!Number.isFinite(homeScore) || !Number.isFinite(awayScore)) {
         continue;
       }
 
