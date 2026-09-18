@@ -78,7 +78,7 @@ function stdDev(values: number[]) {
 const loadRegularSeasonTeamGames = unstable_cache(
   async (): Promise<TeamGame[]> => {
     const response = await fetch(
-      "https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv",
+      "https://cdn.jsdelivr.net/gh/nflverse/nfldata@master/data/games.csv",
       {
         headers: { "User-Agent": "Lynerva/1.0 team-history" },
         signal: AbortSignal.timeout(30_000),
