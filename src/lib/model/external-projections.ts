@@ -270,11 +270,17 @@ function loadNumberFire(season: number, week: number) {
     await Promise.all(
       ["qb", "rb", "wr", "te"].map(async (position) => {
         try {
-          const rows = rowsFromHtml(
-            await fetchText(
-              `https://www.numberfire.com/external/widgets/top-players/${position}`,
-            ),
+          const html = await fetchText(
+            `https://www.numberfire.com/external/widgets/top-players/${position}`,
           );
+          if (
+            !new RegExp(`Top\\s+Fantasy\\s+Players\\s+for\\s+Week\\s+${week}\\b`, "i").test(
+              decode(html),
+            )
+          ) {
+            continue;
+          }
+          const rows = rowsFromHtml(html);
           for (const cells of rows) {
             const playerIndex = cells.length >= 4 ? 1 : -1;
             if (playerIndex < 0) continue;
