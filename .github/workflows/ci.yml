@@ -26,11 +26,27 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: npm run build
       - name: Verify real live NFL data
-        run: npm run smoke:live
         env:
           USE_MARKET_FIXTURES: "false"
-      - run: npm run build
+          NODE_ENV: "production"
+          LYNERVA_SMOKE_BASE_URL: "http://127.0.0.1:3000"
+        run: |
+          npm start > /tmp/lynerva-next.log 2>&1 &
+          SERVER_PID=$!
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:3000/api/live-nfl > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          npm run smoke:live || {
+            cat /tmp/lynerva-next.log
+            kill $SERVER_PID || true
+            exit 1
+          }
+          kill $SERVER_PID || true
 
   build_without_runtime_env:
     runs-on: ubuntu-latest
