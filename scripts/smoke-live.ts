@@ -95,6 +95,7 @@ async function main() {
       "rushing_yards",
       "receiving_yards",
       "receptions",
+      "longest_reception",
       "touchdowns",
     ].includes(market.canonical?.family ?? ""),
   );
