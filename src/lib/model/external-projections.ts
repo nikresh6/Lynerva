@@ -26,6 +26,7 @@ export interface ProjectionPoint {
 interface ProjectionStats {
   passingYards?: number;
   passingTouchdowns?: number;
+  passingInterceptions?: number;
   rushingYards?: number;
   rushingTouchdowns?: number;
   receptions?: number;
@@ -806,44 +807,49 @@ function loadSleeper(season: number, week: number) {
 function loadNfl(season: number, week: number) {
   return cachedSource("nfl", season, week, async () => {
     const map: ProjectionMap = new Map();
-    const positions = [
-      ["QB", 1, 42],
-      ["RB", 2, 100],
-      ["WR", 3, 150],
-      ["TE", 4, 60],
-    ] as const;
-    await Promise.all(
-      positions.map(async ([position, posId, count]) => {
-        try {
-          const html = await fetchText(
-            `https://fantasy.nfl.com/research/projections?position=${posId}&count=${count}&sort=projectedPts&statCategory=projectedStats&statSeason=${season}&statType=weekProjectedStats&statWeek=${week}`,
-          );
-          for (const row of html.match(/<tr\b[^>]*class=["'][^"']*player[^"']*["'][^>]*>[\s\S]*?<\/tr>/gi) ?? []) {
-            const playerMatch = row.match(
-              /class=["'][^"']*playerName[^"']*["'][^>]*>([\s\S]*?)<\/a>/i,
-            );
-            const player = playerMatch ? decode(playerMatch[1] ?? "") : "";
-            if (!player) continue;
-            const stats = [
-              ...row.matchAll(
-                /<td\b[^>]*class=["'][^"']*\bstat\b[^"']*["'][^>]*>([\s\S]*?)<\/td>/gi,
-              ),
-            ].map((match) => toNumber(decode(match[1] ?? "")));
-            mergeStats(map, player, {
-              passingYards: stats[1] ?? undefined,
-              passingTouchdowns: stats[2] ?? undefined,
-              rushingYards: stats[4] ?? undefined,
-              rushingTouchdowns: stats[5] ?? undefined,
-              receptions: stats[6] ?? undefined,
-              receivingYards: stats[7] ?? undefined,
-              receivingTouchdowns: stats[8] ?? undefined,
-            });
-          }
-        } catch {
-          // Source remains optional.
-        }
-      }),
-    );
+
+    try {
+      const html = await fetchText(
+        `https://fantasy.nfl.com/research/projections?position=O&count=1200&sort=name&statCategory=projectedStats&statSeason=${season}&statType=weekProjectedStats&statWeek=${week}`,
+      );
+
+      for (
+        const row of
+          html.match(
+            /<tr\\b[^>]*class=["'][^"']*player[^"']*["'][^>]*>[\\s\\S]*?<\\/tr>/gi,
+          ) ?? []
+      ) {
+        const playerMatch = row.match(
+          /class=["'][^"']*playerName[^"']*["'][^>]*>[\\s\\S]*?<a[^>]*>([\\s\\S]*?)<\\/a>/i,
+        );
+        const player = playerMatch ? decode(playerMatch[1] ?? "") : "";
+        if (!player) continue;
+
+        // NFL Fantasy's weekly table columns are:
+        // PassYds, PassTD, INT, RushYds, RushTD, Rec, RecYds, RecTD, ...
+        const stats = [
+          ...row.matchAll(
+            /<td\\b[^>]*class=["'][^"']*\\bstat\\b[^"']*["'][^>]*>([\\s\\S]*?)<\\/td>/gi,
+          ),
+        ].map((match) => toNumber(decode(match[1] ?? "")));
+
+        if (stats.length < 8) continue;
+        mergeStats(map, player, {
+          passingYards: stats[0] ?? undefined,
+          passingTouchdowns: stats[1] ?? undefined,
+          passingInterceptions: stats[2] ?? undefined,
+          rushingYards: stats[3] ?? undefined,
+          rushingTouchdowns: stats[4] ?? undefined,
+          receptions: stats[5] ?? undefined,
+          receivingYards: stats[6] ?? undefined,
+          receivingTouchdowns: stats[7] ?? undefined,
+        });
+      }
+    } catch {
+      // NFL Fantasy weekly projections are public. A transient failure remains
+      // missing instead of falling back to a season or rest-of-season view.
+    }
+
     return map;
   });
 }
