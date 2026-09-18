@@ -228,6 +228,56 @@ export function BuilderWorkbench() {
 
   return (
     <div className="space-y-5">
+      <section className="grid grid-cols-2 gap-2 rounded-2xl border bg-surface p-2 shadow-[0_8px_30px_rgb(0_0_0/0.025)]">
+        <button
+          type="button"
+          onClick={() => setBuilderView("parlay")}
+          className={cn(
+            "rounded-xl px-3 py-3 text-left transition-colors",
+            builderView === "parlay"
+              ? "bg-foreground text-background"
+              : "hover:bg-surface-raised",
+          )}
+        >
+          <div className="flex items-center gap-2">
+            <Layers3 className="size-4" />
+            <span className="text-xs font-semibold sm:text-sm">Build one parlay</span>
+          </div>
+          <p
+            className={cn(
+              "mt-1 hidden text-[10px] sm:block",
+              builderView === "parlay" ? "text-background/70" : "text-muted",
+            )}
+          >
+            Find the best combination inside a payout range.
+          </p>
+        </button>
+        <button
+          type="button"
+          onClick={() => setBuilderView("portfolio")}
+          className={cn(
+            "rounded-xl px-3 py-3 text-left transition-colors",
+            builderView === "portfolio"
+              ? "bg-foreground text-background"
+              : "hover:bg-surface-raised",
+          )}
+        >
+          <div className="flex items-center gap-2">
+            <WalletCards className="size-4" />
+            <span className="text-xs font-semibold sm:text-sm">Plan my money</span>
+          </div>
+          <p
+            className={cn(
+              "mt-1 hidden text-[10px] sm:block",
+              builderView === "portfolio" ? "text-background/70" : "text-muted",
+            )}
+          >
+            Split one amount across straights and parlays for a target payout.
+          </p>
+        </button>
+      </section>
+
+      <div className={builderView === "parlay" ? "space-y-5" : "hidden"}>
       <section className="overflow-hidden rounded-2xl border bg-surface shadow-[0_12px_40px_rgb(0_0_0/0.035)]">
         <div className="border-b bg-[linear-gradient(135deg,var(--surface-raised),var(--surface))] px-4 py-4 sm:px-5">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
@@ -643,6 +693,384 @@ export function BuilderWorkbench() {
           </>
         )}
       </section>
+      </div>
+
+      <div className={builderView === "portfolio" ? "space-y-5" : "hidden"}>
+        <section className="overflow-hidden rounded-2xl border bg-surface shadow-[0_12px_40px_rgb(0_0_0/0.035)]">
+          <div className="border-b bg-[linear-gradient(135deg,var(--surface-raised),var(--surface))] px-4 py-4 sm:px-5">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold">Bankroll plan</p>
+                <p className="mt-1 text-[11px] leading-5 text-muted">
+                  Tell Lynerva how much you want to put in and the payout you
+                  want to aim for. It spreads the money across straight bets and
+                  model-backed parlays instead of forcing everything into one ticket.
+                </p>
+              </div>
+              <div className="mt-2 flex items-center gap-2 text-[10px] text-muted sm:mt-0">
+                <span className="size-1.5 rounded-full bg-positive" />
+                {currentMarkets.length.toLocaleString()} eligible markets
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-5 p-4 sm:p-5 xl:grid-cols-[1fr_1.05fr]">
+            <div>
+              <div className="grid grid-cols-2 gap-3">
+                <label>
+                  <FieldLabel>Amount to put in</FieldLabel>
+                  <div className="flex h-11 items-center rounded-xl border bg-surface px-3">
+                    <span className="text-xs text-muted">$</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100000"
+                      step="10"
+                      value={planAmount}
+                      onChange={(event) => {
+                        const next = Math.max(1, Number(event.target.value));
+                        const currentMultiple =
+                          targetPayout / Math.max(planAmount, 1);
+                        setPlanAmount(next);
+                        setTargetPayout(
+                          Math.max(next + 1, Math.round(next * currentMultiple)),
+                        );
+                      }}
+                      className="w-full bg-transparent pl-1 text-sm outline-none tabular"
+                    />
+                  </div>
+                </label>
+
+                <label>
+                  <FieldLabel>Wanted payout</FieldLabel>
+                  <div className="flex h-11 items-center rounded-xl border bg-surface px-3">
+                    <span className="text-xs text-muted">$</span>
+                    <input
+                      type="number"
+                      min={planAmount + 1}
+                      max="1000000"
+                      step="10"
+                      value={targetPayout}
+                      onChange={(event) =>
+                        setTargetPayout(
+                          Math.max(planAmount + 1, Number(event.target.value)),
+                        )
+                      }
+                      className="w-full bg-transparent pl-1 text-sm outline-none tabular"
+                    />
+                  </div>
+                </label>
+              </div>
+
+              <div className="mt-3 rounded-xl border bg-background/55 p-3">
+                <div className="flex items-center justify-between gap-3 text-[10px]">
+                  <span className="text-muted">Target return</span>
+                  <span className="font-semibold tabular">
+                    {(targetPayout / Math.max(planAmount, 1)).toFixed(2)}x
+                  </span>
+                </div>
+                <p className="mt-1.5 text-[10px] leading-4 text-faint">
+                  This is an all-win payout target, not a guaranteed return.
+                  Lynerva moves more capital toward parlays only when a higher
+                  target requires it.
+                </p>
+              </div>
+
+              <div className="mt-5">
+                <FieldLabel>Risk limit</FieldLabel>
+                <div className="grid grid-cols-3 gap-2">
+                  <SegmentedButton
+                    value="lower"
+                    current={portfolioRisk}
+                    onClick={setPortfolioRisk}
+                    title="Lower"
+                    description="More money in straights, smaller position caps."
+                    icon={<ShieldCheck className="size-3.5" />}
+                  />
+                  <SegmentedButton
+                    value="balanced"
+                    current={portfolioRisk}
+                    onClick={setPortfolioRisk}
+                    title="Balanced"
+                    description="Mix hit rate, diversification, and upside."
+                    icon={<BarChart3 className="size-3.5" />}
+                  />
+                  <SegmentedButton
+                    value="higher"
+                    current={portfolioRisk}
+                    onClick={setPortfolioRisk}
+                    title="Higher"
+                    description="More parlay exposure when the target needs it."
+                    icon={<Zap className="size-3.5" />}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <FieldLabel>Parlay type</FieldLabel>
+              <div className="grid grid-cols-3 gap-2">
+                <SegmentedButton
+                  value="multi_game"
+                  current={mode}
+                  onClick={setMode}
+                  title="Cross-game"
+                  description="Use parlays across separate matchups."
+                  icon={<Layers3 className="size-3.5" />}
+                />
+                <SegmentedButton
+                  value="sgp"
+                  current={mode}
+                  onClick={setMode}
+                  title="Same game"
+                  description="Use same-game parlays from one matchup."
+                  icon={<Target className="size-3.5" />}
+                />
+                <SegmentedButton
+                  value="any"
+                  current={mode}
+                  onClick={setMode}
+                  title="Either"
+                  description="Let Lynerva compare both parlay structures."
+                  icon={<Sparkles className="size-3.5" />}
+                />
+              </div>
+
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                <label>
+                  <FieldLabel>Platform</FieldLabel>
+                  <select
+                    value={platform}
+                    onChange={(event) =>
+                      setPlatform(event.target.value as typeof platform)
+                    }
+                    className="h-11 w-full rounded-xl border bg-surface px-3 text-xs outline-none"
+                  >
+                    <option value="either">Either platform</option>
+                    <option value="kalshi">Kalshi only</option>
+                    <option value="polymarket">Polymarket only</option>
+                  </select>
+                </label>
+
+                <label>
+                  <FieldLabel>Market state</FieldLabel>
+                  <select
+                    value={live}
+                    onChange={(event) =>
+                      setLive(event.target.value as typeof live)
+                    }
+                    className="h-11 w-full rounded-xl border bg-surface px-3 text-xs outline-none"
+                  >
+                    <option value="pregame">Pregame only</option>
+                    <option value="live">Live only</option>
+                    <option value="all">Pregame + live</option>
+                  </select>
+                </label>
+
+                <label className="col-span-2">
+                  <FieldLabel>Maximum parlay legs</FieldLabel>
+                  <select
+                    value={maxLegs}
+                    onChange={(event) => setMaxLegs(Number(event.target.value))}
+                    className="h-11 w-full rounded-xl border bg-surface px-3 text-xs outline-none"
+                  >
+                    <option value="3">3 legs</option>
+                    <option value="4">4 legs</option>
+                    <option value="5">5 legs</option>
+                    <option value="6">6 legs</option>
+                    <option value="7">7 legs</option>
+                    <option value="8">8 legs</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="overflow-hidden rounded-2xl border bg-surface shadow-[0_12px_40px_rgb(0_0_0/0.035)]">
+          {loading && currentMarkets.length === 0 ? (
+            <div className="px-6 py-20 text-center">
+              <div className="mx-auto mb-3 grid size-10 place-items-center rounded-xl border bg-surface-raised">
+                <WalletCards className="size-4 text-muted" />
+              </div>
+              <p className="font-medium">Building your plan...</p>
+              <p className="mt-1 text-xs text-muted">
+                Lynerva needs the current market snapshot first.
+              </p>
+            </div>
+          ) : !portfolioPlan ? (
+            <div className="px-6 py-20 text-center">
+              <div className="mx-auto mb-3 grid size-10 place-items-center rounded-xl border bg-surface-raised">
+                <WalletCards className="size-4 text-muted" />
+              </div>
+              <p className="font-medium">No diversified plan fits this target</p>
+              <p className="mx-auto mt-1 max-w-lg text-xs leading-5 text-muted">
+                Try a lower wanted payout, allow more parlay legs, use either
+                parlay type, or raise the risk limit. Lynerva will not fill a
+                target with a bad one-leg longshot just to make the math work.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="border-b bg-[linear-gradient(135deg,var(--surface-raised),var(--surface))] px-4 py-5 sm:px-6 sm:py-6">
+                <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full border bg-surface px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
+                        BANKROLL PLAN
+                      </span>
+                      <span className="rounded-full border bg-surface px-2.5 py-1 text-[10px] font-medium capitalize text-muted">
+                        {portfolioRisk} risk
+                      </span>
+                    </div>
+                    <p className="mt-3 text-2xl font-semibold tracking-[-0.035em] tabular sm:text-3xl">
+                      {"$"}{Math.round(portfolioPlan.totalStake).toLocaleString()} spread across {portfolioPlan.positions.length} bets
+                    </p>
+                    <p className="mt-1 text-xs text-muted">
+                      Target {"$"}{Math.round(portfolioPlan.targetPayout).toLocaleString()}, all-win payout about {"$"}{Math.round(portfolioPlan.allWinPayout).toLocaleString()}.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:min-w-[560px]">
+                    <div className="rounded-xl border bg-surface p-3">
+                      <p className="text-[10px] text-faint">Model expected P/L</p>
+                      <p
+                        className={cn(
+                          "mt-1 text-lg font-semibold tabular",
+                          portfolioPlan.expectedProfit >= 0
+                            ? "text-positive"
+                            : "text-negative",
+                        )}
+                      >
+                        {portfolioPlan.expectedProfit >= 0 ? "+" : ""}
+                        {"$"}{Math.round(portfolioPlan.expectedProfit)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border bg-surface p-3">
+                      <p className="text-[10px] text-faint">Straight money</p>
+                      <p className="mt-1 text-lg font-semibold tabular">
+                        {Math.round(portfolioPlan.straightStakeShare * 100)}%
+                      </p>
+                    </div>
+                    <div className="rounded-xl border bg-surface p-3">
+                      <p className="text-[10px] text-faint">Parlay money</p>
+                      <p className="mt-1 text-lg font-semibold tabular">
+                        {Math.round(portfolioPlan.parlayStakeShare * 100)}%
+                      </p>
+                    </div>
+                    <div className="rounded-xl border bg-surface p-3">
+                      <p className="text-[10px] text-faint">Largest position</p>
+                      <p className="mt-1 text-lg font-semibold tabular">
+                        {Math.round(portfolioPlan.maxPositionShare * 100)}%
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-3 p-3 sm:p-4 lg:grid-cols-2">
+                {portfolioPlan.positions.map((position, index) => (
+                  <article
+                    key={position.id}
+                    className="rounded-xl border bg-surface-raised/35 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full border bg-surface px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-muted">
+                            {position.kind === "straight"
+                              ? "Straight"
+                              : position.parlayMode === "sgp"
+                                ? "Same game parlay"
+                                : "Cross-game parlay"}
+                          </span>
+                          <span className="text-[9px] text-faint">
+                            Bet {index + 1}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-xl font-semibold tabular">
+                          {"$"}{position.stake.toFixed(2)}
+                        </p>
+                        <p className="mt-0.5 text-[10px] text-muted">
+                          Pays about {"$"}{Math.round(position.payoutIfWin).toLocaleString()} if it wins
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-semibold tabular">
+                          {formatPercent(
+                            Math.round(position.estimatedProbability * 10_000),
+                            1,
+                          )}
+                        </p>
+                        <p className="mt-0.5 text-[9px] text-faint">Model hit chance</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 space-y-2">
+                      {position.legs.map((leg, legIndex) => (
+                        <div
+                          key={`${position.id}:${leg.platformMarketId}`}
+                          className="flex items-start gap-2 rounded-lg border bg-surface px-3 py-2.5"
+                        >
+                          <span className="grid size-5 shrink-0 place-items-center rounded-md border bg-background text-[8px] font-semibold text-muted">
+                            {legIndex + 1}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] font-medium leading-4">
+                              {builderPickLabel(leg)}
+                            </p>
+                            <div className="mt-1 flex items-center gap-2 text-[9px] text-faint">
+                              <span>{leg.canonical?.matchup ?? leg.eventTitle}</span>
+                              <span>·</span>
+                              <span className="capitalize">{leg.platform}</span>
+                            </div>
+                          </div>
+                          <span className="shrink-0 text-[10px] font-medium tabular">
+                            {formatPercent(leg.executablePriceBps)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <div className="rounded-lg border bg-surface p-2.5">
+                        <p className="text-[9px] text-faint">Return if win</p>
+                        <p className="mt-1 text-xs font-semibold tabular">
+                          {position.grossReturn.toFixed(2)}x
+                        </p>
+                      </div>
+                      <div className="rounded-lg border bg-surface p-2.5">
+                        <p className="text-[9px] text-faint">Model expected P/L</p>
+                        <p
+                          className={cn(
+                            "mt-1 text-xs font-semibold tabular",
+                            position.expectedProfit >= 0
+                              ? "text-positive"
+                              : "text-negative",
+                          )}
+                        >
+                          {position.expectedProfit >= 0 ? "+" : ""}
+                          {"$"}{position.expectedProfit.toFixed(2)}
+                        </p>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+
+              <div className="border-t bg-surface-raised/55 px-4 py-4 text-[11px] leading-5 text-muted sm:px-5">
+                <strong className="font-semibold text-foreground">
+                  The plan optimizes the mix, not just the biggest payout.
+                </strong>{" "}
+                It starts with positive-edge straight bets, adds only the amount
+                of parlay exposure needed for your target, caps any single
+                position, and prefers different underlying legs across tickets.
+                Higher payout targets naturally require more variance.
+              </div>
+            </>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
