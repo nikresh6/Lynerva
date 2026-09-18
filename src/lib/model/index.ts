@@ -190,10 +190,12 @@ async function estimateGameMarket(
     scheduleGame.homeTeam,
     scheduleGame.awayTeam,
   );
+  const projectionDeadlineMs =
+    liveGame?.state === "in" ? 450 : 1_800;
   const projection = await Promise.race([
     projectionTask,
     new Promise<Awaited<ReturnType<typeof getMatchupProjection>>>((resolve) => {
-      setTimeout(() => resolve(null), 450);
+      setTimeout(() => resolve(null), projectionDeadlineMs);
     }),
   ]);
 
