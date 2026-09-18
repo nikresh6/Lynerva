@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { weatherProbabilityAdjustment } from "./index";
+import { weatherProbabilityAdjustment } from "./weather-adjustment";
 import type { WeatherPoint } from "@/lib/weather";
 
 const badWeather: WeatherPoint = {
