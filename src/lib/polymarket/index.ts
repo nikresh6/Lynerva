@@ -72,9 +72,8 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
     const windowEnd = now + 8 * 24 * 60 * 60 * 1_000;
     const events: z.infer<typeof eventSchema>[] = [];
     const pageSize = 500;
-    for (let offset = 0; offset < 2_500; offset += pageSize) {
+    for (let offset = 0; offset < 500; offset += pageSize) {
       const url = new URL(`${GAMMA_BASE}/events`);
-      url.searchParams.set("series_id", "10187");
       url.searchParams.set("tag_id", "100639");
       url.searchParams.set("active", "true");
       url.searchParams.set("closed", "false");
@@ -93,6 +92,7 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
     }
 
     const nflEvents = events
+      .filter((event) => event.slug.startsWith("nfl-"))
       .map((event) => ({
         ...event,
         markets: event.markets.filter((market) => {
@@ -116,12 +116,6 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
         }),
       }))
       .filter((event) => event.markets.length > 0);
-
-    console.info("Polymarket NFL discovery", {
-      events: events.length,
-      nflEvents: nflEvents.length,
-      firstSlugs: nflEvents.slice(0, 5).map((event) => event.slug),
-    });
 
     const markets: ProviderMarket[] = [];
 
@@ -179,8 +173,6 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
         });
       }
     }
-
-    console.info("Polymarket NFL normalized markets", { markets: markets.length });
     return { provider: "polymarket", markets, fetchedAt, error: null };
   } catch (error) {
     const message =
