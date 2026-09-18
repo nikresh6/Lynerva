@@ -86,16 +86,16 @@ function SegmentedButton<T extends string>({
       type="button"
       onClick={() => onClick(value)}
       className={cn(
-        "group rounded-xl border p-3 text-left transition-all",
+        "group rounded-xl border p-2.5 text-left transition-all sm:p-3",
         active
           ? "border-strong bg-foreground text-background shadow-sm"
           : "bg-surface hover:border-strong hover:bg-surface-raised",
       )}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:items-center sm:gap-2">
         <span
           className={cn(
-            "grid size-7 place-items-center rounded-lg border",
+            "grid size-6 place-items-center rounded-lg border sm:size-7",
             active
               ? "border-background/20 bg-background/10"
               : "bg-surface-raised text-muted",
@@ -103,11 +103,11 @@ function SegmentedButton<T extends string>({
         >
           {icon}
         </span>
-        <span className="text-xs font-semibold">{title}</span>
+        <span className="text-[10px] font-semibold leading-4 sm:text-xs">{title}</span>
       </div>
       <p
         className={cn(
-          "mt-2 text-[10px] leading-4",
+          "mt-2 hidden text-[10px] leading-4 sm:block",
           active ? "text-background/70" : "text-muted",
         )}
       >
@@ -215,7 +215,7 @@ export function BuilderWorkbench() {
         <div className="grid gap-5 p-4 sm:p-5 xl:grid-cols-[1.08fr_1fr]">
           <div>
             <FieldLabel>Build type</FieldLabel>
-            <div className="grid gap-2 sm:grid-cols-3">
+            <div className="grid grid-cols-3 gap-2">
               <SegmentedButton
                 value="multi_game"
                 current={mode}
@@ -244,7 +244,7 @@ export function BuilderWorkbench() {
 
             <div className="mt-5">
               <FieldLabel>Build style</FieldLabel>
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid grid-cols-3 gap-2">
                 <SegmentedButton
                   value="balanced"
                   current={objective}
