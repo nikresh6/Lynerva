@@ -28,7 +28,7 @@ export default async function MarketsPage({
       <LiveRefresh intervalMs={10_000} />
       <PageHeading
         title="Today’s top picks"
-        description="NFL single-leg markets only. Provider parlays and cross-category combos are excluded."
+        description="Regular season and postseason NFL single-leg markets only. Preseason, provider parlays, futures, and cross-category combos are excluded."
       />
       <MarketFiltersBar filters={filters} />
       <SourceStatus
