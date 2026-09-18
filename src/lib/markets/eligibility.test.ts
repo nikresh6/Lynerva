@@ -36,6 +36,16 @@ describe("market eligibility", () => {
     expect(isSingleLegNflProviderMarket(market())).toBe(true);
   });
 
+  it("does not treat the word no as New Orleans", () => {
+    const baseball = market({
+      platformMarketId: "KXMLB-TEST",
+      eventTitle: "Miami baseball game",
+      marketTitle: "no Josh Jung: 2+,no Miami wins by over 1.5 runs",
+      resolutionRules: "Official league statistics determine settlement.",
+    });
+    expect(isSingleLegNflProviderMarket(baseball)).toBe(false);
+  });
+
   it("rejects Kalshi cross-category multivariate contracts", () => {
     const combo = market({
       platformMarketId: "KXMVECROSSCATEGORY-S2026ABC",
