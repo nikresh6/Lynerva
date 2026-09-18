@@ -89,6 +89,16 @@ async function main() {
       market.canonical?.family ?? "",
     ),
   );
+  const playerPropMarkets = payload.opportunities.filter((market) =>
+    [
+      "passing_yards",
+      "passing_touchdowns",
+      "rushing_yards",
+      "receiving_yards",
+      "receptions",
+      "touchdowns",
+    ].includes(market.canonical?.family ?? ""),
+  );
   const livePicks = picks.filter((market) => market.isLive);
   const livePricedMarkets = payload.opportunities.filter(
     (market) =>
@@ -157,6 +167,7 @@ async function main() {
         })),
         opportunities: payload.opportunities.length,
         gameMarkets: gameMarkets.length,
+        playerPropMarkets: playerPropMarkets.length,
         topPicks: picks.length,
         liveTopPicks: livePicks.length,
         livePricedMarkets: livePricedMarkets.length,
@@ -211,6 +222,9 @@ async function main() {
   }
   if (gameMarkets.length === 0) {
     throw new Error("Live smoke failed: zero current NFL game markets.");
+  }
+  if (playerPropMarkets.length === 0) {
+    throw new Error("Live smoke failed: zero regular-season player props were modeled.");
   }
   if (picks.length === 0) {
     throw new Error("Live smoke failed: zero quality model-backed top picks.");
