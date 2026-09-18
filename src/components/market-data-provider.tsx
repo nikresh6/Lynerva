@@ -21,6 +21,8 @@ export interface ProviderSummary {
 interface MarketClientPayload {
   opportunities: MarketOpportunity[];
   providers: ProviderSummary[];
+  ratedCount: number;
+  displayedCount: number;
   fetchedAt: string;
 }
 
@@ -76,6 +78,8 @@ export function MarketDataProvider({
   const [data, setData] = useState<MarketClientPayload>({
     opportunities: [],
     providers: [],
+    ratedCount: 0,
+    displayedCount: 0,
     fetchedAt: "",
   });
   const [loading, setLoading] = useState(true);
