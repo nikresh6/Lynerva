@@ -26,6 +26,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: npm run smoke:live
       - run: npm run build
 
   build_without_runtime_env:
