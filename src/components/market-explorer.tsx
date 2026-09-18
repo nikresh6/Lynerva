@@ -203,10 +203,7 @@ export function MarketExplorer({
             }
             label="Market type"
           >
-            <option value="all">All markets</option>
-            <option value="moneyline">Moneyline</option>
-            <option value="spread">Spread</option>
-            <option value="game_total">Game total</option>
+            <option value="all">All player props</option>
             <option value="passing_yards">Passing yards</option>
             <option value="passing_touchdowns">Passing TDs</option>
             <option value="rushing_yards">Rushing yards</option>
