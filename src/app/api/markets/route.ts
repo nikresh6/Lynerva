@@ -17,13 +17,13 @@ function balancedSnapshot(opportunities: MarketOpportunity[]) {
   for (const market of ranked) {
     const matchup = market.canonical?.matchup ?? "unknown";
     const count = perMatchup.get(matchup) ?? 0;
-    if (count >= 18) continue;
+    if (count >= 6) continue;
     const key = `${market.platform}:${market.platformMarketId}:${market.platformOutcomeId ?? "yes"}`;
     if (seen.has(key)) continue;
     selected.push(market);
     seen.add(key);
     perMatchup.set(matchup, count + 1);
-    if (selected.length >= 300) break;
+    if (selected.length >= 60) break;
   }
 
   return selected;
@@ -31,7 +31,14 @@ function balancedSnapshot(opportunities: MarketOpportunity[]) {
 
 export async function GET() {
   const payload = await getMarketOpportunities();
-  const opportunities = balancedSnapshot(payload.opportunities);
+  const opportunities = balancedSnapshot(payload.opportunities).map((market) => ({
+    ...market,
+    resolutionRules: market.resolutionRules?.slice(0, 600) ?? null,
+    model: {
+      ...market.model,
+      factors: market.model.factors.slice(0, 4),
+    },
+  }));
 
   return Response.json(
     {
