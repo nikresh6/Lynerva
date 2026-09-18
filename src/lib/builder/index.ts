@@ -29,7 +29,13 @@ export function buildCombination(
 ): BuiltCombination | null {
   const eligible = opportunities
     .filter((market) => {
-      if (market.executablePriceBps === null || market.model.probabilityBps === null) return false;
+      if (
+        market.executablePriceBps === null ||
+        market.executablePriceBps <= 0 ||
+        market.executablePriceBps >= 10_000 ||
+        market.model.probabilityBps === null ||
+        !market.canonical
+      ) return false;
       if ((market.edgeBps ?? 0) <= 0 || market.freshness === "stale") return false;
       if (options.platform !== "either" && market.platform !== options.platform) return false;
       if (options.live === "live" && !market.isLive) return false;
@@ -76,6 +82,16 @@ export function buildCombination(
     for (let index = start; index < eligible.length; index += 1) {
       const candidate = eligible[index];
       if (!candidate) continue;
+      if (
+        legs.some(
+          (leg) =>
+            leg.canonical?.key === candidate.canonical?.key ||
+            (leg.platform === candidate.platform &&
+              leg.platformMarketId === candidate.platformMarketId),
+        )
+      ) {
+        continue;
+      }
       if (
         options.excludeSameGame &&
         legs.some((leg) => gameKey(leg) === gameKey(candidate))
