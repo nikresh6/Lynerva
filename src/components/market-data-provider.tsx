@@ -88,7 +88,6 @@ export function MarketDataProvider({
       setRefreshing(true);
       try {
         const response = await fetch("/api/markets", {
-          cache: "no-store",
           headers: { Accept: "application/json" },
         });
         if (!response.ok) {
