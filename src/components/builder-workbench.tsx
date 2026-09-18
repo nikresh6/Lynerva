@@ -175,8 +175,9 @@ export function BuilderWorkbench() {
     useState<PortfolioRisk>("balanced");
 
   const combination = useMemo(
-    () =>
-      buildBestAvailableCombination(currentMarkets, {
+    () => {
+      if (builderView !== "parlay") return null;
+      return buildBestAvailableCombination(currentMarkets, {
         minReturn,
         maxReturn,
         maxLegs,
@@ -184,8 +185,10 @@ export function BuilderWorkbench() {
         live,
         mode,
         objective,
-      }),
+      });
+    },
     [
+      builderView,
       currentMarkets,
       live,
       maxLegs,
@@ -198,8 +201,9 @@ export function BuilderWorkbench() {
   );
 
   const portfolioPlan = useMemo(
-    () =>
-      buildPortfolioPlan(currentMarkets, {
+    () => {
+      if (builderView !== "portfolio") return null;
+      return buildPortfolioPlan(currentMarkets, {
         amount: planAmount,
         targetPayout,
         risk: portfolioRisk,
@@ -207,8 +211,10 @@ export function BuilderWorkbench() {
         live,
         mode,
         maxLegs,
-      }),
+      });
+    },
     [
+      builderView,
       currentMarkets,
       live,
       maxLegs,
