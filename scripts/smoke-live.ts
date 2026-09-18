@@ -1,17 +1,9 @@
-type MarketOpportunity = {
-  platform: "kalshi" | "polymarket";
-  marketTitle: string;
-  canonical: {
-    matchup: string | null;
-    family: string;
-  } | null;
-  recommendedSide: "yes" | "no" | null;
-  recommendedProbabilityBps: number | null;
-  executablePriceBps: number | null;
-  edgeBps: number | null;
-  opportunityScore: number | null;
-  isLive: boolean;
-};
+import { buildCombination } from "../src/lib/builder";
+import {
+  isBuilderEligibleOpportunity,
+  isTopOpportunity,
+} from "../src/lib/markets/eligibility";
+import type { MarketOpportunity } from "../src/lib/markets/types";
 
 type MarketsPayload = {
   opportunities: MarketOpportunity[];
@@ -56,16 +48,7 @@ async function main() {
   const livePayload = (await liveResponse.json()) as { games: LiveGame[] };
 
   const picks = payload.opportunities
-    .filter(
-      (market) =>
-        market.recommendedSide !== null &&
-        market.recommendedProbabilityBps !== null &&
-        market.executablePriceBps !== null &&
-        market.executablePriceBps > 0 &&
-        market.executablePriceBps < 10_000 &&
-        market.edgeBps !== null &&
-        market.edgeBps > 0,
-    )
+    .filter(isTopOpportunity)
     .toSorted(
       (a, b) =>
         (b.opportunityScore ?? -Infinity) -
@@ -75,6 +58,23 @@ async function main() {
   const gameMarkets = payload.opportunities.filter((market) =>
     ["moneyline", "spread", "game_total"].includes(
       market.canonical?.family ?? "",
+    ),
+  );
+  const livePicks = picks.filter((market) => market.isLive);
+  const builderMarkets = payload.opportunities.filter(
+    isBuilderEligibleOpportunity,
+  );
+  const defaultBuild = buildCombination(builderMarkets, {
+    minReturn: 3,
+    maxReturn: 5,
+    maxLegs: 4,
+    platform: "either",
+    live: "pregame",
+    excludeSameGame: true,
+  });
+  const unsupportedPeriodMarkets = payload.opportunities.filter((market) =>
+    /\b(?:1q|2q|3q|4q|1h|2h|first quarter|second quarter|third quarter|fourth quarter|first half|second half)\b/i.test(
+      market.marketTitle,
     ),
   );
 
@@ -109,6 +109,10 @@ async function main() {
         opportunities: payload.opportunities.length,
         gameMarkets: gameMarkets.length,
         topPicks: picks.length,
+        liveTopPicks: livePicks.length,
+        builderEligible: builderMarkets.length,
+        defaultBuilderWorks: Boolean(defaultBuild),
+        unsupportedPeriodMarkets: unsupportedPeriodMarkets.length,
         matchups: [...matchups].slice(0, 20),
         currentEspnGame,
         currentEspnMatchup,
@@ -131,6 +135,9 @@ async function main() {
     ),
   );
 
+  if (Date.now() - started > 8_000) {
+    throw new Error("Live smoke failed: cold market snapshot exceeded 8 seconds.");
+  }
   if (payload.opportunities.length === 0) {
     throw new Error("Live smoke failed: zero eligible NFL opportunities.");
   }
@@ -138,11 +145,20 @@ async function main() {
     throw new Error("Live smoke failed: zero current NFL game markets.");
   }
   if (picks.length === 0) {
-    throw new Error("Live smoke failed: zero positive-edge model-backed picks.");
+    throw new Error("Live smoke failed: zero quality model-backed top picks.");
   }
-  if (payload.providers.every((provider) => provider.count === 0)) {
+  if (currentEspnGame?.state === "in" && livePicks.length === 0) {
+    throw new Error("Live smoke failed: live game exists but there are zero quality live picks.");
+  }
+  if (!defaultBuild) {
+    throw new Error("Live smoke failed: the default 3x-5x Builder could not construct a combination.");
+  }
+  if (unsupportedPeriodMarkets.length > 0) {
+    throw new Error("Live smoke failed: unsupported quarter/half markets leaked into the feed.");
+  }
+  if (payload.providers.some((provider) => provider.count === 0)) {
     throw new Error(
-      "Live smoke failed: both market providers returned zero accepted markets.",
+      "Live smoke failed: Kalshi or Polymarket returned zero accepted markets.",
     );
   }
   if (currentEspnMatchup && !matchups.has(currentEspnMatchup)) {
