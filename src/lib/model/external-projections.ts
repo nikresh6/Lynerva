@@ -1,10 +1,8 @@
 import "server-only";
 
 import type { CanonicalMarket } from "@/lib/markets/types";
-import {
-  ACTIVE_PROJECTION_SOURCES,
-  getLearnedSourceWeights,
-} from "./source-learning";
+import { getLearnedSourceWeights } from "./source-learning";
+import { ACTIVE_PROJECTION_SOURCES } from "./source-weighting";
 
 export type ProjectionSource =
   | "fantasypros"
