@@ -1161,8 +1161,6 @@ async function sourceProjection(
   season: number,
   week: number,
 ): Promise<ProjectionPoint | null> {
-  if (source === "nfl") return nflMarketProjection(market, season, week);
-
   const loader =
     source === "fantasypros"
       ? loadFantasyPros
@@ -1172,7 +1170,9 @@ async function sourceProjection(
           ? loadEspn
           : source === "cbs"
             ? loadCbs
-            : source === "fftoday"
+            : source === "nfl"
+              ? loadNfl
+              : source === "fftoday"
               ? loadFfToday
               : source === "rotoballer"
                 ? loadRotoBaller
