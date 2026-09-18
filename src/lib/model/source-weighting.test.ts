@@ -47,6 +47,22 @@ describe("source weighting", () => {
     expect(espn.weight + cbs.weight).toBeCloseTo(1, 10);
   });
 
+  it("does not let one absurd miss destroy an otherwise accurate source", () => {
+    const rows = [
+      ...samples("espn", 219, 5),
+      {
+        source: "espn",
+        absoluteError: 200,
+        gradedAt: new Date("2026-09-20T00:00:00Z"),
+      },
+      ...samples("cbs", 220, 7),
+    ];
+    const weights = calculateSourceWeights(rows, ["espn", "cbs"]);
+    const espn = weights.find((item) => item.source === "espn")!;
+    const cbs = weights.find((item) => item.source === "cbs")!;
+    expect(espn.weight).toBeGreaterThan(cbs.weight);
+  });
+
   it("uses recent performance without discarding long-run accuracy", () => {
     const oldDate = new Date("2026-09-01T00:00:00Z");
     const recentDate = new Date("2026-09-20T00:00:00Z");
