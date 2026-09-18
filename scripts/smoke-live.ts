@@ -17,7 +17,8 @@ type MarketsPayload = {
   opportunities: MarketOpportunity[];
   providers: Array<{
     provider: "kalshi" | "polymarket";
-    markets: unknown[];
+    count: number;
+    fetchedAt: string;
     error: string | null;
   }>;
 };
@@ -102,7 +103,7 @@ async function main() {
         elapsedMs: Date.now() - started,
         providers: payload.providers.map((provider) => ({
           provider: provider.provider,
-          acceptedMarkets: provider.markets.length,
+          acceptedMarkets: provider.count,
           error: provider.error,
         })),
         opportunities: payload.opportunities.length,
@@ -139,7 +140,7 @@ async function main() {
   if (picks.length === 0) {
     throw new Error("Live smoke failed: zero positive-edge model-backed picks.");
   }
-  if (payload.providers.every((provider) => provider.markets.length === 0)) {
+  if (payload.providers.every((provider) => provider.count === 0)) {
     throw new Error(
       "Live smoke failed: both market providers returned zero accepted markets.",
     );
