@@ -51,10 +51,11 @@ export function buildCombination(
 
   const eligible: MarketOpportunity[] = [];
   const perGame = new Map<string, number>();
+  const perGameLimit = options.excludeSameGame ? 2 : 10;
   for (const market of ranked) {
     const key = gameKey(market);
     const count = perGame.get(key) ?? 0;
-    if (count >= 3) continue;
+    if (count >= perGameLimit) continue;
     eligible.push(market);
     perGame.set(key, count + 1);
     if (eligible.length >= 24) break;
