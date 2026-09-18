@@ -14,6 +14,7 @@ import {
   sourceProjections,
 } from "@/db/schema";
 import { ensureSourceLearningSchema } from "@/lib/model/source-learning";
+import { getWeeklyProjectionStatSnapshots } from "@/lib/model/external-projections";
 import { normalizeLearningPlayer } from "@/lib/model/source-weighting";
 import type { MarketsPayload } from "./service";
 
@@ -98,6 +99,35 @@ export async function persistMarkets(payload: MarketsPayload) {
         playerName,
         playerKey,
         statistic,
+        source: point.source,
+        projectedValue: point.value,
+        capturedAt: now,
+      });
+    }
+  }
+
+  const projectionWindows = new Map<string, { season: number; week: number }>();
+  for (const opportunity of payload.opportunities) {
+    const season = opportunity.model.components?.projectionSeason;
+    const week = opportunity.model.components?.projectionWeek;
+    if (!season || !week || opportunity.isLive) continue;
+    projectionWindows.set(`${season}:${week}`, { season, week });
+  }
+
+  for (const { season, week } of projectionWindows.values()) {
+    const sourceStatLines = await getWeeklyProjectionStatSnapshots(season, week);
+    for (const point of sourceStatLines) {
+      const id = stableId(
+        "source_projection",
+        `${season}:${week}:${point.playerKey}:${point.statistic}:${point.source}`,
+      );
+      projectionSnapshots.set(id, {
+        id,
+        season,
+        week,
+        playerName: point.playerName,
+        playerKey: point.playerKey,
+        statistic: point.statistic,
         source: point.source,
         projectedValue: point.value,
         capturedAt: now,
