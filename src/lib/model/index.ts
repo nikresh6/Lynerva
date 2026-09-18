@@ -189,6 +189,8 @@ async function estimateGameMarket(
   const projectionTask = getMatchupProjection(
     scheduleGame.homeTeam,
     scheduleGame.awayTeam,
+    scheduleGame.season,
+    scheduleGame.week ?? 1,
   );
   const projectionDeadlineMs =
     liveGame?.state === "in" ? 450 : 1_800;
