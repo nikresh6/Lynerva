@@ -61,47 +61,6 @@ const CORE_NFL_SERIES = [
   "KXNFL2HTOTAL",
 ] as const;
 
-async function fetchRecentlyUpdatedNflMarkets() {
-  const markets: z.infer<typeof marketSchema>[] = [];
-  let cursor = "";
-  try {
-    for (let page = 0; page < 2; page += 1) {
-      const url = new URL(`${KALSHI_BASE}/markets`);
-      url.searchParams.set("status", "open");
-      url.searchParams.set(
-        "min_updated_ts",
-        String(Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60),
-      );
-      url.searchParams.set("mve_filter", "exclude");
-      url.searchParams.set("limit", "1000");
-      if (cursor) url.searchParams.set("cursor", cursor);
-      const payload = await fetchValidated(
-        "Kalshi recent markets",
-        url.toString(),
-        marketsResponseSchema,
-        { cache: "no-store" },
-      );
-      markets.push(
-        ...payload.markets.filter((market) =>
-          isNflText(
-            market.ticker,
-            market.event_ticker,
-            market.title,
-            market.subtitle,
-            market.rules_primary,
-            market.rules_secondary,
-          ),
-        ),
-      );
-      cursor = payload.cursor;
-      if (!cursor) break;
-    }
-  } catch (error) {
-    console.error("Kalshi recent-market fetch failed", error);
-  }
-  return markets;
-}
-
 async function fetchSeriesMarkets(seriesTicker: string) {
   try {
     const url = new URL(`${KALSHI_BASE}/markets`);
@@ -186,13 +145,8 @@ export async function fetchKalshiNflMarkets(): Promise<ProviderResult> {
   const fetchedAt = new Date().toISOString();
   try {
     const raw = new Map<string, z.infer<typeof marketSchema>>();
-    const recent = await fetchRecentlyUpdatedNflMarkets();
-    for (const market of recent) raw.set(market.ticker, market);
-
-    if (raw.size < 5) {
-      const core = await fetchCoreSeriesMarkets();
-      for (const market of core) raw.set(market.ticker, market);
-    }
+    const core = await fetchCoreSeriesMarkets();
+    for (const market of core) raw.set(market.ticker, market);
 
     const markets: ProviderMarket[] = [];
     for (const market of raw.values()) {
