@@ -18,7 +18,7 @@ function stableId(prefix: string, value: string) {
   return `${prefix}_${createHash("sha256").update(value).digest("hex").slice(0, 24)}`;
 }
 
-const MODEL_ID = "model_baseline_logit_v1";
+const MODEL_ID = "model_hybrid_consensus_context_v2";
 
 export async function persistMarkets(payload: MarketsPayload) {
   const db = getDb();
@@ -31,18 +31,17 @@ export async function persistMarkets(payload: MarketsPayload) {
     .insert(modelVersions)
     .values({
       id: MODEL_ID,
-      name: "Lynerva baseline",
-      version: "baseline-logit-v1",
+      name: "Lynerva hybrid player prop model",
+      version: "hybrid-consensus-context-v2",
       family: "player_props",
       coefficients: {
-        intercept: -1.18,
-        seasonHitRate: 1.25,
-        recentHitRate: 0.95,
-        recentPerformanceRatio: 0.42,
-        sampleSize: 0.018,
+        consensusWeightEarly: 1,
+        statisticalWeightAtFourGames: 0.30,
+        statisticalWeightMax: 0.55,
+        onlineCalibrationMinBucketSamples: 20,
       },
       calibrationNotes:
-        "Regularized baseline. Chronological validation metrics are populated after the first completed training window.",
+        "Independent projection consensus plus game/weather context. Current-season statistical history activates at four games. Settled outcomes calibrate future probabilities by prediction bucket.",
       active: true,
     })
     .onConflictDoNothing({ target: modelVersions.id });
@@ -213,6 +212,13 @@ export async function persistMarkets(payload: MarketsPayload) {
           threshold: opportunity.canonical?.threshold ?? null,
           historicalSampleSize: opportunity.model.evidence.sampleSize,
           live: opportunity.isLive,
+          consensusProjection: opportunity.model.components?.consensusProjection ?? null,
+          consensusProbabilityBps: opportunity.model.components?.consensusProbabilityBps ?? null,
+          statisticalProbabilityBps: opportunity.model.components?.statisticalProbabilityBps ?? null,
+          contextAdjustmentBps: opportunity.model.components?.contextAdjustmentBps ?? 0,
+          projectionSourceCount: opportunity.model.components?.projectionSourceCount ?? 0,
+          learnedCalibrationSample: opportunity.model.components?.learnedCalibrationSample ?? 0,
+          learnedCalibrationActive: opportunity.model.components?.learnedCalibrationActive ?? false,
         },
         explanation: opportunity.model.factors,
         predictedAt: now,
