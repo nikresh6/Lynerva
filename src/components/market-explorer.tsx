@@ -72,7 +72,6 @@ export function MarketExplorer({
     status: forceStatus ?? "all",
   });
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [lastRefresh, setLastRefresh] = useState(Date.now());
   const deferredQuery = useDeferredValue(filters.query);
 
   useEffect(() => {
@@ -91,7 +90,6 @@ export function MarketExplorer({
         };
         if (!cancelled) {
           setMarkets(payload.opportunities);
-          setLastRefresh(Date.now());
         }
       } catch {
         // Keep the last good snapshot visible.
@@ -129,7 +127,7 @@ export function MarketExplorer({
     filters.minHitRateBps,
   ].filter((value) => value !== null).length;
 
-  const update = <K extends keyof MarketFilters>(
+  const update = <K extends keyof MarketFilters,>(
     key: K,
     value: MarketFilters[K],
   ) => setFilters((current) => ({ ...current, [key]: value }));
@@ -278,7 +276,7 @@ export function MarketExplorer({
 
       <div className="mb-3 flex items-center justify-between text-[10px] text-faint">
         <span>{visible.length} ranked picks</span>
-        <span>Live prices refresh automatically · {Math.max(0, Math.round((Date.now() - lastRefresh) / 1000))}s ago</span>
+        <span>Live prices refresh automatically</span>
       </div>
 
       <MarketTable markets={visible} emptyMessage={emptyMessage} />
