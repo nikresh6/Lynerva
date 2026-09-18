@@ -141,6 +141,7 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
     process.env.NODE_ENV !== "production" &&
     process.env.USE_MARKET_FIXTURES === "true";
 
+  const liveGamesPromise = getLiveNflGames();
   const providerPromise = fixtureMode
     ? Promise.resolve([
         {
@@ -160,11 +161,14 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
           error: null,
         },
       ])
-    : Promise.all([fetchKalshiNflMarkets(), fetchPolymarketNflMarkets()]);
+    : Promise.all([
+        fetchKalshiNflMarkets(),
+        liveGamesPromise.then((games) => fetchPolymarketNflMarkets(games)),
+      ]);
 
   const [providers, liveGames] = await Promise.all([
     providerPromise,
-    getLiveNflGames(),
+    liveGamesPromise,
   ]);
 
   const coarseProviders = providers.map((provider) => ({
