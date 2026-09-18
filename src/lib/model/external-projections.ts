@@ -36,6 +36,7 @@ interface ProjectionStats {
   receptions?: number;
   receivingYards?: number;
   receivingTouchdowns?: number;
+  totalTouchdowns?: number;
 }
 
 type ProjectionMap = Map<string, ProjectionStats>;
@@ -183,6 +184,7 @@ function sourceValue(
   if (family === "receptions") return stats.receptions ?? null;
   if (family === "receiving_yards") return stats.receivingYards ?? null;
   if (family === "touchdowns") {
+    if (stats.totalTouchdowns !== undefined) return stats.totalTouchdowns;
     const rushing = stats.rushingTouchdowns ?? 0;
     const receiving = stats.receivingTouchdowns ?? 0;
     const total = rushing + receiving;
@@ -319,12 +321,12 @@ function loadNumberFire(season: number, week: number) {
                 position: position.toUpperCase() as "WR" | "TE",
                 receptions: toNumber(cells[playerIndex + 2]) ?? undefined,
                 receivingYards: toNumber(cells[playerIndex + 3]) ?? undefined,
-                receivingTouchdowns: toNumber(cells[playerIndex + 4]) ?? undefined,
+                totalTouchdowns: toNumber(cells[playerIndex + 4]) ?? undefined,
               });
             } else {
               mergeStats(map, player, {
                 position: "RB",
-                rushingTouchdowns: toNumber(cells[playerIndex + 3]) ?? undefined,
+                totalTouchdowns: toNumber(cells[playerIndex + 3]) ?? undefined,
               });
             }
           }
@@ -1179,7 +1181,8 @@ export type ProjectionStatistic =
   | "rushing_touchdowns"
   | "receptions"
   | "receiving_yards"
-  | "receiving_touchdowns";
+  | "receiving_touchdowns"
+  | "touchdowns";
 
 export interface WeeklyProjectionStatSnapshot {
   source: ProjectionSource;
@@ -1232,6 +1235,9 @@ export async function getWeeklyProjectionStatSnapshots(
 
     for (const [playerKey, stats] of map.entries()) {
       const fields: Array<[ProjectionStatistic, number | undefined]> = [];
+      if (stats.totalTouchdowns !== undefined) {
+        fields.push(["touchdowns", stats.totalTouchdowns]);
+      }
 
       if (stats.position === "QB") {
         fields.push(
