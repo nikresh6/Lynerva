@@ -8,6 +8,8 @@ import type { LiveNflGame } from "@/lib/nfl/live";
 import { empiricalPlayerProbability } from "./player-probability";
 import { getExternalProjectionConsensus } from "./external-projections";
 import { selfCalibrateProbability } from "./self-learning";
+import { weatherProbabilityAdjustment } from "./weather-adjustment";
+import { getGameWeather } from "@/lib/weather";
 import type {
   CanonicalMarket,
   HistoricalEvidence,
@@ -431,6 +433,26 @@ export async function estimateMarket(
             scheduleGame.week ?? 1,
           )
         : null;
+
+    const indoor = Boolean(
+      scheduleGame?.roof &&
+      /dome|closed|indoor/i.test(scheduleGame.roof),
+    );
+    const weather =
+      scheduleGame && !indoor
+        ? await getGameWeather({
+            stadium: scheduleGame.stadium,
+            kickoffAt: scheduleGame.kickoffAt,
+          })
+        : null;
+    const weatherAdjustment = weatherProbabilityAdjustment({
+      family: canonical.family,
+      direction: canonical.direction,
+      indoor,
+      weather,
+    });
+    contextAdjustment += weatherAdjustment;
+
     if (gameProjection) {
       const environment =
         gameProjection.projectedTotal >= 49
@@ -486,6 +508,13 @@ export async function estimateMarket(
       factors.push(
         `Game context retained: projected scoring environment ${gameProjection.projectedTotal.toFixed(1)} points from current regular-season team data.`,
       );
+    }
+    if (weather) {
+      factors.push(
+        `Weather context: ${weather.windMph.toFixed(0)} mph wind, ${weather.precipitationProbability.toFixed(0)}% precipitation, ${weather.temperatureF.toFixed(0)}°F.`,
+      );
+    } else if (indoor) {
+      factors.push("Weather context: indoor game, weather neutral.");
     }
     if (contextAdjustment !== 0) {
       factors.push(
