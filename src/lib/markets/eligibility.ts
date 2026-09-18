@@ -81,7 +81,7 @@ export function isBuilderEligibleOpportunity(market: MarketOpportunity) {
   );
   if (
     isPlayerProp &&
-    (market.model.components?.projectionSourceCount ?? 0) < 3
+    (market.model.components?.projectionSourceCount ?? 0) < 4
   ) {
     return false;
   }
