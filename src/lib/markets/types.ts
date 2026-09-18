@@ -84,6 +84,10 @@ export interface ModelEstimate {
     statisticalProbabilityBps: number | null;
     contextAdjustmentBps: number;
     projectionSourceCount: number;
+    projectionSources?: Array<{
+      source: string;
+      value: number;
+    }>;
     learnedCalibrationSample: number;
     learnedCalibrationActive: boolean;
   };

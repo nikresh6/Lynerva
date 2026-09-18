@@ -5,7 +5,7 @@ import { findPublicPlayerHistory } from "@/lib/nfl/history";
 import { getMatchupProjection } from "@/lib/nfl/team-history";
 import type { NflScheduleGame } from "@/lib/nfl/schedule-match";
 import type { LiveNflGame } from "@/lib/nfl/live";
-import { empiricalPlayerProbability } from "./player-probability";
+import { empiricalPlayerProbability, poissonAtLeastProbability } from "./player-probability";
 import { getExternalProjectionConsensus } from "./external-projections";
 import { selfCalibrateProbability } from "./self-learning";
 import { weatherProbabilityAdjustment } from "./weather-adjustment";
@@ -364,17 +364,25 @@ export async function estimateMarket(
 
     const distributionStdDev: Partial<Record<CanonicalMarket["family"], number>> = {
       passing_yards: 58,
-      passing_touchdowns: 1.05,
       rushing_yards: 26,
       receiving_yards: 29,
       receptions: 2.25,
-      touchdowns: 0.62,
     };
 
     let consensusProbability: number | null = null;
     if (external.projection !== null) {
-      const stdDev = distributionStdDev[canonical.family] ?? Math.max(1, threshold * 0.35);
-      const overProbability = 1 - normalCdf(threshold, external.projection, stdDev);
+      const countMarket =
+        canonical.family === "touchdowns" ||
+        canonical.family === "passing_touchdowns";
+      const overProbability = countMarket
+        ? poissonAtLeastProbability(threshold, external.projection)
+        : 1 -
+          normalCdf(
+            threshold,
+            external.projection,
+            distributionStdDev[canonical.family] ??
+              Math.max(1, threshold * 0.35),
+          );
       consensusProbability =
         canonical.direction === "under" ? 1 - overProbability : overProbability;
     }
@@ -410,10 +418,24 @@ export async function estimateMarket(
       statisticalProbability ??
       marketBaselineProbability;
     if (consensusProbability !== null && statisticalProbability !== null) {
-      const statisticalWeight = clamp(0.30 + (values.length - 4) * 0.05, 0.30, 0.55);
+      const statisticalWeight = clamp(
+        0.30 + (values.length - 4) * 0.05,
+        0.30,
+        0.55,
+      );
       probability =
         consensusProbability * (1 - statisticalWeight) +
         statisticalProbability * statisticalWeight;
+    } else if (
+      consensusProbability !== null &&
+      external.points.length === 1
+    ) {
+      // One projection source can move us away from the market, but it should
+      // not dominate the estimate by itself. Shrinking toward the live market
+      // preserves realistic long-shot tails instead of imposing an artificial
+      // probability floor.
+      probability =
+        consensusProbability * 0.72 + marketBaselineProbability * 0.28;
     }
 
     let contextAdjustment = 0;
@@ -466,20 +488,11 @@ export async function estimateMarket(
       }
     }
 
-    probability = clamp(probability + contextAdjustment, 0.02, 0.98);
+    probability = clamp(probability + contextAdjustment, 0.001, 0.999);
     const calibrated = await selfCalibrateProbability(probability);
     probability = calibrated.probability;
 
     const sourceCount = external.points.length;
-
-    // A single external source is useful, but it is not enough evidence for
-    // near-certain probabilities before the four-game statistical model joins.
-    if (
-      sourceCount === 1 &&
-      statisticalProbability === null
-    ) {
-      probability = clamp(probability, 0.08, 0.92);
-    }
 
     const dispersionPenalty =
       external.dispersion === null || external.projection === null
@@ -564,6 +577,10 @@ export async function estimateMarket(
             : Math.round(statisticalProbability * 10_000),
         contextAdjustmentBps: Math.round(contextAdjustment * 10_000),
         projectionSourceCount: sourceCount,
+        projectionSources: external.points.map((point) => ({
+          source: point.source,
+          value: point.value,
+        })),
         learnedCalibrationSample: calibrated.sampleSize,
         learnedCalibrationActive: calibrated.learned,
       },
