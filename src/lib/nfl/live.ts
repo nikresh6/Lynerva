@@ -41,6 +41,7 @@ const scoreboardSchema = z.object({ events: z.array(eventSchema).default([]) }).
 export interface LiveNflGame {
   id: string;
   name: string;
+  startsAt: string;
   state: string;
   status: string;
   period: number;
@@ -72,6 +73,7 @@ export class EspnLiveNflProvider implements LiveNflProvider {
       return {
         id: event.id,
         name: event.name,
+        startsAt: event.date,
         state: event.status.type.state,
         status: event.status.type.detail,
         period: event.status.period,
