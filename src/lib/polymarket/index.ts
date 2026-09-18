@@ -82,26 +82,36 @@ function extrema(entries: Array<{ price: string }>, mode: "min" | "max") {
 async function fetchBooks(tokenIds: string[]) {
   const map = new Map<string, z.infer<typeof bookSchema>>();
   const unique = [...new Set(tokenIds)].slice(0, 400);
+  const chunks: string[][] = [];
   for (let index = 0; index < unique.length; index += 100) {
-    const tokenChunk = unique.slice(index, index + 100);
-    try {
-      const books = await fetchValidated(
-        "Polymarket CLOB",
-        `${CLOB_BASE}/books`,
-        booksSchema,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            tokenChunk.map((tokenId) => ({ token_id: tokenId })),
-          ),
-          cache: "no-store",
-        },
-      );
-      for (const book of books) map.set(book.asset_id, book);
-    } catch (error) {
-      console.error("Polymarket order book batch failed", error);
-    }
+    chunks.push(unique.slice(index, index + 100));
+  }
+
+  const results = await Promise.all(
+    chunks.map(async (tokenChunk) => {
+      try {
+        return await fetchValidated(
+          "Polymarket CLOB",
+          `${CLOB_BASE}/books`,
+          booksSchema,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(
+              tokenChunk.map((tokenId) => ({ token_id: tokenId })),
+            ),
+            cache: "no-store",
+          },
+        );
+      } catch (error) {
+        console.error("Polymarket order book batch failed", error);
+        return [] as z.infer<typeof bookSchema>[];
+      }
+    }),
+  );
+
+  for (const books of results) {
+    for (const book of books) map.set(book.asset_id, book);
   }
   return map;
 }
@@ -118,7 +128,6 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
       "Polymarket Gamma",
       url.toString(),
       eventsSchema,
-      { cache: "no-store" },
     );
     const now = Date.now();
     const windowStart = now - 8 * 60 * 60 * 1_000;
