@@ -233,6 +233,8 @@ async function main() {
           model: pick.recommendedProbabilityBps,
           edge: pick.edgeBps,
           score: pick.lynervaScore,
+          sources: pick.model.components?.projectionSources ?? [],
+          consensus: pick.model.components?.consensusProjection ?? null,
           live: pick.isLive,
         })),
       },
