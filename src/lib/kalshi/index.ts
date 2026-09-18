@@ -1,6 +1,5 @@
 import "server-only";
 
-import { unstable_cache } from "next/cache";
 import { z } from "zod";
 import type { ProviderMarket, ProviderResult } from "@/lib/markets/types";
 import { isNflText } from "@/lib/markets/normalize";
@@ -44,154 +43,94 @@ const marketsResponseSchema = z.object({
   cursor: z.string().optional().default(""),
 });
 
-const seriesSchema = z
-  .object({
-    ticker: z.string(),
-    title: z.string().optional().default(""),
-    tags: z.array(z.string()).nullish(),
-  })
-  .passthrough();
-
-const seriesResponseSchema = z.object({
-  series: z.array(seriesSchema),
-});
-
-const FALLBACK_NFL_SERIES = [
+const CORE_NFL_SERIES = [
   "KXNFLGAME",
   "KXNFLSPREAD",
   "KXNFLTOTAL",
+  "KXNFLPASSYDS",
+  "KXNFLPASSTDS",
+  "KXNFLRECYDS",
+  "KXNFLREC",
+  "KXNFLRUSHYDS",
+  "KXNFLTD",
+  "KXNFL1H",
+  "KXNFL1HSPREAD",
+  "KXNFL1HTOTAL",
+  "KXNFL2H",
+  "KXNFL2HSPREAD",
+  "KXNFL2HTOTAL",
 ] as const;
 
-function collectNflSeries(value: unknown, output = new Set<string>()) {
-  if (typeof value === "string") {
-    const upper = value.toUpperCase().trim();
-    if (/^KX[A-Z0-9]*NFL[A-Z0-9]*$/.test(upper) && upper.length <= 64) {
-      output.add(upper);
-    }
-    return output;
-  }
-  if (Array.isArray(value)) {
-    for (const item of value) collectNflSeries(item, output);
-    return output;
-  }
-  if (value && typeof value === "object") {
-    for (const item of Object.values(value as Record<string, unknown>)) {
-      collectNflSeries(item, output);
-    }
-  }
-  return output;
-}
-
-function prioritizeNflSeries(series: string[]) {
-  const relevant = (value: string) =>
-    /GAME|SPREAD|TOTAL|PASS|RUSH|REC|YARD|TD|TOUCH|CATCH/i.test(value)
-      ? 1
-      : 0;
-  return series.toSorted(
-    (first, second) =>
-      relevant(second) - relevant(first) || first.localeCompare(second),
-  );
-}
-
-const discoverNflSeries = unstable_cache(async () => {
-  const discovered = new Set<string>(FALLBACK_NFL_SERIES);
-
-  try {
-    const url = new URL(`${KALSHI_BASE}/series`);
-    url.searchParams.set("category", "Sports");
-    url.searchParams.set("tags", "Football");
-    url.searchParams.set("include_product_metadata", "true");
-    const payload = await fetchValidated(
-      "Kalshi series",
-      url.toString(),
-      seriesResponseSchema,
-    );
-    for (const series of payload.series) {
-      const ticker = series.ticker.toUpperCase();
-      if (
-        /^KXNFL[A-Z0-9]*$/.test(ticker) ||
-        /\bNFL\b|national football league/i.test(
-          `${series.title} ${series.tags?.join(" ") ?? ""}`,
-        )
-      ) {
-        discovered.add(ticker);
-      }
-    }
-  } catch (error) {
-    console.error("Kalshi Sports/Football series discovery failed", error);
-  }
-
-  try {
-    const payload = await fetchValidated(
-      "Kalshi sports filters",
-      `${KALSHI_BASE}/search/filters_by_sport`,
-      z.unknown(),
-    );
-    for (const ticker of collectNflSeries(payload)) {
-      discovered.add(ticker);
-    }
-  } catch (error) {
-    console.error("Kalshi sports-filter fallback failed", error);
-  }
-
-  return prioritizeNflSeries([...discovered]).slice(0, 32);
-}, ["lynerva-kalshi-nfl-series-v1"], { revalidate: 60 * 60 });
-
 async function fetchRecentlyUpdatedNflMarkets() {
-  try {
-    const url = new URL(`${KALSHI_BASE}/markets`);
-    url.searchParams.set(
-      "min_updated_ts",
-      String(Math.floor(Date.now() / 1000) - 36 * 60 * 60),
-    );
-    url.searchParams.set("mve_filter", "exclude");
-    url.searchParams.set("limit", "1000");
-    const payload = await fetchValidated(
-      "Kalshi recent markets",
-      url.toString(),
-      marketsResponseSchema,
-      { cache: "no-store" },
-    );
-    return payload.markets.filter((market) =>
-      isNflText(
-        market.ticker,
-        market.event_ticker,
-        market.title,
-        market.subtitle,
-        market.rules_primary,
-        market.rules_secondary,
-      ),
-    );
-  } catch (error) {
-    console.error("Kalshi recent-market fetch failed", error);
-    return [] as z.infer<typeof marketSchema>[];
-  }
-}
-
-async function fetchSeriesMarkets(seriesTicker: string) {
   const markets: z.infer<typeof marketSchema>[] = [];
   let cursor = "";
   try {
-    for (let page = 0; page < 1; page += 1) {
+    for (let page = 0; page < 2; page += 1) {
       const url = new URL(`${KALSHI_BASE}/markets`);
       url.searchParams.set("status", "open");
-      url.searchParams.set("series_ticker", seriesTicker);
+      url.searchParams.set(
+        "min_updated_ts",
+        String(Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60),
+      );
+      url.searchParams.set("mve_filter", "exclude");
       url.searchParams.set("limit", "1000");
       if (cursor) url.searchParams.set("cursor", cursor);
       const payload = await fetchValidated(
-        "Kalshi",
+        "Kalshi recent markets",
         url.toString(),
         marketsResponseSchema,
         { cache: "no-store" },
       );
-      markets.push(...payload.markets);
+      markets.push(
+        ...payload.markets.filter((market) =>
+          isNflText(
+            market.ticker,
+            market.event_ticker,
+            market.title,
+            market.subtitle,
+            market.rules_primary,
+            market.rules_secondary,
+          ),
+        ),
+      );
       cursor = payload.cursor;
       if (!cursor) break;
     }
   } catch (error) {
-    console.error(`Kalshi series fetch failed for ${seriesTicker}`, error);
+    console.error("Kalshi recent-market fetch failed", error);
   }
   return markets;
+}
+
+async function fetchSeriesMarkets(seriesTicker: string) {
+  try {
+    const url = new URL(`${KALSHI_BASE}/markets`);
+    url.searchParams.set("status", "open");
+    url.searchParams.set("series_ticker", seriesTicker);
+    url.searchParams.set("mve_filter", "exclude");
+    url.searchParams.set("limit", "1000");
+    const payload = await fetchValidated(
+      "Kalshi",
+      url.toString(),
+      marketsResponseSchema,
+      { cache: "no-store" },
+    );
+    return payload.markets;
+  } catch (error) {
+    console.error(`Kalshi series fetch failed for ${seriesTicker}`, error);
+    return [] as z.infer<typeof marketSchema>[];
+  }
+}
+
+async function fetchCoreSeriesMarkets() {
+  const results: z.infer<typeof marketSchema>[] = [];
+  const batchSize = 4;
+  for (let index = 0; index < CORE_NFL_SERIES.length; index += batchSize) {
+    const batch = CORE_NFL_SERIES.slice(index, index + batchSize);
+    const chunks = await Promise.all(batch.map(fetchSeriesMarkets));
+    results.push(...chunks.flat());
+  }
+  return results;
 }
 
 function isLiveMarket(market: z.infer<typeof marketSchema>) {
@@ -250,10 +189,9 @@ export async function fetchKalshiNflMarkets(): Promise<ProviderResult> {
     const recent = await fetchRecentlyUpdatedNflMarkets();
     for (const market of recent) raw.set(market.ticker, market);
 
-    if (raw.size < 20) {
-      const series = await discoverNflSeries();
-      const batches = await Promise.all(series.map(fetchSeriesMarkets));
-      for (const market of batches.flat()) raw.set(market.ticker, market);
+    if (raw.size < 40) {
+      const core = await fetchCoreSeriesMarkets();
+      for (const market of core) raw.set(market.ticker, market);
     }
 
     const markets: ProviderMarket[] = [];
