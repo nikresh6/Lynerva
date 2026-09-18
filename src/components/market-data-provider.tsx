@@ -35,12 +35,12 @@ interface MarketDataContextValue extends MarketClientPayload {
 
 const MarketDataContext = createContext<MarketDataContextValue | null>(null);
 
-const STORAGE_KEY = "lynerva-market-snapshot-v4";
-const STORAGE_MAX_AGE = 5 * 1_000;
+const STORAGE_KEY = "lynerva-market-snapshot-v5";
+const STORAGE_MAX_AGE = 30 * 60 * 1_000;
 
 function readStored(): MarketClientPayload | null {
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as MarketClientPayload & {
       storedAt?: number;
@@ -60,7 +60,7 @@ function readStored(): MarketClientPayload | null {
 
 function writeStored(payload: MarketClientPayload) {
   try {
-    sessionStorage.setItem(
+    localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({ ...payload, storedAt: Date.now() }),
     );
