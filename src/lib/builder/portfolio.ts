@@ -276,7 +276,7 @@ function pickDiverse(
       const overlap = references.length
         ? Math.max(...references.map((row) => overlapShare(candidate, row)))
         : 0;
-      if (overlap >= 0.95) continue;
+      if (overlap >= 0.5) continue;
 
       const score = candidate.score - 1.0 * overlap;
 
