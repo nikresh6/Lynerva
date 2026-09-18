@@ -186,6 +186,18 @@ async function main() {
               playerPropMarkets.filter((market) => (market.canonical?.family ?? "unknown") === family).length,
             ]),
         ),
+        projectionSourceCoverage: Object.fromEntries(
+          ["fantasypros", "numberfire", "espn", "cbs", "fftoday", "nfl"].map(
+            (source) => [
+              source,
+              playerPropMarkets.filter((market) =>
+                market.model.components?.projectionSources?.some(
+                  (point) => point.source === source,
+                ),
+              ).length,
+            ],
+          ),
+        ),
         chaseMarkets: playerPropMarkets
           .filter((market) => /ja.?marr chase/i.test(`${market.canonical?.subject ?? ""} ${market.marketTitle}`))
           .slice(0, 30)
