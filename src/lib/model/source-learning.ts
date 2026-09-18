@@ -26,16 +26,19 @@ const LEARNABLE_STATISTICS = new Set([
   "touchdowns",
 ]);
 
+type WeightValue = {
+  effectiveWeek: number;
+  weights: Record<string, number>;
+} | null;
+
 const weightCache = new Map<
   string,
   {
     at: number;
-    value: {
-      effectiveWeek: number;
-      weights: Record<string, number>;
-    } | null;
+    value: WeightValue;
   }
 >();
+const weightInflight = new Map<string, Promise<WeightValue>>();
 
 let schemaPromise: Promise<void> | null = null;
 
@@ -125,7 +128,7 @@ export async function getLearnedSourceWeights(
   statistic: string,
   season: number,
   week: number,
-) {
+): Promise<WeightValue> {
   if (!LEARNABLE_STATISTICS.has(statistic)) return null;
   const cacheKey = `${season}:${week}:${statistic}`;
   const cached = weightCache.get(cacheKey);
@@ -133,45 +136,61 @@ export async function getLearnedSourceWeights(
     return cached.value;
   }
 
-  try {
-    const db = getDb();
-    const rows = await db
-      .select({
-        source: sourceWeightHistory.source,
-        weight: sourceWeightHistory.weight,
-        effectiveWeek: sourceWeightHistory.effectiveWeek,
-      })
-      .from(sourceWeightHistory)
-      .where(
-        and(
-          eq(sourceWeightHistory.season, season),
-          eq(sourceWeightHistory.statistic, statistic),
-          lte(sourceWeightHistory.effectiveWeek, week),
-        ),
-      )
-      .orderBy(desc(sourceWeightHistory.effectiveWeek))
-      .limit(ACTIVE_PROJECTION_SOURCES.length * 4);
+  const pending = weightInflight.get(cacheKey);
+  if (pending) return pending;
 
-    const effectiveWeek = rows[0]?.effectiveWeek;
-    if (effectiveWeek === undefined) {
+  const promise = (async (): Promise<WeightValue> => {
+    try {
+      const db = getDb();
+      const rows = await db
+        .select({
+          source: sourceWeightHistory.source,
+          weight: sourceWeightHistory.weight,
+          effectiveWeek: sourceWeightHistory.effectiveWeek,
+        })
+        .from(sourceWeightHistory)
+        .where(
+          and(
+            eq(sourceWeightHistory.season, season),
+            eq(sourceWeightHistory.statistic, statistic),
+            lte(sourceWeightHistory.effectiveWeek, week),
+          ),
+        )
+        .orderBy(desc(sourceWeightHistory.effectiveWeek))
+        .limit(ACTIVE_PROJECTION_SOURCES.length * 4);
+
+      const effectiveWeek = rows[0]?.effectiveWeek;
+      if (effectiveWeek === undefined) {
+        weightCache.set(cacheKey, { at: Date.now(), value: null });
+        return null;
+      }
+
+      const selected = rows.filter(
+        (row) => row.effectiveWeek === effectiveWeek,
+      );
+      const value = {
+        effectiveWeek,
+        weights: Object.fromEntries(
+          selected.map((row) => [row.source, row.weight]),
+        ),
+      };
+      weightCache.set(cacheKey, { at: Date.now(), value });
+      return value;
+    } catch {
+      // Learning must never block the live feed. Equal weighting is the safe
+      // fallback until persisted grades and weights are available.
       weightCache.set(cacheKey, { at: Date.now(), value: null });
       return null;
     }
+  })();
 
-    const selected = rows.filter(
-      (row) => row.effectiveWeek === effectiveWeek,
-    );
-    const weights = Object.fromEntries(
-      selected.map((row) => [row.source, row.weight]),
-    );
-    const value = { effectiveWeek, weights };
-    weightCache.set(cacheKey, { at: Date.now(), value });
-    return value;
-  } catch {
-    // Database learning is optional for serving the live feed. Equal weighting
-    // remains the safe fallback until the learning tables/data are available.
-    weightCache.set(cacheKey, { at: Date.now(), value: null });
-    return null;
+  weightInflight.set(cacheKey, promise);
+  try {
+    return await promise;
+  } finally {
+    if (weightInflight.get(cacheKey) === promise) {
+      weightInflight.delete(cacheKey);
+    }
   }
 }
 
