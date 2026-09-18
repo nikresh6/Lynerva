@@ -231,8 +231,8 @@ export function MarketExplorer({
         {advancedOpen ? (
           <div className="mt-2 grid gap-2 border-t pt-2 sm:grid-cols-4">
             {[
-              ["minModelBps", "Min model %"],
-              ["minEdgeBps", "Min model advantage %"],
+              ["minModelBps", "Min Lynerva chance %"],
+              ["minEdgeBps", "Min advantage %"],
               ["minLiquidityCents", "Min market activity $"],
               ["minHitRateBps", "Min hit rate %"],
             ].map(([key, label]) => {
