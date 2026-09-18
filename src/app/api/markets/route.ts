@@ -1,4 +1,5 @@
 import { getMarketOpportunities } from "@/lib/markets/service";
+import { isTopOpportunity } from "@/lib/markets/eligibility";
 import type { MarketOpportunity } from "@/lib/markets/types";
 
 export const runtime = "nodejs";
@@ -27,7 +28,9 @@ function topSnapshot(opportunities: MarketOpportunity[]) {
 
 export async function GET() {
   const payload = await getMarketOpportunities();
-  const opportunities = topSnapshot(payload.opportunities).map((market) => ({
+  const opportunities = topSnapshot(
+    payload.opportunities.filter(isTopOpportunity),
+  ).map((market) => ({
     ...market,
     resolutionRules: market.resolutionRules?.slice(0, 240) ?? null,
     model: {
