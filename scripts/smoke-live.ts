@@ -30,10 +30,11 @@ async function main() {
 
   const pageChecks = await Promise.all(
     ["/", "/live", "/builder", "/tracker", "/sign-in"].map(async (path) => {
+      const pageStarted = Date.now();
       const response = await fetch(`${baseUrl}${path}`, {
         redirect: "manual",
       });
-      return { path, status: response.status };
+      return { path, status: response.status, elapsedMs: Date.now() - pageStarted };
     }),
   );
   const brokenPage = pageChecks.find(
@@ -45,6 +46,7 @@ async function main() {
     );
   }
 
+  const apiStarted = Date.now();
   const [marketsResponse, liveResponse] = await Promise.all([
     fetch(`${baseUrl}/api/markets`, { cache: "no-store" }),
     fetch(`${baseUrl}/api/live-nfl`, { cache: "no-store" }),
@@ -61,6 +63,7 @@ async function main() {
     );
   }
 
+  const apiElapsedMs = Date.now() - apiStarted;
   const payload = (await marketsResponse.json()) as MarketsPayload;
   const livePayload = (await liveResponse.json()) as { games: LiveGame[] };
 
@@ -128,6 +131,7 @@ async function main() {
       {
         elapsedMs: Date.now() - started,
         pages: pageChecks,
+        apiElapsedMs,
         providers: payload.providers.map((provider) => ({
           provider: provider.provider,
           acceptedMarkets: provider.count,
