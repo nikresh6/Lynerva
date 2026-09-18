@@ -351,7 +351,7 @@ export async function estimateMarket(
     const sample = history.values.slice(0, 20);
     const values = sample.map((row) => row.value);
 
-    if (!history.playerName || values.length < 2) {
+    if (!history.playerName || values.length < 1) {
       return {
         probabilityBps: null,
         reliabilityBps: 0,
@@ -359,7 +359,7 @@ export async function estimateMarket(
         evidence: { ...emptyEvidence, sampleSize: values.length },
         factors: [
           values.length
-            ? `Only ${values.length} current-season game${values.length === 1 ? "" : "s"} available; at least 2 are required before pricing this prop.`
+            ? `Only ${values.length} current-season game${values.length === 1 ? "" : "s"} available.`
             : "No verified current-season history matches this player prop.",
         ],
       };
@@ -391,7 +391,7 @@ export async function estimateMarket(
     // rather show fewer picks than inflate confidence with last year's data.
     const reliability = clamp(values.length / 10, 0, 1) * 0.78;
     const factors = [
-      `${history.playerName} cleared this line in ${recentHits} of the last 5 games.`,
+      `${history.playerName} cleared this line in ${recentHits} of ${last5.length} current-season game${last5.length === 1 ? "" : "s"}.`,
       `Current-season sample: ${historicalHits} of ${values.length} at this threshold.`,
       `Last-5 average: ${average.toFixed(1)} versus a ${threshold} line.`,
     ];
