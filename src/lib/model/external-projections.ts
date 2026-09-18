@@ -8,7 +8,9 @@ export type ProjectionSource =
   | "espn"
   | "cbs"
   | "fftoday"
-  | "nfl";
+  | "nfl"
+  | "covers"
+  | "dimers";
 
 export interface ProjectionPoint {
   source: ProjectionSource;
@@ -187,15 +189,7 @@ function cachedSource(
   const cached = sourceCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.promise;
 
-  const promise = loader()
-    .then((map) => {
-      console.info("Projection source loaded", source, map.size);
-      return map;
-    })
-    .catch((error) => {
-      console.error("Projection source failed", source, error);
-      return new Map<string, ProjectionStats>();
-    });
+  const promise = loader().catch(() => new Map<string, ProjectionStats>());
   sourceCache.set(key, {
     expiresAt: Date.now() + PAGE_TTL_MS,
     promise,
@@ -277,11 +271,12 @@ function loadNumberFire(season: number, week: number) {
             ),
           );
           for (const cells of rows) {
-            const playerIndex = cells.findIndex((cell) =>
-              /^[A-Za-z.'’ -]{4,}$/.test(cell),
-            );
+            const playerIndex = cells.length >= 4 ? 1 : -1;
             if (playerIndex < 0) continue;
-            const player = cells[playerIndex] ?? "";
+            const player = (cells[playerIndex] ?? "")
+              .replace(/\s*\([A-Z]{1,3},\s*[A-Z]{2,4}\)\s*$/i, "")
+              .trim();
+            if (!player) continue;
             if (position === "qb") {
               mergeStats(map, player, {
                 passingYards: toNumber(cells[playerIndex + 2]) ?? undefined,
@@ -311,90 +306,91 @@ function loadNumberFire(season: number, week: number) {
 function loadEspn(season: number, week: number) {
   return cachedSource("espn", season, week, async () => {
     const map: ProjectionMap = new Map();
-    const positions = [
-      ["QB", 0, 42],
-      ["RB", 2, 100],
-      ["WR", 4, 150],
-      ["TE", 6, 60],
-    ] as const;
-
-    await Promise.all(
-      positions.map(async ([position, slotId, limit]) => {
-        const filter = {
-          players: {
-            filterSlotIds: { value: [slotId] },
-            filterStatsForSourceIds: { value: [1] },
-            filterStatsForSplitTypeIds: { value: [1] },
-            sortAppliedStatTotal: {
-              sortAsc: false,
-              sortPriority: 3,
-              value: `11${season}${week}`,
-            },
-            limit,
-            offset: 0,
-            filterStatsForTopScoringPeriodIds: {
-              value: week,
-              additionalValue: [
-                `00${season}`,
-                `10${season}`,
-                `11${season}${week}`,
-                `02${season}`,
-              ],
-            },
-          },
+    const filter = {
+      players: {
+        filterStatsForSourceIds: { value: [1] },
+        filterStatsForSplitTypeIds: { value: [1] },
+        sortAppliedStatTotal: {
+          sortAsc: false,
+          sortPriority: 3,
+          value: `11${season}${week}`,
+        },
+        sortDraftRanks: {
+          sortPriority: 2,
+          sortAsc: true,
+          value: "PPR",
+        },
+        sortPercOwned: {
+          sortAsc: false,
+          sortPriority: 4,
+        },
+        limit: 500,
+        offset: 0,
+        filterRanksForScoringPeriodIds: { value: [week] },
+        filterRanksForRankTypes: { value: ["PPR"] },
+        filterRanksForSlotIds: { value: [0, 2, 4, 6, 17, 16, 15] },
+        filterStatsForTopScoringPeriodIds: {
+          value: week,
+          additionalValue: [
+            `00${season}`,
+            `10${season}`,
+            `11${season}${week}`,
+            `02${season}`,
+          ],
+        },
+      },
+    };
+    const url =
+      `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${season}/segments/0/leaguedefaults/3?scoringPeriodId=0&view=kona_player_info`;
+    const payload = (await fetchJson(
+      `espn:${season}:${week}`,
+      url,
+      {
+        Accept: "application/json",
+        "User-Agent": "Lynerva/1.0",
+        "X-Fantasy-Source": "kona",
+        "X-Fantasy-Filter": JSON.stringify(filter),
+      },
+    )) as {
+      players?: Array<{
+        id?: number;
+        player?: {
+          fullName?: string;
+          stats?: Array<{
+            statSourceId?: number;
+            statSplitTypeId?: number;
+            scoringPeriodId?: number;
+            stats?: Record<string, number>;
+          }>;
         };
-        const url =
-          `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${season}/segments/0/leaguedefaults/3?scoringPeriodId=0&view=kona_player_info`;
-        try {
-          const payload = (await fetchJson(
-            `espn:${season}:${week}:${position}`,
-            url,
-            {
-              Accept: "application/json",
-              "User-Agent": "Lynerva/1.0",
-              "X-Fantasy-Source": "kona",
-              "X-Fantasy-Filter": JSON.stringify(filter),
-            },
-          )) as {
-            players?: Array<{
-              player?: {
-                fullName?: string;
-                stats?: Array<{
-                  statSourceId?: number;
-                  statSplitTypeId?: number;
-                  stats?: Record<string, number>;
-                }>;
-              };
-            }>;
-          };
+      }>;
+    };
 
-          for (const entry of payload.players ?? []) {
-            const player = entry.player;
-            if (!player?.fullName) continue;
-            const projection =
-              player.stats?.find(
-                (stat) =>
-                  stat.statSourceId === 1 &&
-                  stat.statSplitTypeId === 1 &&
-                  Object.keys(stat.stats ?? {}).length > 0,
-              ) ?? player.stats?.find((stat) => Object.keys(stat.stats ?? {}).length > 0);
-            const stats = projection?.stats;
-            if (!stats) continue;
-            mergeStats(map, player.fullName, {
-              passingYards: toNumber(stats["3"]) ?? undefined,
-              passingTouchdowns: toNumber(stats["4"]) ?? undefined,
-              rushingYards: toNumber(stats["24"]) ?? undefined,
-              rushingTouchdowns: toNumber(stats["25"]) ?? undefined,
-              receptions: toNumber(stats["53"]) ?? undefined,
-              receivingYards: toNumber(stats["42"]) ?? undefined,
-              receivingTouchdowns: toNumber(stats["43"]) ?? undefined,
-            });
-          }
-        } catch {
-          // Source remains optional.
-        }
-      }),
-    );
+    for (const entry of payload.players ?? []) {
+      const player = entry.player;
+      if (!player?.fullName) continue;
+      const projection =
+        player.stats?.find(
+          (stat) =>
+            stat.statSourceId === 1 &&
+            stat.statSplitTypeId === 1 &&
+            stat.scoringPeriodId === week,
+        ) ??
+        player.stats?.find(
+          (stat) => stat.statSourceId === 1 && stat.statSplitTypeId === 1,
+        );
+      const stats = projection?.stats;
+      if (!stats) continue;
+      mergeStats(map, player.fullName, {
+        passingYards: toNumber(stats["3"]) ?? undefined,
+        passingTouchdowns: toNumber(stats["4"]) ?? undefined,
+        rushingYards: toNumber(stats["24"]) ?? undefined,
+        rushingTouchdowns: toNumber(stats["25"]) ?? undefined,
+        receptions: toNumber(stats["53"]) ?? undefined,
+        receivingYards: toNumber(stats["42"]) ?? undefined,
+        receivingTouchdowns: toNumber(stats["43"]) ?? undefined,
+      });
+    }
     return map;
   });
 }
@@ -772,6 +768,100 @@ async function nflMarketProjection(
   return null;
 }
 
+function abbreviatedName(name: string) {
+  const clean = name.replace(/[’']/g, "'").trim();
+  const parts = clean.split(/\s+/).filter(Boolean);
+  if (parts.length < 2) return clean;
+  return `${parts[0]?.[0] ?? ""}. ${parts.at(-1) ?? ""}`;
+}
+
+async function coversProjection(
+  market: CanonicalMarket,
+): Promise<ProjectionPoint | null> {
+  try {
+    const html = await fetchText(
+      "https://www.covers.com/sport/football/nfl/player-props",
+    );
+    const text = decode(html);
+    const shortName = abbreviatedName(market.subject);
+    const lastName = market.subject.split(/\s+/).at(-1) ?? market.subject;
+    const familyLabel: Partial<Record<CanonicalMarket["family"], string>> = {
+      passing_yards: "Passing Yards",
+      rushing_yards: "Rushing Yards",
+      receiving_yards: "Receiving Yards",
+      receptions: "Receptions",
+      touchdowns: "Touchdowns",
+      passing_touchdowns: "Passing Touchdowns",
+    };
+    const label = familyLabel[market.family];
+    if (!label) return null;
+
+    const probes = [shortName, market.subject, lastName];
+    for (const probe of probes) {
+      const index = text.toLowerCase().indexOf(probe.toLowerCase());
+      if (index < 0) continue;
+      const segment = text.slice(index, index + 1_200);
+      if (!segment.toLowerCase().includes(label.toLowerCase())) continue;
+      const match = segment.match(/PROJECTION\s+(-?\d+(?:\.\d+)?)/i);
+      const value = match ? Number(match[1]) : NaN;
+      if (Number.isFinite(value) && value >= 0) {
+        return {
+          source: "covers",
+          value,
+          fetchedAt: new Date().toISOString(),
+        };
+      }
+    }
+  } catch {
+    // Optional source.
+  }
+  return null;
+}
+
+async function dimersProjection(
+  market: CanonicalMarket,
+): Promise<ProjectionPoint | null> {
+  try {
+    const html = await fetchText("https://www.dimers.com/nfl/player-projections");
+    const rows = rowsFromHtml(html);
+    const target = normalizePerson(market.subject);
+    const shortTarget = normalizePerson(abbreviatedName(market.subject));
+    for (const cells of rows) {
+      if (cells.length < 11) continue;
+      const player = normalizePerson(cells[0] ?? "");
+      if (
+        !player.includes(target) &&
+        !player.includes(shortTarget) &&
+        !target.includes(player)
+      ) {
+        continue;
+      }
+
+      let value: number | null = null;
+      if (market.family === "passing_yards") value = toNumber(cells[7]);
+      if (market.family === "rushing_yards") value = toNumber(cells[8]);
+      if (market.family === "receptions") value = toNumber(cells[9]);
+      if (market.family === "receiving_yards") value = toNumber(cells[10]);
+      if (market.family === "touchdowns") {
+        const p1 = toNumber(cells[11]);
+        if (p1 !== null && p1 > 0 && p1 < 100) {
+          value = -Math.log(1 - p1 / 100);
+        }
+      }
+      if (value !== null && Number.isFinite(value) && value >= 0) {
+        return {
+          source: "dimers",
+          value,
+          fetchedAt: new Date().toISOString(),
+        };
+      }
+    }
+  } catch {
+    // Optional source.
+  }
+  return null;
+}
+
 async function sourceProjection(
   source: ProjectionSource,
   market: CanonicalMarket,
@@ -820,6 +910,8 @@ async function buildConsensus(
     "cbs",
     "fftoday",
     "nfl",
+    "covers",
+    "dimers",
   ];
   const settled = await Promise.allSettled(
     sources.map((source) => sourceProjection(source, market, season, week)),
