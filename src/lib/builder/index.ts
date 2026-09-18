@@ -1,4 +1,5 @@
 import type { MarketOpportunity, Platform } from "@/lib/markets/types";
+import { clamp } from "@/lib/utils";
 
 export interface BuilderOptions {
   minReturn: number;
@@ -13,11 +14,31 @@ export interface BuiltCombination {
   legs: MarketOpportunity[];
   grossReturn: number;
   estimatedProbability: number;
+  rawModelProbability: number;
   impliedProbability: number;
   estimatedEdge: number;
+  expectedValueMultiplier: number;
+  expectedProfitOn100: number;
   correlationWarning: boolean;
   executableAsSingleContract: false;
   relaxedConstraints: string[];
+}
+
+interface RankedCandidate {
+  market: MarketOpportunity;
+  price: number;
+  modelProbability: number;
+  adjustedProbability: number;
+  valueMultiplier: number;
+  searchScore: number;
+}
+
+interface SearchState {
+  legs: RankedCandidate[];
+  lastIndex: number;
+  priceProduct: number;
+  probabilityProduct: number;
+  rawModelProbabilityProduct: number;
 }
 
 function gameKey(market: MarketOpportunity) {
@@ -32,12 +53,33 @@ function sameContract(first: MarketOpportunity, second: MarketOpportunity) {
   );
 }
 
+function playerStatKey(market: MarketOpportunity) {
+  const canonical = market.canonical;
+  if (!canonical) return market.platformMarketId;
+  return [
+    canonical.matchup ?? market.eventTitle.toLowerCase(),
+    canonical.subject.toLowerCase(),
+    canonical.family,
+  ].join("|");
+}
+
+function adjustedLegProbability(market: MarketOpportunity) {
+  const price = (market.executablePriceBps ?? 0) / 10_000;
+  const model = (market.recommendedProbabilityBps ?? 0) / 10_000;
+  const reliability = clamp(market.model.reliabilityBps / 10_000, 0, 1);
+
+  // The builder is deliberately more conservative than the single-leg model.
+  // A 60%-reliable model only gets to move 60% of the way from the market
+  // probability to Lynerva's raw probability.
+  return clamp(price + reliability * (model - price), 0.001, 0.999);
+}
+
 function candidatePool(
   opportunities: MarketOpportunity[],
   options: BuilderOptions,
 ) {
-  const ranked = opportunities
-    .filter((market) => {
+  const ranked: RankedCandidate[] = opportunities
+    .flatMap((market) => {
       if (
         market.executablePriceBps === null ||
         market.executablePriceBps <= 0 ||
@@ -45,65 +87,143 @@ function candidatePool(
         market.recommendedProbabilityBps === null ||
         !market.canonical
       ) {
-        return false;
+        return [];
       }
       if ((market.edgeBps ?? 0) <= 0 || market.freshness === "stale") {
-        return false;
+        return [];
       }
       if (
         options.platform !== "either" &&
         market.platform !== options.platform
       ) {
-        return false;
+        return [];
       }
-      if (options.live === "live" && !market.isLive) return false;
-      if (options.live === "pregame" && market.isLive) return false;
-      return true;
+      if (options.live === "live" && !market.isLive) return [];
+      if (options.live === "pregame" && market.isLive) return [];
+
+      const price = market.executablePriceBps / 10_000;
+      const modelProbability = market.recommendedProbabilityBps / 10_000;
+      const adjustedProbability = adjustedLegProbability(market);
+      const valueMultiplier = adjustedProbability / price;
+
+      if (valueMultiplier <= 1) return [];
+
+      // This score is only for keeping the search set manageable. Final
+      // combinations are never ranked by Lynerva Score or by this leg score.
+      // It favors legs that are both likely and underpriced.
+      const searchScore =
+        Math.log(valueMultiplier) + 0.45 * Math.log(adjustedProbability);
+
+      return [
+        {
+          market,
+          price,
+          modelProbability,
+          adjustedProbability,
+          valueMultiplier,
+          searchScore,
+        },
+      ];
     })
-    .toSorted((first, second) => {
-      return (
-        (second.lynervaScore ?? -Infinity) -
-          (first.lynervaScore ?? -Infinity) ||
-        (second.expectedRoi ?? -Infinity) -
-          (first.expectedRoi ?? -Infinity)
-      );
-    });
+    .toSorted(
+      (first, second) =>
+        second.searchScore - first.searchScore ||
+        second.adjustedProbability - first.adjustedProbability ||
+        second.valueMultiplier - first.valueMultiplier,
+    );
 
-  const selected: MarketOpportunity[] = [];
+  // Alternate lines for the same player/stat are highly dependent and can
+  // otherwise consume the whole candidate pool. Keep only the two strongest
+  // variants so the optimizer still has price/return flexibility.
+  const perPlayerStat = new Map<string, number>();
   const perGame = new Map<string, number>();
-  const perGameLimit = options.excludeSameGame ? 6 : 12;
+  const selected: RankedCandidate[] = [];
+  const perGameLimit = options.excludeSameGame ? 14 : 20;
 
-  for (const market of ranked) {
-    const key = gameKey(market);
-    const count = perGame.get(key) ?? 0;
-    if (count >= perGameLimit) continue;
-    selected.push(market);
-    perGame.set(key, count + 1);
-    if (selected.length >= 30) break;
+  for (const candidate of ranked) {
+    const statKey = playerStatKey(candidate.market);
+    const statCount = perPlayerStat.get(statKey) ?? 0;
+    if (statCount >= 2) continue;
+
+    const key = gameKey(candidate.market);
+    const gameCount = perGame.get(key) ?? 0;
+    if (gameCount >= perGameLimit) continue;
+
+    selected.push(candidate);
+    perPlayerStat.set(statKey, statCount + 1);
+    perGame.set(key, gameCount + 1);
+    if (selected.length >= 120) break;
   }
 
   return selected;
 }
 
-interface SearchState {
-  legs: MarketOpportunity[];
-  lastIndex: number;
-  priceProduct: number;
-  probabilityProduct: number;
-}
-
 function buildFromState(state: SearchState): BuiltCombination {
-  const keys = state.legs.map(gameKey);
+  const markets = state.legs.map((candidate) => candidate.market);
+  const keys = markets.map(gameKey);
+  const grossReturn = 1 / state.priceProduct;
+  const expectedValueMultiplier =
+    state.probabilityProduct * grossReturn;
+
   return {
-    legs: state.legs,
-    grossReturn: 1 / state.priceProduct,
+    legs: markets,
+    grossReturn,
     estimatedProbability: state.probabilityProduct,
+    rawModelProbability: state.rawModelProbabilityProduct,
     impliedProbability: state.priceProduct,
     estimatedEdge: state.probabilityProduct - state.priceProduct,
+    expectedValueMultiplier,
+    expectedProfitOn100: (expectedValueMultiplier - 1) * 100,
     correlationWarning: new Set(keys).size !== keys.length,
     executableAsSingleContract: false,
     relaxedConstraints: [],
   };
+}
+
+function isBetterCombination(
+  candidate: BuiltCombination,
+  best: BuiltCombination | null,
+  targetReturn: number,
+) {
+  if (!best) return true;
+
+  // Given the user's requested payout range, the first goal is the parlay
+  // most likely to hit. Expected value breaks close calls.
+  const probabilityDifference =
+    candidate.estimatedProbability - best.estimatedProbability;
+  if (Math.abs(probabilityDifference) > 0.0005) {
+    return probabilityDifference > 0;
+  }
+
+  const evDifference =
+    candidate.expectedValueMultiplier - best.expectedValueMultiplier;
+  if (Math.abs(evDifference) > 0.0025) {
+    return evDifference > 0;
+  }
+
+  if (candidate.estimatedEdge !== best.estimatedEdge) {
+    return candidate.estimatedEdge > best.estimatedEdge;
+  }
+
+  return (
+    Math.abs(candidate.grossReturn - targetReturn) <
+    Math.abs(best.grossReturn - targetReturn)
+  );
+}
+
+function stateSearchValue(state: SearchState, targetReturn: number) {
+  const grossReturn = 1 / state.priceProduct;
+  const returnDistance = Math.abs(
+    Math.log(Math.max(grossReturn, 1) / targetReturn),
+  );
+  const expectedValueMultiplier =
+    state.probabilityProduct / state.priceProduct;
+
+  return (
+    Math.log(Math.max(state.probabilityProduct, 1e-12)) +
+    0.35 * Math.log(Math.max(expectedValueMultiplier, 1e-12)) -
+    0.12 * returnDistance
+  );
 }
 
 export function buildCombination(
@@ -124,13 +244,14 @@ export function buildCombination(
   if (eligible.length === 0) return null;
 
   const targetReturn = Math.sqrt(options.minReturn * options.maxReturn);
-  const beamWidth = 250;
+  const beamWidth = 2_500;
   let frontier: SearchState[] = [
     {
       legs: [],
       lastIndex: -1,
       priceProduct: 1,
       probabilityProduct: 1,
+      rawModelProbabilityProduct: 1,
     },
   ];
   let best: BuiltCombination | null = null;
@@ -146,24 +267,40 @@ export function buildCombination(
       ) {
         const candidate = eligible[index];
         if (!candidate) continue;
-        if (state.legs.some((leg) => sameContract(leg, candidate))) continue;
+
         if (
-          options.excludeSameGame &&
-          state.legs.some((leg) => gameKey(leg) === gameKey(candidate))
+          state.legs.some((leg) =>
+            sameContract(leg.market, candidate.market),
+          )
         ) {
           continue;
         }
 
-        const price = (candidate.executablePriceBps ?? 10_000) / 10_000;
-        const probability =
-          (candidate.recommendedProbabilityBps ?? 0) / 10_000;
-        const priceProduct = state.priceProduct * price;
+        // Do not pretend alternate lines on the same player/stat are
+        // independent parlay legs.
+        if (
+          state.legs.some(
+            (leg) =>
+              playerStatKey(leg.market) === playerStatKey(candidate.market),
+          )
+        ) {
+          continue;
+        }
+
+        if (
+          options.excludeSameGame &&
+          state.legs.some(
+            (leg) => gameKey(leg.market) === gameKey(candidate.market),
+          )
+        ) {
+          continue;
+        }
+
+        const priceProduct = state.priceProduct * candidate.price;
         if (priceProduct <= 0) continue;
 
         const grossReturn = 1 / priceProduct;
         if (grossReturn > options.maxReturn) {
-          // Every additional leg only increases gross return, so this branch
-          // can never come back into the requested range.
           continue;
         }
 
@@ -171,7 +308,10 @@ export function buildCombination(
           legs: [...state.legs, candidate],
           lastIndex: index,
           priceProduct,
-          probabilityProduct: state.probabilityProduct * probability,
+          probabilityProduct:
+            state.probabilityProduct * candidate.adjustedProbability,
+          rawModelProbabilityProduct:
+            state.rawModelProbabilityProduct * candidate.modelProbability,
         };
 
         if (
@@ -179,24 +319,7 @@ export function buildCombination(
           grossReturn <= options.maxReturn
         ) {
           const built = buildFromState(nextState);
-          const builtExpectedRoi =
-            built.impliedProbability > 0
-              ? built.estimatedEdge / built.impliedProbability
-              : -Infinity;
-          const bestExpectedRoi =
-            best && best.impliedProbability > 0
-              ? best.estimatedEdge / best.impliedProbability
-              : -Infinity;
-          if (
-            !best ||
-            builtExpectedRoi > bestExpectedRoi ||
-            (builtExpectedRoi === bestExpectedRoi &&
-              built.estimatedEdge > best.estimatedEdge) ||
-            (builtExpectedRoi === bestExpectedRoi &&
-              built.estimatedEdge === best.estimatedEdge &&
-              Math.abs(built.grossReturn - targetReturn) <
-                Math.abs(best.grossReturn - targetReturn))
-          ) {
+          if (isBetterCombination(built, best, targetReturn)) {
             best = built;
           }
         }
@@ -209,26 +332,32 @@ export function buildCombination(
 
     if (next.length === 0) break;
 
-    frontier = next
-      .toSorted((first, second) => {
-        const firstReturn = 1 / first.priceProduct;
-        const secondReturn = 1 / second.priceProduct;
-        const firstDistance = Math.abs(
-          Math.log(firstReturn / targetReturn),
-        );
-        const secondDistance = Math.abs(
-          Math.log(secondReturn / targetReturn),
-        );
-        const firstEdge =
-          first.probabilityProduct - first.priceProduct;
-        const secondEdge =
-          second.probabilityProduct - second.priceProduct;
+    // Keep a broad beam across payout levels instead of simply carrying
+    // forward the highest individual-score legs.
+    const buckets = new Map<number, SearchState[]>();
+    for (const state of next) {
+      const grossReturn = 1 / state.priceProduct;
+      const bucket = Math.floor(Math.log(grossReturn) / 0.08);
+      const rows = buckets.get(bucket) ?? [];
+      rows.push(state);
+      buckets.set(bucket, rows);
+    }
 
-        return (
-          firstDistance - secondDistance ||
-          secondEdge - firstEdge
-        );
-      })
+    frontier = [...buckets.values()]
+      .flatMap((rows) =>
+        rows
+          .toSorted(
+            (first, second) =>
+              stateSearchValue(second, targetReturn) -
+              stateSearchValue(first, targetReturn),
+          )
+          .slice(0, 80),
+      )
+      .toSorted(
+        (first, second) =>
+          stateSearchValue(second, targetReturn) -
+          stateSearchValue(first, targetReturn),
+      )
       .slice(0, beamWidth);
   }
 
