@@ -53,6 +53,26 @@ describe("market normalization", () => {
     expect(normalized?.matchup).toBeNull();
   });
 
+  it("treats wins-by wording as a positive margin requirement", () => {
+    const normalized = normalizeMarket(
+      contract({
+        platformMarketId: "KXNFLSPREAD-26SEP17DETBUF-DET14",
+        eventTitle: "Detroit Lions at Buffalo Bills",
+        marketTitle: "Detroit wins by over 14.5 points?",
+        resolutionRules:
+          "Resolves Yes if Detroit wins the game by more than 14.5 points.",
+        closesAt: "2026-09-18T00:15:00.000Z",
+      }),
+    );
+    expect(normalized).toMatchObject({
+      family: "spread",
+      subject: "DET",
+      threshold: 14.5,
+      direction: "over",
+      matchup: "BUF-DET",
+    });
+  });
+
   it("does not pair semantically different thresholds", () => {
     const first = normalizeMarket(contract());
     const second = normalizeMarket(contract({ platform: "polymarket", marketTitle: "Will Ja'Marr Chase record over 89.5 receiving yards?" }));
