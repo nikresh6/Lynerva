@@ -14,17 +14,40 @@ async function main() {
     fetchPolymarketNflMarkets(),
   ]);
 
+  const activeMatchups = new Set(
+    games
+      .filter((game) => game.seasonType === 2 && game.state !== "post")
+      .map((game) => [game.home.team, game.away.team].toSorted().join("-")),
+  );
+
   for (const provider of providers) {
-    const normalized = provider.markets
+    const allNormalized = provider.markets
       .map((market) => ({ market, canonical: normalizeMarket(market) }))
+      .filter(
+        (item) =>
+          item.canonical?.matchup &&
+          activeMatchups.has(item.canonical.matchup),
+      );
+    const familyCounts = allNormalized.reduce<Record<string, number>>(
+      (counts, item) => {
+        const family = item.canonical?.family ?? "other";
+        counts[family] = (counts[family] ?? 0) + 1;
+        return counts;
+      },
+      {},
+    );
+    const normalized = allNormalized
       .filter((item) => item.canonical?.matchup === matchup)
       .slice(0, 30);
     console.log(
       provider.provider,
       "raw",
       provider.markets.length,
-      "matched",
-      normalized.length,
+      "slateMatched",
+      allNormalized.length,
+      "familyCounts",
+      familyCounts,
+      "currentGameSamples",
       normalized.map((item) => ({
         id: item.market.platformMarketId,
         event: item.market.eventTitle,
