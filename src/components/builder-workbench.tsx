@@ -462,10 +462,10 @@ export function BuilderWorkbench() {
                   </div>
 
                   <p className="mt-3 text-2xl font-semibold tracking-[-0.035em] tabular sm:text-3xl">
-                    $ {stake.toLocaleString()} to about $ {Math.round(payout).toLocaleString()}
+                    {"$"}{stake.toLocaleString()} to about {"$"}{Math.round(payout).toLocaleString()}
                   </p>
                   <p className="mt-1 text-xs text-muted">
-                    About $ {Math.round(profit).toLocaleString()} profit at the
+                    About {"$"}{Math.round(profit).toLocaleString()} profit at the
                     current market prices.
                   </p>
                 </div>
@@ -497,7 +497,7 @@ export function BuilderWorkbench() {
                         evProfit >= 0 ? "text-positive" : "text-negative",
                       )}
                     >
-                      {evProfit >= 0 ? "+" : ""}$ {Math.round(evProfit)}
+                      {evProfit >= 0 ? "+" : ""}{"$"}{Math.round(evProfit)}
                     </p>
                   </div>
                   <div className="rounded-xl border bg-surface p-3">
