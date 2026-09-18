@@ -83,7 +83,7 @@ export async function loadNflSchedule(): Promise<NflScheduleGame[]> {
       "https://cdn.jsdelivr.net/gh/nflverse/nfldata@master/data/games.csv",
       {
         headers: { "User-Agent": "Lynerva/1.0 schedule-validation" },
-        signal: AbortSignal.timeout(5_000),
+        signal: AbortSignal.timeout(2_500),
       },
     );
     if (!response.ok) {
