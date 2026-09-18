@@ -297,7 +297,8 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
         item.liveGame?.state === "in"
           ? `:${item.liveGame.period}:${item.liveGame.clock}:${item.liveGame.home.score}:${item.liveGame.away.score}`
           : ":pregame";
-      const key = `${item.canonical.key}${liveKey}`;
+      const marketPriceKey = `:${item.market.yesBidBps ?? "na"}:${item.market.yesAskBps ?? "na"}`;
+      const key = `${item.canonical.key}${liveKey}${marketPriceKey}`;
       const cached = modelSnapshotCache.get(key);
       if (cached && Date.now() - cached.storedAt < 15 * 60 * 1_000) {
         return cached.estimate;
