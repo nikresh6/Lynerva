@@ -1,16 +1,16 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { Search, SlidersHorizontal, X } from "lucide-react";
 import { isTopOpportunity } from "@/lib/markets/eligibility";
 import { filterAndSortMarkets } from "@/lib/markets/filters";
 import type {
   MarketFamily,
   MarketFilters,
-  MarketOpportunity,
   Platform,
 } from "@/lib/markets/types";
 import { MarketTable } from "./market-table";
+import { useMarketData } from "./market-data-provider";
 
 const DEFAULT_FILTERS: MarketFilters = {
   query: "",
@@ -55,58 +55,72 @@ function Select({
   );
 }
 
+function FeedStatus() {
+  const { providers, refreshing, error } = useMarketData();
+
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-[10px] text-muted">
+      {providers.map((provider) => (
+        <span key={provider.provider} className="inline-flex items-center gap-1.5">
+          <span
+            className={
+              provider.error
+                ? "size-1.5 rounded-full bg-warning"
+                : "size-1.5 rounded-full bg-positive"
+            }
+          />
+          <span className="capitalize">{provider.provider}</span>
+          <span className="text-faint">{provider.count} modeled markets</span>
+        </span>
+      ))}
+      <span className="text-faint">
+        {refreshing ? "Refreshing live prices…" : "Live snapshot"}
+      </span>
+      {error ? <span className="text-negative">{error}</span> : null}
+    </div>
+  );
+}
+
+function LoadingTable() {
+  return (
+    <div className="overflow-hidden rounded-xl border bg-surface">
+      <div className="grid grid-cols-[2fr_1fr_1fr_1fr] gap-5 border-b bg-surface-raised px-4 py-3">
+        {[0, 1, 2, 3].map((value) => (
+          <div
+            key={value}
+            className="h-2.5 animate-pulse rounded-full bg-border"
+          />
+        ))}
+      </div>
+      {[0, 1, 2, 3, 4, 5].map((row) => (
+        <div
+          key={row}
+          className="grid grid-cols-[2fr_1fr_1fr_1fr] gap-5 border-b px-4 py-4 last:border-0"
+        >
+          <div className="h-3 animate-pulse rounded-full bg-border" />
+          <div className="h-3 animate-pulse rounded-full bg-border" />
+          <div className="h-3 animate-pulse rounded-full bg-border" />
+          <div className="h-3 animate-pulse rounded-full bg-border" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function MarketExplorer({
-  initialMarkets,
   forceStatus,
-  pollIntervalMs = 10_000,
   emptyMessage,
 }: {
-  initialMarkets: MarketOpportunity[];
   forceStatus?: "live" | "pregame";
-  pollIntervalMs?: number;
   emptyMessage?: string;
 }) {
-  const [markets, setMarkets] = useState(initialMarkets);
+  const { opportunities, loading } = useMarketData();
   const [filters, setFilters] = useState<MarketFilters>({
     ...DEFAULT_FILTERS,
     status: forceStatus ?? "all",
   });
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const deferredQuery = useDeferredValue(filters.query);
-
-  useEffect(() => {
-    setMarkets(initialMarkets);
-  }, [initialMarkets]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const refresh = async () => {
-      if (document.visibilityState !== "visible") return;
-      try {
-        const response = await fetch("/api/markets", { cache: "no-store" });
-        if (!response.ok) return;
-        const payload = (await response.json()) as {
-          opportunities: MarketOpportunity[];
-        };
-        if (!cancelled) {
-          setMarkets(payload.opportunities);
-        }
-      } catch {
-        // Keep the last good snapshot visible.
-      }
-    };
-
-    const timer = window.setInterval(refresh, pollIntervalMs);
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") void refresh();
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [pollIntervalMs]);
 
   const visible = useMemo(() => {
     const activeFilters: MarketFilters = {
@@ -115,10 +129,10 @@ export function MarketExplorer({
       status: forceStatus ?? filters.status,
     };
     return filterAndSortMarkets(
-      markets.filter(isTopOpportunity),
+      opportunities.filter(isTopOpportunity),
       activeFilters,
     ).slice(0, 120);
-  }, [deferredQuery, filters, forceStatus, markets]);
+  }, [deferredQuery, filters, forceStatus, opportunities]);
 
   const activeAdvanced = [
     filters.minModelBps,
@@ -211,7 +225,7 @@ export function MarketExplorer({
           <button
             type="button"
             onClick={() => setAdvancedOpen((value) => !value)}
-            className="inline-flex h-10 items-center gap-1.5 rounded-lg border bg-surface px-3 text-xs hover:border-border-strong"
+            className="inline-flex h-10 items-center gap-1.5 rounded-lg border bg-surface px-3 text-xs transition-colors hover:border-border-strong hover:bg-surface-raised"
           >
             <SlidersHorizontal size={13} />
             More
@@ -237,20 +251,19 @@ export function MarketExplorer({
                 | "minLiquidityCents"
                 | "minHitRateBps";
               const current = filters[typedKey];
-              const divisor = typedKey === "minLiquidityCents" ? 100 : 100;
               return (
                 <label key={key} className="text-[10px] text-muted">
                   {label}
                   <input
                     type="number"
-                    value={current === null ? "" : current / divisor}
+                    value={current === null ? "" : current / 100}
                     onChange={(event) => {
                       const value = Number(event.target.value);
                       update(
                         typedKey,
                         event.target.value === "" || !Number.isFinite(value)
                           ? null
-                          : Math.round(value * divisor),
+                          : Math.round(value * 100),
                       );
                     }}
                     className="mt-1 h-9 w-full rounded-lg border bg-surface px-2.5 text-xs text-foreground outline-none focus:border-foreground"
@@ -266,7 +279,7 @@ export function MarketExplorer({
                   status: forceStatus ?? "all",
                 })
               }
-              className="sm:col-span-4 ml-auto inline-flex items-center gap-1 text-[11px] text-muted hover:text-foreground"
+              className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted hover:text-foreground sm:col-span-4"
             >
               <X size={12} /> Clear filters
             </button>
@@ -274,12 +287,13 @@ export function MarketExplorer({
         ) : null}
       </div>
 
-      <div className="mb-3 flex items-center justify-between text-[10px] text-faint">
-        <span>{visible.length} ranked picks</span>
-        <span>Live prices refresh automatically</span>
-      </div>
+      <FeedStatus />
 
-      <MarketTable markets={visible} emptyMessage={emptyMessage} />
+      {loading && opportunities.length === 0 ? (
+        <LoadingTable />
+      ) : (
+        <MarketTable markets={visible} emptyMessage={emptyMessage} />
+      )}
     </>
   );
 }
