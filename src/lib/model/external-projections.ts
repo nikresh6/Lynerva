@@ -278,7 +278,7 @@ function loadNumberFire(season: number, week: number) {
               decode(html),
             )
           ) {
-            continue;
+            return;
           }
           const rows = rowsFromHtml(html);
           for (const cells of rows) {
