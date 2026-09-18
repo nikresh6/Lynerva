@@ -77,7 +77,7 @@ function FeedStatus() {
         </span>
       ))}
       <span className="text-faint">
-        {refreshing ? "Refreshing live prices…" : "Live snapshot"}
+        {refreshing ? "Refreshing…" : "Scored snapshot"}
       </span>
       {error ? <span className="text-negative">{error}</span> : null}
     </div>
@@ -223,7 +223,7 @@ export function MarketExplorer({
             }
             label="Sort"
           >
-            <option value="best">Best opportunity</option>
+            <option value="best">Lynerva score</option>
             <option value="edge">Highest edge</option>
             <option value="probability">Model probability</option>
             <option value="risk_return">Risk : return</option>
