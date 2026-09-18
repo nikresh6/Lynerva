@@ -9,35 +9,43 @@ function score(market: MarketOpportunity) {
   return market.lynervaScore ?? -Infinity;
 }
 
-function topSnapshot(opportunities: MarketOpportunity[], limit = 30) {
-  const seen = new Set<string>();
-  const selected: MarketOpportunity[] = [];
+function marketKey(market: MarketOpportunity) {
+  return `${market.platform}:${market.platformMarketId}:${market.platformOutcomeId ?? "yes"}`;
+}
 
-  for (const market of opportunities.toSorted(
-    (first, second) => score(second) - score(first),
-  )) {
-    const key = `${market.platform}:${market.platformMarketId}:${market.platformOutcomeId ?? "yes"}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    selected.push(market);
-    if (selected.length >= limit) break;
-  }
-
-  return selected;
+function groupKey(market: MarketOpportunity) {
+  const canonical = market.canonical;
+  if (!canonical) return marketKey(market);
+  return [
+    canonical.matchup,
+    canonical.family,
+    canonical.subject ?? "",
+    canonical.statistic ?? "",
+    market.recommendedSide ?? "",
+  ].join(":");
 }
 
 function browserShortlist(opportunities: MarketOpportunity[]) {
-  const globalTop = topSnapshot(opportunities, 30);
-  const byPlatform = ["kalshi", "polymarket"].flatMap((platform) =>
-    topSnapshot(
-      opportunities.filter((market) => market.platform === platform),
-      30,
-    ),
+  const sorted = opportunities.toSorted(
+    (first, second) => score(second) - score(first),
   );
-  const seen = new Set<string>();
+  const groups = new Map<string, MarketOpportunity[]>();
+  for (const market of sorted) {
+    const key = groupKey(market);
+    const group = groups.get(key) ?? [];
+    if (group.length < 10) group.push(market);
+    groups.set(key, group);
+  }
 
-  return [...globalTop, ...byPlatform].filter((market) => {
-    const key = `${market.platform}:${market.platformMarketId}:${market.platformOutcomeId ?? "yes"}`;
+  // Rank underlying bets, not individual alternate lines. Return the best 30
+  // bet groups plus their alternate lines so the browser can expand them.
+  const selectedGroups = [...groups.values()]
+    .toSorted((a, b) => score(b[0]!) - score(a[0]!))
+    .slice(0, 30);
+
+  const seen = new Set<string>();
+  return selectedGroups.flat().filter((market) => {
+    const key = marketKey(market);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -68,7 +76,7 @@ export async function GET() {
         error: provider.error,
       })),
       ratedCount: payload.opportunities.length,
-      displayedCount: Math.min(30, eligible.length),
+      displayedCount: Math.min(30, new Set(eligible.map(groupKey)).size),
       fetchedAt: payload.fetchedAt,
     },
     {
