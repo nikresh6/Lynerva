@@ -276,6 +276,14 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
           : null);
       if (!scheduleGame) continue;
 
+      if (
+        !liveGame &&
+        scheduleGames &&
+        new Date(scheduleGame.kickoffAt).getTime() <= Date.now()
+      ) {
+        continue;
+      }
+
       items.push({
         market,
         canonical,
@@ -402,7 +410,7 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
 
       return {
         ...market,
-        isLive: live || market.isLive,
+        isLive: live,
         canonical: item.canonical,
         model,
         recommendedSide: side.side,
