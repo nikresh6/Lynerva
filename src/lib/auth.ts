@@ -7,14 +7,44 @@ import { Resend } from "resend";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 
+function normalizeOrigin(value: string | undefined) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const withProtocol = /^https?:\/\//i.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+
+  try {
+    return new URL(withProtocol).origin;
+  } catch {
+    return null;
+  }
+}
+
+function resolveAuthOrigin() {
+  const railwayOrigin = normalizeOrigin(process.env.RAILWAY_PUBLIC_DOMAIN);
+  const configuredOrigin = normalizeOrigin(process.env.BETTER_AUTH_URL);
+
+  return railwayOrigin ?? configuredOrigin ?? undefined;
+}
+
 function createAuth() {
   const resend = process.env.RESEND_API_KEY
     ? new Resend(process.env.RESEND_API_KEY)
     : null;
+  const baseURL = resolveAuthOrigin();
+  const trustedOrigins = [
+    baseURL,
+    normalizeOrigin(process.env.BETTER_AUTH_URL),
+    normalizeOrigin(process.env.RAILWAY_PUBLIC_DOMAIN),
+  ].filter((value): value is string => Boolean(value));
 
   return betterAuth({
     appName: "Lynerva",
-    baseURL: process.env.BETTER_AUTH_URL,
+    baseURL,
+    trustedOrigins: [...new Set(trustedOrigins)],
     secret: process.env.BETTER_AUTH_SECRET,
     database: drizzleAdapter(getDb(), {
       provider: "sqlite",
@@ -52,7 +82,10 @@ function createAuth() {
       },
     },
     advanced: {
-      database: { joins: true },
+      // Better Auth's Drizzle join mode requires explicit Drizzle relations.
+      // Lynerva's schema currently defines foreign keys but not relation objects,
+      // so use the adapter's safe multi-query path instead.
+      database: { joins: false },
       cookiePrefix: "lynerva",
       useSecureCookies: process.env.NODE_ENV === "production",
     },

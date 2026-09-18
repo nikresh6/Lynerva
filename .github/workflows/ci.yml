@@ -27,7 +27,9 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - name: Verify real live NFL data
+      - name: Prepare runtime database
+        run: npm run db:migrate:runtime
+      - name: Verify auth and real live NFL data
         env:
           USE_MARKET_FIXTURES: "false"
           NODE_ENV: "production"
@@ -41,6 +43,11 @@ jobs:
             fi
             sleep 1
           done
+          npm run smoke:auth || {
+            cat /tmp/lynerva-next.log
+            kill $SERVER_PID || true
+            exit 1
+          }
           npm run smoke:live || {
             cat /tmp/lynerva-next.log
             kill $SERVER_PID || true
