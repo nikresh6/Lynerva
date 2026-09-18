@@ -4,6 +4,7 @@ import {
   isTopOpportunity,
 } from "../src/lib/markets/eligibility";
 import type { MarketOpportunity } from "../src/lib/markets/types";
+import { ACTIVE_PROJECTION_SOURCES } from "../src/lib/model/source-weighting";
 
 type MarketsPayload = {
   opportunities: MarketOpportunity[];
@@ -304,16 +305,7 @@ async function main() {
       )}`,
     );
   }
-  const activeCoverageSources = [
-    "fantasypros",
-    "numberfire",
-    "espn",
-    "cbs",
-    "rotoballer",
-    "sleeper",
-    "sleeper",
-  ];
-  for (const source of activeCoverageSources) {
+  for (const source of ACTIVE_PROJECTION_SOURCES) {
     const coverage = playerPropMarkets.filter((market) =>
       market.model.components?.projectionSources?.some(
         (point) => point.source === source,
