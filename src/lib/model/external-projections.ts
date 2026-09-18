@@ -7,7 +7,18 @@ import {
   type ActiveProjectionSource,
 } from "./source-weighting";
 
-export type ProjectionSource = ActiveProjectionSource;
+export type ProjectionSource =
+  | "fantasypros"
+  | "numberfire"
+  | "espn"
+  | "cbs"
+  | "fftoday"
+  | "nfl"
+  | "covers"
+  | "dimers"
+  | "fourforfour"
+  | "rotoballer"
+  | "sleeper";
 
 export interface ProjectionPoint {
   source: ProjectionSource;
@@ -1278,7 +1289,7 @@ export function resolveProjectionPlayer<T>(
 }
 
 async function sourceProjection(
-  source: ProjectionSource,
+  source: ActiveProjectionSource,
   market: CanonicalMarket,
   season: number,
   week: number,
