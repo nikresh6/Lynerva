@@ -28,6 +28,23 @@ async function main() {
   const baseUrl = process.env.LYNERVA_SMOKE_BASE_URL ?? "http://127.0.0.1:3000";
   const started = Date.now();
 
+  const pageChecks = await Promise.all(
+    ["/", "/live", "/builder", "/tracker", "/sign-in"].map(async (path) => {
+      const response = await fetch(`${baseUrl}${path}`, {
+        redirect: "manual",
+      });
+      return { path, status: response.status };
+    }),
+  );
+  const brokenPage = pageChecks.find(
+    ({ status }) => status >= 500 || status < 200,
+  );
+  if (brokenPage) {
+    throw new Error(
+      `Page smoke failed: ${brokenPage.path} returned ${brokenPage.status}.`,
+    );
+  }
+
   const [marketsResponse, liveResponse] = await Promise.all([
     fetch(`${baseUrl}/api/markets`, { cache: "no-store" }),
     fetch(`${baseUrl}/api/live-nfl`, { cache: "no-store" }),
@@ -101,6 +118,7 @@ async function main() {
     JSON.stringify(
       {
         elapsedMs: Date.now() - started,
+        pages: pageChecks,
         providers: payload.providers.map((provider) => ({
           provider: provider.provider,
           acceptedMarkets: provider.count,
