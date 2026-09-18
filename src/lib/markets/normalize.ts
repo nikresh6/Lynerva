@@ -143,7 +143,7 @@ function findThreshold(value: string) {
   const candidates = [
     /(?:over|under|more than|fewer than|at least)\s+(-?\d+(?:\.5)?)/i,
     /(-?\d+(?:\.5)?)\s*\+/,
-    /(?:line|spread|total)\s*(?:of|:)?\s*(-?\d+(?:\.5)?)/i,
+    /(?:line|spread|total|o\/u)\s*(?:of|:)?\s*(-?\d+(?:\.5)?)/i,
     /([+-]\d+(?:\.5)?)/,
   ];
   for (const pattern of candidates) {
