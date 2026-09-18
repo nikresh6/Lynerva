@@ -121,9 +121,7 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
           0,
           outcomes.findIndex((outcome) => /yes|over/i.test(outcome)),
         );
-        const noIndex = outcomes.findIndex((outcome) => /no|under/i.test(outcome));
         const yesToken = tokens[yesIndex] ?? tokens[0] ?? null;
-        const noToken = noIndex >= 0 ? tokens[noIndex] : tokens[1] ?? null;
         const yesAsk = Number(market.bestAsk ?? prices[yesIndex] ?? NaN);
         const yesBid = Number(market.bestBid ?? NaN);
         const noAsk = Number.isFinite(yesBid) ? 1 - yesBid : null;
