@@ -88,7 +88,7 @@ function baselineGameProjection(
     factors: [
       live
         ? `Live baseline: ${live.away.team} ${live.away.score}, ${live.home.team} ${live.home.score}, ${live.status} ${live.clock}.`
-        : "League baseline used while regular-season team history loads.",
+        : "Current-season team sample is still too small, so this uses a low-confidence league baseline.",
     ],
   };
 }
@@ -184,7 +184,7 @@ async function estimateGameMarket(
       meanTotal: baseline.meanTotal,
       marginStdDev: baseline.marginStdDev,
       totalStdDev: baseline.totalStdDev,
-      reliability: baseline.live ? 0.52 : 0.34,
+      reliability: baseline.live ? 0.52 : 0.22,
       factors: baseline.factors,
     });
   }
