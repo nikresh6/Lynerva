@@ -67,8 +67,9 @@ const CORE_NFL_SERIES = [
   "KXNFLPASSTDS",
   "KXNFLRECYDS",
   "KXNFLREC",
-  "KXNFLRUSHYDS",
+  "KXNFLRSHYDS",
   "KXNFLTD",
+  "KXNFLLONGREC",
 ] as const;
 
 async function fetchSeriesMarkets(seriesTicker: string) {
