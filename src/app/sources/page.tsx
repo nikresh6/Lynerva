@@ -187,6 +187,11 @@ export default async function SourcesPage() {
                   </span>
                 </div>
                 <p className="mt-3 text-xs font-medium">{source.access}</p>
+                <p className="mt-1 text-[11px] tabular text-muted">
+                  {performance.coverageWeek === null
+                    ? "No current-week snapshots stored yet"
+                    : `Week ${performance.coverageWeek}: ${source.coverageCount.toLocaleString()} player-stat projections stored`}
+                </p>
                 <p className="mt-1.5 text-[11px] leading-5 text-muted">
                   {source.note}
                 </p>
