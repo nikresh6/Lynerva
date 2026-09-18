@@ -117,6 +117,40 @@ function scheduleGameFromEspn(game: LiveNflGame): NflScheduleGame | null {
   };
 }
 
+function selectModelCandidates(items: NormalizedItem[]) {
+  const gameMarkets = items.filter((item) =>
+    ["moneyline", "spread", "game_total"].includes(item.canonical.family),
+  );
+  const playerMarkets = items
+    .filter(
+      (item) =>
+        !["moneyline", "spread", "game_total"].includes(item.canonical.family) &&
+        ((item.market.yesAskBps ?? 0) > 0 || (item.market.noAskBps ?? 0) > 0),
+    )
+    .toSorted((first, second) => {
+      const firstQuality =
+        (first.market.liquidityCents ?? 0) * 10 +
+        (first.market.volumeCents ?? 0);
+      const secondQuality =
+        (second.market.liquidityCents ?? 0) * 10 +
+        (second.market.volumeCents ?? 0);
+      return secondQuality - firstQuality;
+    });
+
+  const selectedPlayers: NormalizedItem[] = [];
+  const perGame = new Map<string, number>();
+  for (const item of playerMarkets) {
+    const game = item.canonical.matchup ?? item.market.eventTitle;
+    const count = perGame.get(game) ?? 0;
+    if (count >= 20) continue;
+    selectedPlayers.push(item);
+    perGame.set(game, count + 1);
+    if (selectedPlayers.length >= 240) break;
+  }
+
+  return [...gameMarkets, ...selectedPlayers];
+}
+
 function bestExecutableSide(input: {
   probabilityBps: number | null;
   yesAskBps: number | null;
@@ -234,8 +268,9 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
     });
   }
 
+  const modeled = selectModelCandidates(normalized);
   const accepted = new Set(
-    normalized.map((item) => marketKey(item.market)),
+    modeled.map((item) => marketKey(item.market)),
   );
   const cleanProviders = coarseProviders.map((provider) => ({
     ...provider,
@@ -244,10 +279,10 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
     ),
   }));
 
-  const raw = normalized.map((item) => item.market);
+  const raw = modeled.map((item) => item.market);
 
   const models = await Promise.all(
-    normalized.map(async (item) => {
+    modeled.map(async (item) => {
       const liveKey =
         item.liveGame?.state === "in"
           ? `:${item.liveGame.period}:${item.liveGame.clock}:${item.liveGame.home.score}:${item.liveGame.away.score}`
@@ -258,7 +293,7 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
   );
 
   const groups = new Map<string, number[]>();
-  normalized.forEach((item, index) => {
+  modeled.forEach((item, index) => {
     const key = canonicalKeyWithoutRules(item.canonical);
     groups.set(key, [...(groups.get(key) ?? []), index]);
   });
@@ -280,8 +315,8 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
     );
     if (kalshiIndex === undefined || polymarketIndex === undefined) continue;
 
-    const first = normalized[kalshiIndex];
-    const second = normalized[polymarketIndex];
+    const first = modeled[kalshiIndex];
+    const second = modeled[polymarketIndex];
     if (!first || !second) continue;
 
     const firstPrice = raw[kalshiIndex]?.yesAskBps;
@@ -313,7 +348,7 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
   }
 
   const now = Date.now();
-  const opportunities = normalized.map(
+  const opportunities = modeled.map(
     (item, index): MarketOpportunity => {
       const model = models[index];
       const market = item.market;
