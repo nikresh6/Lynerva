@@ -144,6 +144,7 @@ function findThreshold(value: string) {
     /(?:over|under|more than|fewer than|at least)\s+(-?\d+(?:\.5)?)/i,
     /(-?\d+(?:\.5)?)\s*\+/,
     /(?:line|spread|total)\s*(?:of|:)?\s*(-?\d+(?:\.5)?)/i,
+    /([+-]\d+(?:\.5)?)/,
   ];
   for (const pattern of candidates) {
     const match = value.match(pattern);
@@ -219,7 +220,13 @@ export function normalizeMarket(market: ProviderMarket): CanonicalMarket | null 
   );
   const teams = [...new Set([...textTeams, ...tickerTeams])];
   const contractTeams = findTeams(contractText);
-  const threshold = findThreshold(contractText);
+  const rawThreshold = findThreshold(contractText);
+  const threshold =
+    family === "spread" && rawThreshold !== null
+      ? /win by|margin/i.test(contractText)
+        ? Math.abs(rawThreshold)
+        : -rawThreshold
+      : rawThreshold;
   const direction = findDirection(contractText);
   const subject = findSubject(
     contractText,
