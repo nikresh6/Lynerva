@@ -418,7 +418,7 @@ export async function estimateMarket(
       `Last-5 average: ${average.toFixed(1)} versus a ${threshold} line.`,
     ];
 
-    const weatherContext = await getGameWeatherContext(canonical);
+    const weatherContext = await getGameWeatherContext(canonical, scheduleGame);
     const weatherAdjustment = weatherProbabilityAdjustment({
       family: canonical.family,
       direction: canonical.direction,
