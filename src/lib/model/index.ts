@@ -33,13 +33,24 @@ export function calibratedLogisticProbability(input: {
   recentPerformanceRatio: number;
   sampleSize: number;
 }) {
-  const linear =
-    -1.18 +
-    1.25 * input.historicalHitRate +
-    0.95 * input.recentHitRate +
-    0.42 * clamp(input.recentPerformanceRatio - 1, -1, 1) +
-    0.018 * Math.min(input.sampleSize, 17);
-  return 1 / (1 + Math.exp(-linear));
+  const sampleSize = Math.max(1, input.sampleSize);
+  const observedHits = clamp(input.historicalHitRate, 0, 1) * sampleSize;
+
+  // A small Beta prior prevents 0/20 and 20/20 samples from becoming
+  // impossible certainties while keeping the estimate anchored to what the
+  // player actually did at this exact threshold.
+  const longRunPosterior = (observedHits + 1) / (sampleSize + 2);
+  const recentWeight = Math.min(0.25, 5 / Math.max(sampleSize, 5));
+  const blended =
+    longRunPosterior * (1 - recentWeight) +
+    clamp(input.recentHitRate, 0, 1) * recentWeight;
+
+  // Recent average versus the line is useful context, but it should only
+  // nudge the empirical hit rate, never overwhelm it.
+  const performanceAdjustment =
+    clamp(input.recentPerformanceRatio - 1, -0.75, 0.75) * 0.08;
+
+  return clamp(blended + performanceAdjustment, 0.02, 0.98);
 }
 
 function hits(values: number[], threshold: number, direction: string) {
