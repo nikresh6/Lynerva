@@ -5,7 +5,11 @@ import { fetchPolymarketNflMarkets } from "@/lib/polymarket";
 import { estimateMarket } from "@/lib/model";
 import { getLiveNflGames, type LiveNflGame } from "@/lib/nfl/live";
 import { findCurrentRegularSeasonGame } from "@/lib/nfl/current-game";
-import type { NflScheduleGame } from "@/lib/nfl/schedule-match";
+import { loadNflSchedule } from "@/lib/nfl/schedule";
+import {
+  findEligibleScheduleGame,
+  type NflScheduleGame,
+} from "@/lib/nfl/schedule-match";
 import { marketFixtures } from "./fixtures";
 import { isSingleLegNflProviderMarket } from "./eligibility";
 import {
@@ -249,23 +253,51 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
     markets: provider.markets.filter(isSingleLegNflProviderMarket),
   }));
 
-  const normalized: NormalizedItem[] = [];
-  for (const market of coarseProviders.flatMap((provider) => provider.markets)) {
-    const canonical = normalizeMarket(market);
-    if (!canonical) continue;
-    const liveGame = findCurrentRegularSeasonGame(
-      canonical.matchup,
-      liveGames,
-    );
-    if (!liveGame) continue;
-    const scheduleGame = scheduleGameFromEspn(liveGame);
-    if (!scheduleGame) continue;
-    normalized.push({
-      market,
-      canonical,
-      scheduleGame,
-      liveGame,
-    });
+  const providerMarkets = coarseProviders.flatMap(
+    (provider) => provider.markets,
+  );
+
+  const normalizeWithSchedule = (
+    scheduleGames: NflScheduleGame[] | null,
+  ) => {
+    const items: NormalizedItem[] = [];
+    for (const market of providerMarkets) {
+      const canonical = normalizeMarket(market);
+      if (!canonical) continue;
+
+      const liveGame = findCurrentRegularSeasonGame(
+        canonical.matchup,
+        liveGames,
+      );
+      const scheduleGame =
+        (liveGame ? scheduleGameFromEspn(liveGame) : null) ??
+        (scheduleGames
+          ? findEligibleScheduleGame(canonical, scheduleGames)
+          : null);
+      if (!scheduleGame) continue;
+
+      items.push({
+        market,
+        canonical,
+        scheduleGame,
+        liveGame,
+      });
+    }
+    return items;
+  };
+
+  let normalized = normalizeWithSchedule(null);
+
+  // Some serverless hosts intermittently fail to reach ESPN even while the
+  // market providers are healthy. Do not turn that transient scoreboard
+  // outage into an empty Lynerva feed. Fall back to the public nflverse
+  // regular-season schedule only when ESPN produced no usable mappings.
+  if (normalized.length === 0 && providerMarkets.length > 0) {
+    try {
+      normalized = normalizeWithSchedule(await loadNflSchedule());
+    } catch (error) {
+      console.error("NFL schedule fallback unavailable", error);
+    }
   }
 
   const modeled = selectModelCandidates(normalized);
