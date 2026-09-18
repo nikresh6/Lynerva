@@ -399,15 +399,43 @@ function loadEspn(season: number, week: number) {
   });
 }
 
-const CBS_STAT_LABELS = {
-  passingYards: /passing yards/i,
-  passingTouchdowns: /touchdowns passes|passing touchdowns/i,
-  rushingYards: /rushing yards/i,
-  rushingTouchdowns: /rushing touchdowns/i,
-  receptions: /^receptions$|\breceptions\b/i,
-  receivingYards: /receiving yards/i,
-  receivingTouchdowns: /receiving touchdowns/i,
-} satisfies Record<keyof ProjectionStats, RegExp>;
+function cbsStats(position: string, cells: string[]): ProjectionStats {
+  // CBS uses stable, position-specific projection tables. Cell 0 is the player.
+  if (position === "QB") {
+    return {
+      passingYards: toNumber(cells[4]) ?? undefined,
+      passingTouchdowns: toNumber(cells[6]) ?? undefined,
+      rushingYards: toNumber(cells[10]) ?? undefined,
+      rushingTouchdowns: toNumber(cells[12]) ?? undefined,
+    };
+  }
+
+  if (position === "RB") {
+    return {
+      rushingYards: toNumber(cells[3]) ?? undefined,
+      rushingTouchdowns: toNumber(cells[5]) ?? undefined,
+      receptions: toNumber(cells[7]) ?? undefined,
+      receivingYards: toNumber(cells[8]) ?? undefined,
+      receivingTouchdowns: toNumber(cells[11]) ?? undefined,
+    };
+  }
+
+  if (position === "WR") {
+    return {
+      receptions: toNumber(cells[3]) ?? undefined,
+      receivingYards: toNumber(cells[4]) ?? undefined,
+      receivingTouchdowns: toNumber(cells[7]) ?? undefined,
+      rushingYards: toNumber(cells[9]) ?? undefined,
+      rushingTouchdowns: toNumber(cells[11]) ?? undefined,
+    };
+  }
+
+  return {
+    receptions: toNumber(cells[3]) ?? undefined,
+    receivingYards: toNumber(cells[4]) ?? undefined,
+    receivingTouchdowns: toNumber(cells[7]) ?? undefined,
+  };
+}
 
 function loadCbs(season: number, week: number) {
   return cachedSource("cbs", season, week, async () => {
@@ -418,17 +446,6 @@ function loadCbs(season: number, week: number) {
           const html = await fetchText(
             `https://www.cbssports.com/fantasy/football/stats/${position}/${season}/${week}/projections/nonppr/`,
           );
-          const thead = html.match(/<thead\b[\s\S]*?<\/thead>/i)?.[0] ?? "";
-          const headers = [
-            ...thead.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/gi),
-          ].map((match) => decode(match[1] ?? ""));
-          const indices = Object.fromEntries(
-            Object.entries(CBS_STAT_LABELS).map(([key, regex]) => [
-              key,
-              headers.findIndex((header) => regex.test(header)),
-            ]),
-          ) as Record<keyof ProjectionStats, number>;
-
           for (const row of html.match(/<tr\b[^>]*TableBase-bodyTr[^>]*>[\s\S]*?<\/tr>/gi) ?? []) {
             const nameMatch = row.match(
               /CellPlayerName--long[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i,
@@ -438,15 +455,7 @@ function loadCbs(season: number, week: number) {
             const cells = [
               ...row.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi),
             ].map((match) => decode(match[1] ?? ""));
-            const stats: ProjectionStats = {};
-            for (const key of Object.keys(indices) as Array<keyof ProjectionStats>) {
-              const index = indices[key];
-              if (index >= 0) {
-                const value = toNumber(cells[index]);
-                if (value !== null) stats[key] = value;
-              }
-            }
-            mergeStats(map, player, stats);
+            mergeStats(map, player, cbsStats(position, cells));
           }
         } catch {
           // Source remains optional.
@@ -904,6 +913,20 @@ async function sourceProjection(
   };
 }
 
+function plausibleProjection(
+  family: CanonicalMarket["family"],
+  value: number,
+) {
+  if (!Number.isFinite(value) || value < 0) return false;
+  if (family === "passing_yards") return value <= 600;
+  if (family === "passing_touchdowns") return value <= 6;
+  if (family === "rushing_yards") return value <= 300;
+  if (family === "receiving_yards") return value <= 300;
+  if (family === "receptions") return value <= 20;
+  if (family === "touchdowns") return value <= 3;
+  return true;
+}
+
 async function buildConsensus(
   market: CanonicalMarket,
   season: number,
@@ -921,6 +944,7 @@ async function buildConsensus(
     .flatMap((result) =>
       result.status === "fulfilled" && result.value ? [result.value] : [],
     )
+    .filter((point) => plausibleProjection(market.family, point.value))
     .filter(
       (point, index, all) =>
         all.findIndex((candidate) => candidate.source === point.source) ===
