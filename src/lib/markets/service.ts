@@ -42,6 +42,61 @@ interface NormalizedItem {
 
 let warmSnapshot: { payload: MarketsPayload; storedAt: number } | null = null;
 let refreshPromise: Promise<MarketsPayload> | null = null;
+const modelSnapshotCache = new Map<
+  string,
+  {
+    estimate: Awaited<ReturnType<typeof estimateMarket>>;
+    storedAt: number;
+  }
+>();
+
+const WARMING_MODEL: Awaited<ReturnType<typeof estimateMarket>> = {
+  probabilityBps: null,
+  reliabilityBps: 0,
+  version: "regular-season-v4-warming",
+  evidence: {
+    last5Hits: null,
+    last10Hits: null,
+    seasonHits: null,
+    seasonGames: null,
+    sampleSize: 0,
+  },
+  factors: ["Historical model is warming. Live market prices are already current."],
+};
+
+async function estimateWithDeadline(
+  item: NormalizedItem,
+  key: string,
+) {
+  const cached = modelSnapshotCache.get(key);
+  if (cached && Date.now() - cached.storedAt < 15 * 60 * 1_000) {
+    return cached.estimate;
+  }
+
+  const task = estimateMarket(
+    item.canonical,
+    item.scheduleGame,
+    item.liveGame,
+  ).then((estimate) => {
+    modelSnapshotCache.set(key, {
+      estimate,
+      storedAt: Date.now(),
+    });
+    return estimate;
+  });
+
+  const isGameMarket = ["moneyline", "spread", "game_total"].includes(
+    item.canonical.family,
+  );
+  const deadlineMs = isGameMarket ? 3_000 : 1_200;
+
+  return Promise.race([
+    task,
+    new Promise<Awaited<ReturnType<typeof estimateMarket>>>((resolve) => {
+      setTimeout(() => resolve(WARMING_MODEL), deadlineMs);
+    }),
+  ]);
+}
 
 function scheduleGameFromEspn(game: LiveNflGame): NflScheduleGame | null {
   if (game.seasonType !== 2 || !game.seasonYear) return null;
@@ -72,19 +127,6 @@ function currentGameForCanonical(
         game.seasonType === 2 &&
         [game.home.team, game.away.team].toSorted().join("-") ===
           canonical.matchup,
-    ) ?? null
-  );
-}
-
-function liveGameForSchedule(
-  scheduleGame: NflScheduleGame,
-  games: LiveNflGame[],
-) {
-  return (
-    games.find(
-      (game) =>
-        [game.home.team, game.away.team].toSorted().join("-") ===
-        [scheduleGame.homeTeam, scheduleGame.awayTeam].toSorted().join("-"),
     ) ?? null
   );
 }
@@ -214,26 +256,15 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
   }));
 
   const raw = normalized.map((item) => item.market);
-  const modelCache = new Map<
-    string,
-    Awaited<ReturnType<typeof estimateMarket>>
-  >();
 
   const models = await Promise.all(
     normalized.map(async (item) => {
-      const liveKey = item.liveGame?.state === "in"
-        ? `:${item.liveGame.period}:${item.liveGame.clock}:${item.liveGame.home.score}:${item.liveGame.away.score}`
-        : "";
+      const liveKey =
+        item.liveGame?.state === "in"
+          ? `:${item.liveGame.period}:${item.liveGame.clock}:${item.liveGame.home.score}:${item.liveGame.away.score}`
+          : ":pregame";
       const key = `${item.canonical.key}${liveKey}`;
-      const cached = modelCache.get(key);
-      if (cached) return cached;
-      const estimate = await estimateMarket(
-        item.canonical,
-        item.scheduleGame,
-        item.liveGame,
-      );
-      modelCache.set(key, estimate);
-      return estimate;
+      return estimateWithDeadline(item, key);
     }),
   );
 
