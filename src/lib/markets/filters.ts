@@ -102,7 +102,7 @@ export function filterAndSortMarkets(
       default:
         return market.arbitrage?.classification === "arbitrage"
           ? Number.MAX_SAFE_INTEGER
-          : market.opportunityScore ?? -Infinity;
+          : market.lynervaScore ?? -Infinity;
     }
   };
   return filtered.toSorted((a, b) => value(b) - value(a));
