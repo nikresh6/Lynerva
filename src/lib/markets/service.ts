@@ -3,6 +3,10 @@ import "server-only";
 import { fetchKalshiNflMarkets } from "@/lib/kalshi";
 import { fetchPolymarketNflMarkets } from "@/lib/polymarket";
 import { estimateMarket } from "@/lib/model";
+import {
+  findEligibleScheduleGame,
+  loadNflSchedule,
+} from "@/lib/nfl/schedule";
 import { marketFixtures } from "./fixtures";
 import { isSingleLegNflProviderMarket } from "./eligibility";
 import {
@@ -52,15 +56,48 @@ export async function getMarketOpportunities(): Promise<MarketsPayload> {
         },
       ]
     : await Promise.all([fetchKalshiNflMarkets(), fetchPolymarketNflMarkets()]);
-  const cleanProviders = providers.map((provider) => ({
+  const coarseProviders = providers.map((provider) => ({
     ...provider,
     markets: provider.markets.filter(isSingleLegNflProviderMarket),
   }));
-  const raw = cleanProviders.flatMap((provider) => provider.markets);
-  const normalized = raw.map((market) => ({
-    market,
-    canonical: normalizeMarket(market),
+  const candidates = coarseProviders
+    .flatMap((provider) => provider.markets)
+    .map((market) => ({
+      market,
+      canonical: normalizeMarket(market),
+    }));
+
+  let normalized = candidates;
+  let scheduleError: string | null = null;
+  if (!fixtureMode) {
+    try {
+      const schedule = await loadNflSchedule();
+      normalized = candidates.filter(
+        (item) =>
+          item.canonical !== null &&
+          findEligibleScheduleGame(item.canonical, schedule) !== null,
+      );
+    } catch (error) {
+      scheduleError =
+        error instanceof Error ? error.message : "NFL schedule validation failed";
+      console.error("NFL schedule validation failed", error);
+      normalized = [];
+    }
+  }
+
+  const accepted = new Set(
+    normalized.map((item) => marketKey(item.market)),
+  );
+  const cleanProviders = coarseProviders.map((provider) => ({
+    ...provider,
+    error: scheduleError
+      ? [provider.error, scheduleError].filter(Boolean).join(" · ")
+      : provider.error,
+    markets: provider.markets.filter((market) =>
+      accepted.has(marketKey(market)),
+    ),
   }));
+  const raw = normalized.map((item) => item.market);
   const modelCache = new Map<
     string,
     Awaited<ReturnType<typeof estimateMarket>>
