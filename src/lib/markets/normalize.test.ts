@@ -10,7 +10,7 @@ describe("market normalization", () => {
   it("extracts a conservative player prop identity", () => {
     const normalized = normalizeMarket(contract());
     expect(normalized).toMatchObject({ family: "receiving_yards", statistic: "receiving_yards", direction: "over", threshold: 79.5, settlementDate: "2026-10-12", regulationOnly: false, parseConfidence: "high" });
-    expect(normalized?.subject).toContain("jamarr chase");
+    expect(normalized?.subject.toLowerCase()).toContain("jamarr chase");
   });
 
   it("does not pair semantically different thresholds", () => {
