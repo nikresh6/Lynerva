@@ -219,8 +219,11 @@ export default async function SourcesPage() {
           </div>
           <p className="mt-3 text-[10px] leading-4 text-faint">
             Lynerva only grades projections captured before kickoff and only
-            against regular-season results. Small samples remain close to equal
-            model weight until enough settled player-weeks accumulate.
+            against regular-season results. Learned weights use a robust mix of
+            typical miss, recent typical miss, and 90th-percentile miss, so one
+            freak projection cannot wreck an otherwise accurate source. Small
+            samples remain close to equal weight until enough settled
+            player-weeks accumulate.
           </p>
         </section>
 
