@@ -88,7 +88,7 @@ function parseCsv(text: string) {
 const loadSchedule = unstable_cache(
   async () => {
     const response = await fetch(
-      "https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv",
+      "https://cdn.jsdelivr.net/gh/nflverse/nfldata@master/data/games.csv",
       {
         headers: { "User-Agent": "Lynerva/1.0 game-context" },
         signal: AbortSignal.timeout(30_000),
