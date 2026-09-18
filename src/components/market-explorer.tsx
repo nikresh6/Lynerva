@@ -133,10 +133,27 @@ export function MarketExplorer({
     const eligible = opportunities.filter(
       topOnly ? isTopOpportunity : isPricedOpportunity,
     );
-    return filterAndSortMarkets(
-      eligible,
-      activeFilters,
-    ).slice(0, topOnly ? 30 : 120);
+    const sorted = filterAndSortMarkets(eligible, activeFilters);
+    if (!topOnly) return sorted.slice(0, 120);
+
+    // Avoid letting one ladder of near-identical alternate lines consume the
+    // entire board. Keep the best line per player/team + stat first, then
+    // backfill with the next-best distinct lines if fewer than 30 remain.
+    const primary: typeof sorted = [];
+    const overflow: typeof sorted = [];
+    const seen = new Set<string>();
+    for (const market of sorted) {
+      const canonical = market.canonical;
+      const key = canonical
+        ? [canonical.matchup, canonical.family, canonical.subject, canonical.statistic, market.recommendedSide].join(":")
+        : market.platformMarketId;
+      if (seen.has(key)) overflow.push(market);
+      else {
+        seen.add(key);
+        primary.push(market);
+      }
+    }
+    return [...primary, ...overflow].slice(0, 30);
   }, [deferredQuery, filters, forceStatus, opportunities, topOnly]);
 
   const activeAdvanced = [
