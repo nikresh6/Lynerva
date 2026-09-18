@@ -86,6 +86,23 @@ function getForecast(homeTeam: string, kickoffAt: string) {
   return task;
 }
 
+export async function getWeatherForGame(
+  homeTeam: string,
+  awayTeam: string,
+  kickoffAt: string,
+): Promise<GameWeatherContext | null> {
+  const indoor = WEATHER_NEUTRAL_HOME_TEAMS.has(homeTeam);
+  const weather = indoor ? null : await getForecast(homeTeam, kickoffAt);
+  return {
+    homeTeam,
+    awayTeam,
+    kickoffAt,
+    roof: indoor ? "indoor/retractable" : null,
+    indoor,
+    weather,
+  };
+}
+
 export async function getGameWeatherContext(
   canonical: CanonicalMarket,
   scheduleGame?: NflScheduleGame | null,
