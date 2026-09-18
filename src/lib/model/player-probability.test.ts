@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { empiricalPlayerProbability } from "./player-probability";
+import { empiricalPlayerProbability, poissonAtLeastProbability } from "./player-probability";
 
 describe("empirical player probability", () => {
   it("keeps a never-hit high line appropriately low", () => {
@@ -32,5 +32,19 @@ describe("empirical player probability", () => {
         sampleSize: 20,
       }),
     ).toBeLessThanOrEqual(0.98);
+  });
+});
+
+
+describe("poissonAtLeastProbability", () => {
+  it("keeps 3+ touchdown long shots in the low tail", () => {
+    const probability = poissonAtLeastProbability(3, 0.5);
+    expect(probability).toBeGreaterThan(0.01);
+    expect(probability).toBeLessThan(0.02);
+  });
+
+  it("returns a sensible 1+ touchdown chance", () => {
+    const probability = poissonAtLeastProbability(1, 0.7);
+    expect(probability).toBeCloseTo(1 - Math.exp(-0.7), 6);
   });
 });
