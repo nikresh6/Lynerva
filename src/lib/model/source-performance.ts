@@ -46,6 +46,13 @@ export const PROJECTION_SOURCE_INFO = {
     access: "Free public weekly article",
     note: "Weekly stat-line projection table parsed only when the article title and season match the requested week.",
   },
+  nfl: {
+    name: "NFL Fantasy",
+    kind: "Public weekly projection site",
+    href: "https://fantasy.nfl.com/research/projections",
+    access: "Free public weekly tables",
+    note: "NFL Fantasy's public weekly projection table. Lynerva requests the exact season and week and never substitutes season projections.",
+  },
   sleeper: {
     name: "Sleeper",
     kind: "Public projection API",
