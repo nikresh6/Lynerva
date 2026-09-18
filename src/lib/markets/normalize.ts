@@ -227,9 +227,18 @@ export function settlementRulesMatch(
 
 export function isNflText(...values: Array<string | null | undefined>) {
   const value = values.filter(Boolean).join(" ");
-  return /\bnfl\b|super bowl|touchdowns?|passing yards|rushing yards|receiving yards|receptions?|\b(?:ARI|ATL|BAL|BUF|CAR|CHI|CIN|CLE|DAL|DEN|DET|GB|HOU|IND|JAX|KC|LV|LAC|LAR|MIA|MIN|NE|NO|NYG|NYJ|PHI|PIT|SF|SEA|TB|TEN|WAS)\b/i.test(
-    value,
-  );
+
+  if (/\bnfl\b|KXNFL|super bowl/i.test(value)) return true;
+
+  const fullFranchise =
+    /arizona cardinals|atlanta falcons|baltimore ravens|buffalo bills|carolina panthers|chicago bears|cincinnati bengals|cleveland browns|dallas cowboys|denver broncos|detroit lions|green bay packers|houston texans|indianapolis colts|jacksonville jaguars|kansas city chiefs|las vegas raiders|los angeles chargers|los angeles rams|miami dolphins|minnesota vikings|new england patriots|new orleans saints|new york giants|new york jets|philadelphia eagles|pittsburgh steelers|san francisco 49ers|seattle seahawks|tampa bay buccaneers|tennessee titans|washington commanders/i;
+  if (fullFranchise.test(value)) return true;
+
+  const nicknameMatches =
+    value.match(
+      /\b(?:cardinals|falcons|ravens|bills|panthers|bears|bengals|browns|cowboys|broncos|lions|packers|texans|colts|jaguars|chiefs|raiders|chargers|rams|dolphins|vikings|patriots|saints|giants|jets|eagles|steelers|49ers|seahawks|buccaneers|titans|commanders)\b/gi,
+    ) ?? [];
+  return new Set(nicknameMatches.map((name) => name.toLowerCase())).size >= 2;
 }
 
 export function canonicalKeyWithoutRules(market: CanonicalMarket) {
