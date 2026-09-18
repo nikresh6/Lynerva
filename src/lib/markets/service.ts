@@ -4,11 +4,7 @@ import { fetchKalshiNflMarkets } from "@/lib/kalshi";
 import { fetchPolymarketNflMarkets } from "@/lib/polymarket";
 import { estimateMarket } from "@/lib/model";
 import { getLiveNflGames, type LiveNflGame } from "@/lib/nfl/live";
-import { loadNflSchedule } from "@/lib/nfl/schedule";
-import {
-  findEligibleScheduleGame,
-  type NflScheduleGame,
-} from "@/lib/nfl/schedule-match";
+import type { NflScheduleGame } from "@/lib/nfl/schedule-match";
 import { marketFixtures } from "./fixtures";
 import { isSingleLegNflProviderMarket } from "./eligibility";
 import {
@@ -46,6 +42,39 @@ interface NormalizedItem {
 
 let warmSnapshot: { payload: MarketsPayload; storedAt: number } | null = null;
 let refreshPromise: Promise<MarketsPayload> | null = null;
+
+function scheduleGameFromEspn(game: LiveNflGame): NflScheduleGame | null {
+  if (game.seasonType !== 2 || !game.seasonYear) return null;
+  const kickoff = new Date(game.startsAt);
+  if (Number.isNaN(kickoff.getTime())) return null;
+  return {
+    gameId: game.id,
+    season: game.seasonYear,
+    week: game.week,
+    seasonType: "REG",
+    gameday: kickoff.toISOString().slice(0, 10),
+    kickoffAt: kickoff.toISOString(),
+    homeTeam: game.home.team,
+    awayTeam: game.away.team,
+    stadium: null,
+    roof: null,
+  };
+}
+
+function currentGameForCanonical(
+  canonical: NonNullable<ReturnType<typeof normalizeMarket>>,
+  games: LiveNflGame[],
+) {
+  if (!canonical.matchup) return null;
+  return (
+    games.find(
+      (game) =>
+        game.seasonType === 2 &&
+        [game.home.team, game.away.team].toSorted().join("-") ===
+          canonical.matchup,
+    ) ?? null
+  );
+}
 
 function liveGameForSchedule(
   scheduleGame: NflScheduleGame,
@@ -148,9 +177,8 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
       ])
     : Promise.all([fetchKalshiNflMarkets(), fetchPolymarketNflMarkets()]);
 
-  const [providers, schedule, liveGames] = await Promise.all([
+  const [providers, liveGames] = await Promise.all([
     providerPromise,
-    loadNflSchedule(),
     getLiveNflGames(),
   ]);
 
@@ -163,13 +191,15 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
   for (const market of coarseProviders.flatMap((provider) => provider.markets)) {
     const canonical = normalizeMarket(market);
     if (!canonical) continue;
-    const scheduleGame = findEligibleScheduleGame(canonical, schedule);
+    const liveGame = currentGameForCanonical(canonical, liveGames);
+    if (!liveGame) continue;
+    const scheduleGame = scheduleGameFromEspn(liveGame);
     if (!scheduleGame) continue;
     normalized.push({
       market,
       canonical,
       scheduleGame,
-      liveGame: liveGameForSchedule(scheduleGame, liveGames),
+      liveGame,
     });
   }
 
