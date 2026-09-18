@@ -13,7 +13,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "dotenv -e .env.local -- tsx src/db/migrate.ts",
     "db:studio": "dotenv -e .env.local -- drizzle-kit studio",
-    "data:nflverse": "NODE_OPTIONS=--conditions=react-server dotenv -e .env.local -- tsx scripts/ingest-nflverse.ts"
+    "data:nflverse": "NODE_OPTIONS=--conditions=react-server dotenv -e .env.local -- tsx scripts/ingest-nflverse.ts",
+    "smoke:live": "NODE_OPTIONS=--conditions=react-server tsx scripts/smoke-live.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
