@@ -235,7 +235,7 @@ export function buildCombination(
     !Number.isFinite(options.maxReturn) ||
     options.minReturn <= 1 ||
     options.maxReturn < options.minReturn ||
-    options.maxLegs < 1
+    options.maxLegs < 2
   ) {
     return null;
   }
@@ -315,6 +315,7 @@ export function buildCombination(
         };
 
         if (
+          nextState.legs.length >= 2 &&
           grossReturn >= options.minReturn &&
           grossReturn <= options.maxReturn
         ) {
