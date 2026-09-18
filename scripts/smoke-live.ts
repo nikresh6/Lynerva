@@ -133,6 +133,16 @@ async function main() {
       market.marketTitle,
     ),
   );
+  const completedMatchups = new Set(
+    livePayload.games
+      .filter((game) => game.state === "post")
+      .map((game) => [game.home.team, game.away.team].toSorted().join("-")),
+  );
+  const completedGameMarkets = payload.opportunities.filter((market) => {
+    const matchup = market.canonical?.matchup;
+    return matchup ? completedMatchups.has(matchup) : false;
+  });
+  const displayedTopPicks = picks.slice(0, 30);
 
   const matchups = new Set(
     payload.opportunities
@@ -176,6 +186,8 @@ async function main() {
         defaultBuilderWorks: Boolean(defaultBuild),
         pregameBuilderWorks: Boolean(pregameBuild),
         unsupportedPeriodMarkets: unsupportedPeriodMarkets.length,
+        completedGameMarkets: completedGameMarkets.length,
+        displayedTopPicks: displayedTopPicks.length,
         matchups: [...matchups].slice(0, 20),
         currentEspnGame,
         currentEspnMatchup,
@@ -243,6 +255,12 @@ async function main() {
   }
   if (unsupportedPeriodMarkets.length > 0) {
     throw new Error("Live smoke failed: unsupported quarter/half markets leaked into the feed.");
+  }
+  if (completedGameMarkets.length > 0) {
+    throw new Error("Live smoke failed: completed-game markets or props leaked into the current feed.");
+  }
+  if (displayedTopPicks.length > 30) {
+    throw new Error("Live smoke failed: more than 30 top picks would be displayed.");
   }
   if (payload.providers.some((provider) => provider.count === 0)) {
     throw new Error(
