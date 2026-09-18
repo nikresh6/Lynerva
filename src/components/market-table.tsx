@@ -202,7 +202,7 @@ function PastPerformance({ market }: { market: MarketOpportunity }) {
         <div>
           <h3 className="text-sm font-semibold">Past performance</h3>
           <p className="mt-1 text-xs text-muted">
-            {count ? `This pick hit in ${count.hits} of the last ${count.games} comparable games.` : "Last comparable regular-season games."}
+            {count ? `2026 only: this pick hit in ${count.hits} of ${count.games} game${count.games === 1 ? "" : "s"}.` : "2026 regular-season games only."}
           </p>
         </div>
         <span className="rounded-lg border bg-surface px-2.5 py-1.5 text-[10px] font-medium">Line {threshold}</span>
@@ -386,7 +386,7 @@ function BetLab({ market, onClose }: { market: MarketOpportunity; onClose: () =>
               <p>
                 The market is pricing this at about <strong className="text-foreground">{formatPercent(market.executablePriceBps)}</strong>, while Lynerva estimates <strong className="text-foreground">{formatPercent(market.recommendedProbabilityBps)}</strong>.
               </p>
-              {count ? <p>It hit in <strong className="text-foreground">{count.hits} of the last {count.games}</strong> comparable regular-season games.</p> : null}
+              {count ? <p>In <strong className="text-foreground">2026 only</strong>, it hit in <strong className="text-foreground">{count.hits} of {count.games}</strong> game{count.games === 1 ? "" : "s"}.</p> : null}
               {profit !== null ? <p>At the current price, risking $100 would profit about <strong className="text-foreground">${profit.toFixed(0)}</strong> if it wins.</p> : null}
             </div>
           </section>
