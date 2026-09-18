@@ -214,7 +214,7 @@ async function main() {
             ]),
         ),
         projectionSourceCoverage: Object.fromEntries(
-          ["fantasypros", "numberfire", "espn", "cbs", "fftoday", "fourforfour", "covers", "dimers"].map(
+          ["fantasypros", "numberfire", "espn", "cbs", "fftoday", "rotoballer"].map(
             (source) => [
               source,
               playerPropMarkets.filter((market) =>
@@ -315,9 +315,9 @@ async function main() {
         (market) => market.model.components?.projectionSources?.length ?? 0,
       ),
     );
-    if (bestCoverage < 4) {
+    if (bestCoverage < 5) {
       throw new Error(
-        `Live smoke failed: Ja'Marr Chase receiving-yards projection has only ${bestCoverage} verified sources; expected at least 4.`,
+        `Live smoke failed: Ja'Marr Chase receiving-yards projection has only ${bestCoverage} verified sources; expected at least 5.`,
       );
     }
   }
