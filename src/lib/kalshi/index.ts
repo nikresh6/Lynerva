@@ -76,14 +76,8 @@ async function fetchSeriesMarkets(seriesTicker: string) {
 }
 
 async function fetchCoreSeriesMarkets() {
-  const results: z.infer<typeof marketSchema>[] = [];
-  const batchSize = 3;
-  for (let index = 0; index < CORE_NFL_SERIES.length; index += batchSize) {
-    const batch = CORE_NFL_SERIES.slice(index, index + batchSize);
-    const chunks = await Promise.all(batch.map(fetchSeriesMarkets));
-    results.push(...chunks.flat());
-  }
-  return results;
+  const chunks = await Promise.all(CORE_NFL_SERIES.map(fetchSeriesMarkets));
+  return chunks.flat();
 }
 
 function isLiveMarket(market: z.infer<typeof marketSchema>) {
