@@ -117,6 +117,12 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
       }))
       .filter((event) => event.markets.length > 0);
 
+    console.info("Polymarket NFL discovery", {
+      events: events.length,
+      nflEvents: nflEvents.length,
+      firstSlugs: nflEvents.slice(0, 5).map((event) => event.slug),
+    });
+
     const markets: ProviderMarket[] = [];
 
     for (const event of nflEvents) {
@@ -174,6 +180,7 @@ export async function fetchPolymarketNflMarkets(): Promise<ProviderResult> {
       }
     }
 
+    console.info("Polymarket NFL normalized markets", { markets: markets.length });
     return { provider: "polymarket", markets, fetchedAt, error: null };
   } catch (error) {
     const message =
