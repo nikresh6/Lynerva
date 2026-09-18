@@ -73,7 +73,7 @@ function FeedStatus() {
             }
           />
           <span className="capitalize">{provider.provider}</span>
-          <span className="text-faint">{provider.count} modeled markets</span>
+          <span className="text-faint">{provider.count} current contracts</span>
         </span>
       ))}
       <span className="text-faint">
