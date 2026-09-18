@@ -875,6 +875,8 @@ async function sourceProjection(
   week: number,
 ): Promise<ProjectionPoint | null> {
   if (source === "numberfire") return numberFireMarketProjection(market);
+  if (source === "covers") return coversProjection(market);
+  if (source === "dimers") return dimersProjection(market);
   if (source === "fftoday") {
     return ffTodayMarketProjection(market, season, week);
   }
