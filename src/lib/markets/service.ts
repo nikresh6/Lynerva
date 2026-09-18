@@ -3,8 +3,12 @@ import "server-only";
 import { fetchKalshiNflMarkets } from "@/lib/kalshi";
 import { fetchPolymarketNflMarkets } from "@/lib/polymarket";
 import { estimateMarket } from "@/lib/model";
+import { getLiveNflGames, type LiveNflGame } from "@/lib/nfl/live";
 import { loadNflSchedule } from "@/lib/nfl/schedule";
-import { findEligibleScheduleGame } from "@/lib/nfl/schedule-match";
+import {
+  findEligibleScheduleGame,
+  type NflScheduleGame,
+} from "@/lib/nfl/schedule-match";
 import { marketFixtures } from "./fixtures";
 import { isSingleLegNflProviderMarket } from "./eligibility";
 import {
@@ -21,6 +25,7 @@ import {
 } from "./math";
 import type {
   MarketOpportunity,
+  MarketSide,
   ProviderMarket,
   ProviderResult,
 } from "./types";
@@ -32,15 +37,103 @@ export interface MarketsPayload {
   fixtureMode: boolean;
 }
 
-export async function getMarketOpportunities(): Promise<MarketsPayload> {
+interface NormalizedItem {
+  market: ProviderMarket;
+  canonical: NonNullable<ReturnType<typeof normalizeMarket>>;
+  scheduleGame: NflScheduleGame;
+  liveGame: LiveNflGame | null;
+}
+
+let warmSnapshot: { payload: MarketsPayload; storedAt: number } | null = null;
+let refreshPromise: Promise<MarketsPayload> | null = null;
+
+function liveGameForSchedule(
+  scheduleGame: NflScheduleGame,
+  games: LiveNflGame[],
+) {
+  return (
+    games.find(
+      (game) =>
+        [game.home.team, game.away.team].toSorted().join("-") ===
+        [scheduleGame.homeTeam, scheduleGame.awayTeam].toSorted().join("-"),
+    ) ?? null
+  );
+}
+
+function bestExecutableSide(input: {
+  probabilityBps: number | null;
+  yesAskBps: number | null;
+  noAskBps: number | null;
+}) {
+  if (input.probabilityBps === null) {
+    return {
+      side: null as MarketSide | null,
+      probabilityBps: null,
+      priceBps: null,
+      edgeBps: null,
+    };
+  }
+
+  const candidates: Array<{
+    side: MarketSide;
+    probabilityBps: number;
+    priceBps: number;
+    edgeBps: number;
+  }> = [];
+
+  if (
+    input.yesAskBps !== null &&
+    input.yesAskBps > 0 &&
+    input.yesAskBps < 10_000
+  ) {
+    candidates.push({
+      side: "yes",
+      probabilityBps: input.probabilityBps,
+      priceBps: input.yesAskBps,
+      edgeBps: input.probabilityBps - input.yesAskBps,
+    });
+  }
+
+  if (
+    input.noAskBps !== null &&
+    input.noAskBps > 0 &&
+    input.noAskBps < 10_000
+  ) {
+    const probabilityBps = 10_000 - input.probabilityBps;
+    candidates.push({
+      side: "no",
+      probabilityBps,
+      priceBps: input.noAskBps,
+      edgeBps: probabilityBps - input.noAskBps,
+    });
+  }
+
+  const best = candidates.toSorted(
+    (first, second) => second.edgeBps - first.edgeBps,
+  )[0];
+
+  return best
+    ? best
+    : {
+        side: null as MarketSide | null,
+        probabilityBps: null,
+        priceBps: null,
+        edgeBps: null,
+      };
+}
+
+async function computeMarketOpportunities(): Promise<MarketsPayload> {
   const fixtureMode =
     process.env.NODE_ENV !== "production" &&
     process.env.USE_MARKET_FIXTURES === "true";
-  const providers = fixtureMode
-    ? [
+
+  const providerPromise = fixtureMode
+    ? Promise.resolve([
         {
           provider: "kalshi" as const,
-          markets: marketFixtures.filter((market) => market.platform === "kalshi"),
+          markets: marketFixtures.filter(
+            (market) => market.platform === "kalshi",
+          ),
           fetchedAt: new Date().toISOString(),
           error: null,
         },
@@ -52,35 +145,32 @@ export async function getMarketOpportunities(): Promise<MarketsPayload> {
           fetchedAt: new Date().toISOString(),
           error: null,
         },
-      ]
-    : await Promise.all([fetchKalshiNflMarkets(), fetchPolymarketNflMarkets()]);
+      ])
+    : Promise.all([fetchKalshiNflMarkets(), fetchPolymarketNflMarkets()]);
+
+  const [providers, schedule, liveGames] = await Promise.all([
+    providerPromise,
+    loadNflSchedule(),
+    getLiveNflGames(),
+  ]);
+
   const coarseProviders = providers.map((provider) => ({
     ...provider,
     markets: provider.markets.filter(isSingleLegNflProviderMarket),
   }));
-  const candidates = coarseProviders
-    .flatMap((provider) => provider.markets)
-    .map((market) => ({
-      market,
-      canonical: normalizeMarket(market),
-    }));
 
-  let normalized = candidates;
-  let scheduleError: string | null = null;
-  if (!fixtureMode) {
-    try {
-      const schedule = await loadNflSchedule();
-      normalized = candidates.filter(
-        (item) =>
-          item.canonical !== null &&
-          findEligibleScheduleGame(item.canonical, schedule) !== null,
-      );
-    } catch (error) {
-      scheduleError =
-        error instanceof Error ? error.message : "NFL schedule validation failed";
-      console.error("NFL schedule validation failed", error);
-      normalized = [];
-    }
+  const normalized: NormalizedItem[] = [];
+  for (const market of coarseProviders.flatMap((provider) => provider.markets)) {
+    const canonical = normalizeMarket(market);
+    if (!canonical) continue;
+    const scheduleGame = findEligibleScheduleGame(canonical, schedule);
+    if (!scheduleGame) continue;
+    normalized.push({
+      market,
+      canonical,
+      scheduleGame,
+      liveGame: liveGameForSchedule(scheduleGame, liveGames),
+    });
   }
 
   const accepted = new Set(
@@ -88,37 +178,49 @@ export async function getMarketOpportunities(): Promise<MarketsPayload> {
   );
   const cleanProviders = coarseProviders.map((provider) => ({
     ...provider,
-    error: scheduleError
-      ? [provider.error, scheduleError].filter(Boolean).join(" · ")
-      : provider.error,
     markets: provider.markets.filter((market) =>
       accepted.has(marketKey(market)),
     ),
   }));
+
   const raw = normalized.map((item) => item.market);
   const modelCache = new Map<
     string,
     Awaited<ReturnType<typeof estimateMarket>>
   >();
-  const getModel = async (item: (typeof normalized)[number]) => {
-    const key = item.canonical?.key ?? `unmatched:${item.market.platformMarketId}`;
-    const cached = modelCache.get(key);
-    if (cached) return cached;
-    const estimate = await estimateMarket(item.canonical);
-    modelCache.set(key, estimate);
-    return estimate;
-  };
-  const models = await Promise.all(normalized.map(getModel));
+
+  const models = await Promise.all(
+    normalized.map(async (item) => {
+      const liveKey = item.liveGame?.state === "in"
+        ? `:${item.liveGame.period}:${item.liveGame.clock}:${item.liveGame.home.score}:${item.liveGame.away.score}`
+        : "";
+      const key = `${item.canonical.key}${liveKey}`;
+      const cached = modelCache.get(key);
+      if (cached) return cached;
+      const estimate = await estimateMarket(
+        item.canonical,
+        item.scheduleGame,
+        item.liveGame,
+      );
+      modelCache.set(key, estimate);
+      return estimate;
+    }),
+  );
+
   const groups = new Map<string, number[]>();
   normalized.forEach((item, index) => {
-    if (!item.canonical) return;
     const key = canonicalKeyWithoutRules(item.canonical);
     groups.set(key, [...(groups.get(key) ?? []), index]);
   });
+
   const comparison = new Map<
     number,
-    Pick<MarketOpportunity, "discrepancyBps" | "equivalentPlatform" | "arbitrage">
+    Pick<
+      MarketOpportunity,
+      "discrepancyBps" | "equivalentPlatform" | "arbitrage"
+    >
   >();
+
   for (const indexes of groups.values()) {
     const kalshiIndex = indexes.find(
       (index) => raw[index]?.platform === "kalshi",
@@ -127,9 +229,11 @@ export async function getMarketOpportunities(): Promise<MarketsPayload> {
       (index) => raw[index]?.platform === "polymarket",
     );
     if (kalshiIndex === undefined || polymarketIndex === undefined) continue;
+
     const first = normalized[kalshiIndex];
     const second = normalized[polymarketIndex];
-    if (!first?.canonical || !second?.canonical) continue;
+    if (!first || !second) continue;
+
     const firstPrice = raw[kalshiIndex]?.yesAskBps;
     const secondPrice = raw[polymarketIndex]?.yesAskBps;
     const discrepancy =
@@ -145,6 +249,7 @@ export async function getMarketOpportunities(): Promise<MarketsPayload> {
         second.canonical,
       ),
     });
+
     comparison.set(kalshiIndex, {
       discrepancyBps: discrepancy,
       equivalentPlatform: "polymarket",
@@ -158,59 +263,99 @@ export async function getMarketOpportunities(): Promise<MarketsPayload> {
   }
 
   const now = Date.now();
-  const opportunities = normalized.map((item, index): MarketOpportunity => {
-    const model = models[index];
-    const market = item.market;
-    const executablePriceBps = market.yesAskBps;
-    const edgeBps =
-      model.probabilityBps !== null && executablePriceBps !== null
-        ? model.probabilityBps - executablePriceBps
-        : null;
-    const spreadBps =
-      market.yesAskBps !== null && market.yesBidBps !== null
-        ? market.yesAskBps - market.yesBidBps
-        : null;
-    const ageSeconds = Math.max(
-      0,
-      (now - new Date(market.updatedAt).getTime()) / 1_000,
-    );
-    const peer = comparison.get(index);
-    return {
-      ...market,
-      canonical: item.canonical,
-      model,
-      executablePriceBps,
-      edgeBps,
-      expectedRoi:
-        model.probabilityBps !== null && executablePriceBps !== null
-          ? expectedRoi(model.probabilityBps, executablePriceBps)
-          : null,
-      riskReturn:
-        executablePriceBps === null ? null : riskReturn(executablePriceBps),
-      spreadBps,
-      opportunityScore:
-        edgeBps !== null && executablePriceBps !== null
-          ? opportunityScore({
-              edgeBps,
-              priceBps: executablePriceBps,
-              reliabilityBps: model.reliabilityBps,
-              liquidityCents: market.liquidityCents,
-              spreadBps,
-              ageSeconds,
-            })
-          : null,
-      freshness: freshnessFrom(market.updatedAt, now),
-      discrepancyBps: peer?.discrepancyBps ?? null,
-      equivalentPlatform: peer?.equivalentPlatform ?? null,
-      arbitrage: peer?.arbitrage ?? null,
-    };
-  });
+  const opportunities = normalized.map(
+    (item, index): MarketOpportunity => {
+      const model = models[index];
+      const market = item.market;
+      const live = item.liveGame?.state === "in";
+      const side = bestExecutableSide({
+        probabilityBps: model.probabilityBps,
+        yesAskBps: market.yesAskBps,
+        noAskBps: market.noAskBps,
+      });
+      const spreadBps =
+        market.yesAskBps !== null && market.yesBidBps !== null
+          ? market.yesAskBps - market.yesBidBps
+          : null;
+      const ageSeconds = Math.max(
+        0,
+        (now - new Date(market.updatedAt).getTime()) / 1_000,
+      );
+      const peer = comparison.get(index);
+
+      return {
+        ...market,
+        isLive: live || market.isLive,
+        canonical: item.canonical,
+        model,
+        recommendedSide: side.side,
+        recommendedProbabilityBps: side.probabilityBps,
+        executablePriceBps: side.priceBps,
+        edgeBps: side.edgeBps,
+        expectedRoi:
+          side.probabilityBps !== null && side.priceBps !== null
+            ? expectedRoi(side.probabilityBps, side.priceBps)
+            : null,
+        riskReturn:
+          side.priceBps === null ? null : riskReturn(side.priceBps),
+        spreadBps,
+        opportunityScore:
+          side.edgeBps !== null && side.priceBps !== null
+            ? opportunityScore({
+                edgeBps: side.edgeBps,
+                priceBps: side.priceBps,
+                reliabilityBps: model.reliabilityBps,
+                liquidityCents: market.liquidityCents,
+                spreadBps,
+                ageSeconds,
+              })
+            : null,
+        freshness: freshnessFrom(market.updatedAt, now),
+        discrepancyBps: peer?.discrepancyBps ?? null,
+        equivalentPlatform: peer?.equivalentPlatform ?? null,
+        arbitrage: peer?.arbitrage ?? null,
+      };
+    },
+  );
+
   return {
     opportunities,
     providers: cleanProviders,
     fetchedAt: new Date().toISOString(),
     fixtureMode,
   };
+}
+
+async function refreshSnapshot() {
+  if (!refreshPromise) {
+    refreshPromise = computeMarketOpportunities()
+      .then((payload) => {
+        warmSnapshot = { payload, storedAt: Date.now() };
+        return payload;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
+
+export async function getMarketOpportunities(): Promise<MarketsPayload> {
+  const now = Date.now();
+  if (warmSnapshot && now - warmSnapshot.storedAt < 8_000) {
+    return warmSnapshot.payload;
+  }
+
+  if (warmSnapshot) {
+    void refreshSnapshot();
+    return warmSnapshot.payload;
+  }
+
+  return refreshSnapshot();
+}
+
+export async function getFreshMarketOpportunities() {
+  return refreshSnapshot();
 }
 
 export function marketKey(market: ProviderMarket) {
