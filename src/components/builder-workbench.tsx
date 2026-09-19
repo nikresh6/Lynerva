@@ -757,7 +757,7 @@ export function BuilderWorkbench() {
               </div>
             </div>
 
-            <ol className="grid gap-3 p-3 sm:p-4 lg:grid-cols-2">
+            <ol className="grid items-start gap-3 p-3 sm:p-4 lg:grid-cols-2">
               {combination.legs.map((leg, index) => {
                 const contribution = legOddsContribution(
                   leg,
@@ -1183,7 +1183,7 @@ export function BuilderWorkbench() {
                 </div>
               </div>
 
-              <div className="grid gap-3 p-3 sm:p-4 lg:grid-cols-2">
+              <div className="grid items-start gap-3 p-3 sm:p-4 lg:grid-cols-2">
                 {portfolioPlan.positions.map((position, index) => (
                   <article
                     key={position.id}
