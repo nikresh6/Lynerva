@@ -183,13 +183,24 @@ function findSubject(value: string, family: MarketFamily, teams: string[]) {
   if (["moneyline", "spread"].includes(family) && teams.length) return teams[0];
   if (family === "game_total" && teams.length >= 2) return teams.toSorted().join("-");
 
-  const firstClause = value
+  let firstClause = value
     .replace(/^\s*(?:yes|no)\s+/i, "")
     .replace(/will\s+/i, "")
     .split(/(?:\s+(?:over|under|to record|to have|at least|more than)\s+|\s+\d)/i)[0]
     ?.replace(/[?:-]+$/g, "")
     .replace(/\b(?:record|have|get|finish with)\s*$/i, "")
     .trim();
+
+  if (family === "longest_reception") {
+    firstClause = firstClause
+      ?.replace(
+        /\s*[:|-]?\s*(?:longest\s+(?:reception|catch)|(?:reception|catch)\s+length)\s*$/i,
+        "",
+      )
+      .replace(/[?:-]+$/g, "")
+      .trim();
+  }
+
   return (firstClause || value).trim().slice(0, 80);
 }
 
