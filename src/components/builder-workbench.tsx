@@ -14,7 +14,8 @@ import {
   Zap,
 } from "lucide-react";
 import {
-  buildBestAvailableCombination,
+  buildRankedCombinations,
+  buildTopScoredCombinations,
   type BuilderMode,
   type BuilderObjective,
 } from "@/lib/builder";
@@ -57,8 +58,10 @@ function builderPickLabel(market: MarketOpportunity) {
           ? "passing yards"
           : canonical.family === "receptions"
             ? "receptions"
-            : canonical.family === "passing_touchdowns"
-              ? "passing TDs"
+            : canonical.family === "passing_interceptions"
+              ? "interceptions"
+              : canonical.family === "passing_touchdowns"
+                ? "passing TDs"
               : canonical.family === "touchdowns"
                 ? "TDs"
                 : canonical.family.replaceAll("_", " ");
@@ -243,6 +246,8 @@ export function BuilderWorkbench() {
     useState<PortfolioRequest | null>(null);
   const [selectedMarket, setSelectedMarket] =
     useState<MarketOpportunity | null>(null);
+  const [rankingMode, setRankingMode] = useState(false);
+  const [activeParlayIndex, setActiveParlayIndex] = useState(0);
 
   const minReturnNumber = Number(minReturnInput);
   const maxReturnNumber = Number(maxReturnInput);
@@ -269,18 +274,28 @@ export function BuilderWorkbench() {
     ? targetPayoutNumber / planAmountNumber
     : null;
 
-  const combination = useMemo(() => {
-    if (!parlayRequest) return null;
-    return buildBestAvailableCombination(parlayRequest.markets, {
-      minReturn: parlayRequest.minReturn,
-      maxReturn: parlayRequest.maxReturn,
-      maxLegs: parlayRequest.maxLegs,
-      platform: parlayRequest.platform,
-      live: parlayRequest.live,
-      mode: parlayRequest.mode,
-      objective: parlayRequest.objective,
-    });
-  }, [parlayRequest]);
+  const combinations = useMemo(() => {
+    if (!parlayRequest) return [];
+    if (rankingMode) {
+      return buildTopScoredCombinations(parlayRequest.markets, 10);
+    }
+    return buildRankedCombinations(
+      parlayRequest.markets,
+      {
+        minReturn: parlayRequest.minReturn,
+        maxReturn: parlayRequest.maxReturn,
+        maxLegs: parlayRequest.maxLegs,
+        platform: parlayRequest.platform,
+        live: parlayRequest.live,
+        mode: parlayRequest.mode,
+        objective: parlayRequest.objective,
+      },
+      6,
+    );
+  }, [parlayRequest, rankingMode]);
+
+  const combination =
+    combinations[activeParlayIndex] ?? combinations[0] ?? null;
 
   const portfolioPlan = useMemo(() => {
     if (!portfolioRequest) return null;
@@ -321,6 +336,8 @@ export function BuilderWorkbench() {
 
   function buildParlay() {
     if (!canBuildParlay) return;
+    setRankingMode(false);
+    setActiveParlayIndex(0);
     setParlayRequest({
       markets: currentMarkets,
       minReturn: minReturnNumber,
@@ -331,6 +348,24 @@ export function BuilderWorkbench() {
       mode,
       objective,
       stake: stakeNumber,
+    });
+  }
+
+  function showBestParlaysThisWeek() {
+    if (currentMarkets.length === 0) return;
+    setRankingMode(true);
+    setActiveParlayIndex(0);
+    setParlayRequest({
+      markets: currentMarkets,
+      minReturn: 1.3,
+      maxReturn: 150,
+      maxLegs: 8,
+      platform: "either",
+      live: "pregame",
+      mode: "any",
+      objective: "balanced",
+      stake:
+        Number.isFinite(stakeNumber) && stakeNumber > 0 ? stakeNumber : 100,
     });
   }
 
