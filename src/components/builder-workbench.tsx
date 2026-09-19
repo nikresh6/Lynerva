@@ -98,7 +98,7 @@ function SegmentedButton<T extends string>({
       className={cn(
         "group rounded-xl border p-2.5 text-left transition-all sm:p-3",
         active
-          ? "border-strong bg-foreground text-background shadow-sm"
+          ? "border-accent/40 bg-accent-bg text-accent shadow-[inset_0_1px_0_rgb(255_255_255/0.04)]"
           : "bg-surface hover:border-strong hover:bg-surface-raised",
       )}
     >
@@ -107,7 +107,7 @@ function SegmentedButton<T extends string>({
           className={cn(
             "grid size-6 place-items-center rounded-lg border sm:size-7",
             active
-              ? "border-background/20 bg-background/10"
+              ? "border-accent/25 bg-accent/10 text-accent"
               : "bg-surface-raised text-muted",
           )}
         >
@@ -118,7 +118,7 @@ function SegmentedButton<T extends string>({
       <p
         className={cn(
           "mt-2 hidden text-[10px] leading-4 sm:block",
-          active ? "text-background/70" : "text-muted",
+          active ? "text-accent/80" : "text-muted",
         )}
       >
         {description}
@@ -357,8 +357,8 @@ export function BuilderWorkbench() {
           className={cn(
             "rounded-xl px-3 py-3 text-left transition-colors",
             builderView === "parlay"
-              ? "bg-foreground text-background"
-              : "hover:bg-surface-raised",
+              ? "border border-accent/35 bg-accent-bg text-accent"
+              : "border border-transparent hover:bg-surface-raised",
           )}
         >
           <div className="flex items-center gap-2">
@@ -368,7 +368,7 @@ export function BuilderWorkbench() {
           <p
             className={cn(
               "mt-1 hidden text-[10px] sm:block",
-              builderView === "parlay" ? "text-background/70" : "text-muted",
+              builderView === "parlay" ? "text-accent/75" : "text-muted",
             )}
           >
             Find the best combination inside a payout range.
@@ -380,8 +380,8 @@ export function BuilderWorkbench() {
           className={cn(
             "rounded-xl px-3 py-3 text-left transition-colors",
             builderView === "portfolio"
-              ? "bg-foreground text-background"
-              : "hover:bg-surface-raised",
+              ? "border border-accent/35 bg-accent-bg text-accent"
+              : "border border-transparent hover:bg-surface-raised",
           )}
         >
           <div className="flex items-center gap-2">
@@ -391,7 +391,7 @@ export function BuilderWorkbench() {
           <p
             className={cn(
               "mt-1 hidden text-[10px] sm:block",
-              builderView === "portfolio" ? "text-background/70" : "text-muted",
+              builderView === "portfolio" ? "text-accent/75" : "text-muted",
             )}
           >
             Split one amount across straights and parlays for a target payout.
@@ -400,7 +400,7 @@ export function BuilderWorkbench() {
       </section>
 
       <div className={builderView === "parlay" ? "space-y-5" : "hidden"}>
-      <section className="overflow-hidden rounded-2xl border bg-surface shadow-[0_12px_40px_rgb(0_0_0/0.035)]">
+      <section className="premium-panel overflow-hidden rounded-2xl">
         <div className="border-b bg-[linear-gradient(135deg,var(--surface-raised),var(--surface))] px-4 py-4 sm:px-5">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -520,7 +520,7 @@ export function BuilderWorkbench() {
             <div className="mt-3 grid grid-cols-2 gap-2">
               <label>
                 <FieldLabel>Minimum</FieldLabel>
-                <div className="flex h-10 items-center rounded-lg border bg-surface px-3">
+                <div className="control-surface flex h-10 items-center rounded-lg px-3">
                   <input
                     type="text"
                     inputMode="decimal"
@@ -538,7 +538,7 @@ export function BuilderWorkbench() {
 
               <label>
                 <FieldLabel>Maximum</FieldLabel>
-                <div className="flex h-10 items-center rounded-lg border bg-surface px-3">
+                <div className="control-surface flex h-10 items-center rounded-lg px-3">
                   <input
                     type="text"
                     inputMode="decimal"
@@ -563,7 +563,7 @@ export function BuilderWorkbench() {
             <select
               value={maxLegs}
               onChange={(event) => setMaxLegs(Number(event.target.value))}
-              className="h-10 w-full rounded-lg border bg-surface px-3 text-xs outline-none"
+              className="control-surface h-10 w-full rounded-lg px-3 text-xs outline-none focus:border-accent"
             >
               <option value="2">2 legs</option>
               <option value="3">3 legs</option>
@@ -582,7 +582,7 @@ export function BuilderWorkbench() {
               onChange={(event) =>
                 setPlatform(event.target.value as typeof platform)
               }
-              className="h-10 w-full rounded-lg border bg-surface px-3 text-xs outline-none"
+              className="control-surface h-10 w-full rounded-lg px-3 text-xs outline-none focus:border-accent"
             >
               <option value="either">Either platform</option>
               <option value="kalshi">Kalshi only</option>
@@ -595,7 +595,7 @@ export function BuilderWorkbench() {
             <select
               value={live}
               onChange={(event) => setLive(event.target.value as typeof live)}
-              className="h-10 w-full rounded-lg border bg-surface px-3 text-xs outline-none"
+              className="control-surface h-10 w-full rounded-lg px-3 text-xs outline-none focus:border-accent"
             >
               <option value="pregame">Pregame only</option>
               <option value="live">Live only</option>
@@ -605,7 +605,7 @@ export function BuilderWorkbench() {
 
           <label>
             <FieldLabel>Stake</FieldLabel>
-            <div className="flex h-10 items-center rounded-lg border bg-surface px-3">
+            <div className="control-surface flex h-10 items-center rounded-lg px-3">
               <span className="text-xs text-muted">$</span>
               <input
                 type="text"
@@ -631,7 +631,7 @@ export function BuilderWorkbench() {
             type="button"
             onClick={buildParlay}
             disabled={!canBuildParlay || currentMarkets.length === 0}
-            className="inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-foreground px-5 text-xs font-semibold text-background transition-opacity disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+            className="primary-action inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl px-5 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
           >
             <Sparkles className="size-3.5" />
             {parlayRequest ? "Update parlay" : "Build parlay"}
@@ -639,7 +639,7 @@ export function BuilderWorkbench() {
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-2xl border bg-surface shadow-[0_12px_40px_rgb(0_0_0/0.035)]">
+      <section className="premium-panel overflow-hidden rounded-2xl">
         {loading && currentMarkets.length === 0 ? (
           <div className="px-6 py-20 text-center">
             <div className="mx-auto mb-3 grid size-10 place-items-center rounded-xl border bg-surface-raised">
@@ -878,7 +878,7 @@ export function BuilderWorkbench() {
       </div>
 
       <div className={builderView === "portfolio" ? "space-y-5" : "hidden"}>
-        <section className="overflow-hidden rounded-2xl border bg-surface shadow-[0_12px_40px_rgb(0_0_0/0.035)]">
+        <section className="premium-panel overflow-hidden rounded-2xl">
           <div className="border-b bg-[linear-gradient(135deg,var(--surface-raised),var(--surface))] px-4 py-4 sm:px-5">
             <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -901,7 +901,7 @@ export function BuilderWorkbench() {
               <div className="grid grid-cols-2 gap-3">
                 <label>
                   <FieldLabel>Amount to put in</FieldLabel>
-                  <div className="flex h-11 items-center rounded-xl border bg-surface px-3">
+                  <div className="control-surface flex h-11 items-center rounded-xl px-3">
                     <span className="text-xs text-muted">$</span>
                     <input
                       type="text"
@@ -919,7 +919,7 @@ export function BuilderWorkbench() {
 
                 <label>
                   <FieldLabel>Wanted payout</FieldLabel>
-                  <div className="flex h-11 items-center rounded-xl border bg-surface px-3">
+                  <div className="control-surface flex h-11 items-center rounded-xl px-3">
                     <span className="text-xs text-muted">$</span>
                     <input
                       type="text"
@@ -1020,7 +1020,7 @@ export function BuilderWorkbench() {
                     onChange={(event) =>
                       setPlatform(event.target.value as typeof platform)
                     }
-                    className="h-11 w-full rounded-xl border bg-surface px-3 text-xs outline-none"
+                    className="control-surface h-11 w-full rounded-xl px-3 text-xs outline-none focus:border-accent"
                   >
                     <option value="either">Either platform</option>
                     <option value="kalshi">Kalshi only</option>
@@ -1035,7 +1035,7 @@ export function BuilderWorkbench() {
                     onChange={(event) =>
                       setLive(event.target.value as typeof live)
                     }
-                    className="h-11 w-full rounded-xl border bg-surface px-3 text-xs outline-none"
+                    className="control-surface h-11 w-full rounded-xl px-3 text-xs outline-none focus:border-accent"
                   >
                     <option value="pregame">Pregame only</option>
                     <option value="live">Live only</option>
@@ -1048,7 +1048,7 @@ export function BuilderWorkbench() {
                   <select
                     value={maxLegs}
                     onChange={(event) => setMaxLegs(Number(event.target.value))}
-                    className="h-11 w-full rounded-xl border bg-surface px-3 text-xs outline-none"
+                    className="control-surface h-11 w-full rounded-xl px-3 text-xs outline-none focus:border-accent"
                   >
                     <option value="3">3 legs</option>
                     <option value="4">4 legs</option>
@@ -1071,7 +1071,7 @@ export function BuilderWorkbench() {
               type="button"
               onClick={buildPortfolio}
               disabled={!canBuildPortfolio || currentMarkets.length === 0}
-              className="inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-foreground px-5 text-xs font-semibold text-background transition-opacity disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+              className="primary-action inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl px-5 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
             >
               <WalletCards className="size-3.5" />
               {portfolioRequest ? "Update plan" : "Build plan"}
@@ -1079,7 +1079,7 @@ export function BuilderWorkbench() {
           </div>
         </section>
 
-        <section className="overflow-hidden rounded-2xl border bg-surface shadow-[0_12px_40px_rgb(0_0_0/0.035)]">
+        <section className="premium-panel overflow-hidden rounded-2xl">
           {loading && currentMarkets.length === 0 ? (
             <div className="px-6 py-20 text-center">
               <div className="mx-auto mb-3 grid size-10 place-items-center rounded-xl border bg-surface-raised">
