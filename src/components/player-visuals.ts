@@ -11,10 +11,11 @@ export interface PlayerVisualData {
 const cache = new Map<string, PlayerVisualData | null>();
 
 export function usePlayerVisuals(names: string[]) {
+  const namesKey = names.join("|");
   const stableNames = useMemo(
     () =>
       [...new Set(names.map((name) => name.trim()).filter(Boolean))].toSorted(),
-    [names.join("|")],
+    [namesKey],
   );
   const [version, setVersion] = useState(0);
 
