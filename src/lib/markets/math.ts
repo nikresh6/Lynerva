@@ -81,9 +81,30 @@ export function lynervaScore(input: {
     return null;
   }
 
-  const probability = clamp(input.probabilityBps / 100, 0, 100);
-  const value = clamp((1 - Math.exp(-Math.max(input.expectedRoi, 0) * 1.35)) * 100, 0, 100);
-  const edge = clamp((Math.max(input.edgeBps, 0) / 2_000) * 100, 0, 100);
+  // Publish a score from the two inputs that actually define the bet:
+  // Lynerva's win probability and the executable price. Quote age, spread,
+  // liquidity, and volume are execution/eligibility concerns, not reasons for
+  // the score itself to drift on every refresh.
+  //
+  // Small one-cent market ticks are also deliberately treated as noise for the
+  // public score. The exact market price and edge remain visible everywhere,
+  // but the score works from 2pp buckets so it only reacts to a meaningful move.
+  const SCORE_BUCKET_BPS = 200;
+  const stableProbabilityBps =
+    Math.floor(input.probabilityBps / SCORE_BUCKET_BPS) * SCORE_BUCKET_BPS;
+  const stablePriceBps =
+    Math.floor(input.priceBps / SCORE_BUCKET_BPS) * SCORE_BUCKET_BPS;
+  const stableEdgeBps = stableProbabilityBps - stablePriceBps;
+  const stableRoi =
+    stablePriceBps > 0 ? stableEdgeBps / stablePriceBps : 0;
+
+  const probability = clamp(stableProbabilityBps / 100, 0, 100);
+  const value = clamp(
+    (1 - Math.exp(-Math.max(stableRoi, 0) * 1.35)) * 100,
+    0,
+    100,
+  );
+  const edge = clamp((Math.max(stableEdgeBps, 0) / 2_000) * 100, 0, 100);
   const reliability = clamp(input.reliabilityBps / 100, 0, 100);
 
   let hitRate = probability;
@@ -121,16 +142,14 @@ export function lynervaScore(input: {
     spread * 0.35 +
     freshness * 0.25;
 
-  // Current-season hit rate is informational only for now. With such a
-  // small 2026 sample it belongs in Bet Lab, not in ranking. Market quality
-  // remains part of the score, but its weight is deliberately capped so a
-  // transient spread/liquidity update cannot create a five-point jump.
+  // Current-season hit rate, reliability, and market quality remain visible
+  // diagnostics and eligibility gates. They do not move the published score.
+  // This keeps a pregame score identical when the model and meaningful market
+  // price have not changed.
   const score =
-    value * 0.40 +
-    probability * 0.20 +
-    reliability * 0.18 +
-    edge * 0.14 +
-    marketQuality * 0.08;
+    value * 0.54 +
+    probability * 0.27 +
+    edge * 0.19;
 
   return {
     score: Math.round(clamp(score, 0, 100)),

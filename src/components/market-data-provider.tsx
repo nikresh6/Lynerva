@@ -159,6 +159,51 @@ function movementBetween(
   };
 }
 
+function stabilizePublishedScore(
+  previous: MarketOpportunity,
+  current: MarketOpportunity,
+): MarketOpportunity {
+  if (
+    previous.lynervaScore === null ||
+    current.lynervaScore === null ||
+    previous.recommendedSide !== current.recommendedSide
+  ) {
+    return current;
+  }
+
+  const priceDelta =
+    previous.executablePriceBps === null || current.executablePriceBps === null
+      ? Number.POSITIVE_INFINITY
+      : Math.abs(
+          current.executablePriceBps - previous.executablePriceBps,
+        );
+  const probabilityDelta =
+    previous.recommendedProbabilityBps === null ||
+    current.recommendedProbabilityBps === null
+      ? Number.POSITIVE_INFINITY
+      : Math.abs(
+          current.recommendedProbabilityBps -
+            previous.recommendedProbabilityBps,
+        );
+
+  // The public score should not flap because a one-cent quote tick happened
+  // between two 60-second refreshes. Pregame requires a 2pp price/model move
+  // before publishing a new score. Live markets stay more responsive.
+  const thresholdBps = current.isLive ? 100 : 200;
+  const materialChange =
+    priceDelta >= thresholdBps || probabilityDelta >= thresholdBps;
+
+  if (materialChange || previous.lynervaScore === current.lynervaScore) {
+    return current;
+  }
+
+  return {
+    ...current,
+    lynervaScore: previous.lynervaScore,
+    scoreBreakdown: previous.scoreBreakdown,
+  };
+}
+
 function annotateMovements(
   previous: MarketClientPayload,
   next: MarketClientPayload,
@@ -171,9 +216,14 @@ function annotateMovements(
     ...next,
     opportunities: next.opportunities.map((market) => {
       const earlier = previousByKey.get(marketIdentity(market));
+      const stabilized = earlier
+        ? stabilizePublishedScore(earlier, market)
+        : market;
       return {
-        ...market,
-        scoreMovement: earlier ? movementBetween(earlier, market) : null,
+        ...stabilized,
+        scoreMovement: earlier
+          ? movementBetween(earlier, stabilized)
+          : null,
       };
     }),
   };
