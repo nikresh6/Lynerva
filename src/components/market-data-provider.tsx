@@ -39,7 +39,7 @@ const STORAGE_KEY = "lynerva-market-snapshot-v6";
 // Only hydrate from a very recent browser snapshot. A 30-minute cache made
 // cards appear to "randomly" jump seconds after page load when the immediate
 // live refresh replaced an old score with the current market.
-const STORAGE_MAX_AGE = 20_000;
+const STORAGE_MAX_AGE = 5 * 60_000;
 
 function readStored(): MarketClientPayload | null {
   try {
@@ -119,6 +119,10 @@ export function MarketDataProvider({
         lastSuccessfulRefreshAt.current = Date.now();
         setError(null);
       } catch (caught) {
+        setData((current) => {
+          if (current.opportunities.length > 0) return current;
+          return readStored() ?? current;
+        });
         setError(
           caught instanceof DOMException && caught.name === "AbortError"
             ? "Live refresh delayed. Showing the last verified snapshot while Lynerva retries."
@@ -139,14 +143,18 @@ export function MarketDataProvider({
   };
 
   useEffect(() => {
-    const stored = readStored();
-    if (stored) {
-      setData(stored);
+    const intervalMs = pathname === "/live" ? 10_000 : 60_000;
+    const elapsed = Date.now() - lastSuccessfulRefreshAt.current;
+
+    // Do not paint a localStorage snapshot and then replace it a few seconds
+    // later. That created apparent score jumps even when the user had not
+    // waited for a scheduled refresh. Stored data is now fallback-only.
+    if (lastSuccessfulRefreshAt.current === 0 || elapsed >= intervalMs) {
+      void refresh();
+    } else {
       setLoading(false);
     }
-    void refresh();
 
-    const intervalMs = pathname === "/live" ? 10_000 : 60_000;
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void refresh();
     }, intervalMs);
