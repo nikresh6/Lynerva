@@ -257,7 +257,7 @@ function parlayCandidates(
     const built = buildCombinationCandidates(
       opportunities,
       {
-        minReturn: 1.65,
+        minReturn: 1.3,
         maxReturn: 150,
         maxLegs: options.maxLegs,
         platform: options.platform,
@@ -407,16 +407,25 @@ function selectPortfolioCandidates(
     );
   }
 
-  const coreTarget = clamp(targetReturn * 0.7, 2.2, 5.5);
-  addCandidate(
-    selected,
+  const preferredCoreParlay =
     bestCandidate(parlays, selected, {
-      returnMin: 1.65,
-      returnMax: 6,
-      returnTarget: coreTarget,
+      probabilityMin: 0.55,
+      probabilityMax: 0.74,
+      probabilityTarget: 0.64,
+      returnMin: 1.3,
+      returnMax: 3.5,
+      returnTarget: 1.8,
       role: "core_parlay",
-    }),
-  );
+    }) ??
+    bestCandidate(parlays, selected, {
+      probabilityMin: 0.45,
+      returnMin: 1.3,
+      returnMax: 4,
+      returnTarget: 2.1,
+      role: "core_parlay",
+    });
+
+  addCandidate(selected, preferredCoreParlay);
 
   if (targetReturn >= 2.2 || risk === "higher") {
     const upsideTarget = clamp(targetReturn * 2.2, 7, 22);
@@ -459,7 +468,7 @@ function shareBounds(
     if (role === "core_straight") return { min: 0.2, max: 0.4 };
     if (role === "value_straight") return { min: 0.15, max: 0.3 };
     if (role === "aggressive_straight") return { min: 0.03, max: 0.1 };
-    if (role === "core_parlay") return { min: 0.08, max: 0.2 };
+    if (role === "core_parlay") return { min: 0.08, max: 0.22 };
     if (role === "upside_parlay") return { min: 0.02, max: 0.18 };
     return {
       min: 0,
