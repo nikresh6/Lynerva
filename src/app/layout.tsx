@@ -40,11 +40,11 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         </Script>
         <MarketDataProvider>
           <SiteHeader />
-          <main className="mx-auto w-full max-w-[1480px] px-4 pb-12 pt-8 sm:px-6 lg:px-8">
+          <main className="mx-auto w-full max-w-[1480px] px-3 pb-28 pt-5 sm:px-6 sm:pb-12 sm:pt-8 lg:px-8">
             {children}
           </main>
         </MarketDataProvider>
-        <footer className="mx-auto max-w-[1480px] border-t px-4 py-6 text-xs text-muted sm:px-6 lg:px-8">
+        <footer className="mx-auto mb-24 max-w-[1480px] border-t px-4 py-6 text-xs text-muted sm:mb-0 sm:px-6 lg:px-8">
           Probabilities are model estimates, not guarantees. Lynerva does not place trades.
         </footer>
       </body>
