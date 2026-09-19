@@ -499,9 +499,11 @@ export default async function SourcesPage() {
               <p className="mt-1.5 max-w-4xl text-xs leading-5 text-muted">
                 Settled player results come from the open-source nflverse data
                 project. Those realized NFL stats grade every stored projection
-                and feed Lynerva&apos;s source-weight learning loop. Kalshi and
-                Polymarket prices are pulled separately and are never treated as
-                outside player projections.
+                and feed Lynerva&apos;s source-weight learning loop. Current roster
+                metadata and player headshot URLs also come from nflverse so the
+                interface can show real player identity without a paid media API.
+                Kalshi and Polymarket prices are pulled separately and are never
+                treated as outside player projections.
               </p>
             </div>
             <div className="border-t p-4 md:border-l md:border-t-0 sm:p-5">
