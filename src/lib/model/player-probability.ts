@@ -41,7 +41,14 @@ export function poissonAtLeastProbability(
 
 export function canPublishPlayerProbability(input: {
   hasExternalProjection: boolean;
+  projectionSourceCount?: number;
+  minimumProjectionSources?: number;
   historyCount: number;
 }) {
-  return input.hasExternalProjection || input.historyCount >= 4;
+  const minimumProjectionSources = input.minimumProjectionSources ?? 1;
+  const sourceCount = input.projectionSourceCount ?? 0;
+  const hasProjectionSupport =
+    input.hasExternalProjection && sourceCount >= minimumProjectionSources;
+
+  return hasProjectionSupport || input.historyCount >= 4;
 }
