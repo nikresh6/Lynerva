@@ -91,9 +91,9 @@ export function lynervaScore(input: {
   // but the score works from 2pp buckets so it only reacts to a meaningful move.
   const SCORE_BUCKET_BPS = 200;
   const stableProbabilityBps =
-    Math.round(input.probabilityBps / SCORE_BUCKET_BPS) * SCORE_BUCKET_BPS;
+    Math.floor(input.probabilityBps / SCORE_BUCKET_BPS) * SCORE_BUCKET_BPS;
   const stablePriceBps =
-    Math.round(input.priceBps / SCORE_BUCKET_BPS) * SCORE_BUCKET_BPS;
+    Math.floor(input.priceBps / SCORE_BUCKET_BPS) * SCORE_BUCKET_BPS;
   const stableEdgeBps = stableProbabilityBps - stablePriceBps;
   const stableRoi =
     stablePriceBps > 0 ? stableEdgeBps / stablePriceBps : 0;
