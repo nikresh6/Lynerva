@@ -316,7 +316,6 @@ export async function estimateMarket(
   canonical: CanonicalMarket | null,
   scheduleGame?: NflScheduleGame | null,
   liveGame?: LiveNflGame | null,
-  marketBaselineBps?: number | null,
 ): Promise<ModelEstimate> {
   if (!canonical) {
     return {
@@ -445,18 +444,10 @@ export async function estimateMarket(
       });
     }
 
-    const marketBaselineProbability =
-      marketBaselineBps !== null &&
-      marketBaselineBps !== undefined &&
-      marketBaselineBps > 0 &&
-      marketBaselineBps < 10_000
-        ? marketBaselineBps / 10_000
-        : 0.5;
-
     let probability =
       consensusProbability ??
       statisticalProbability ??
-      marketBaselineProbability;
+      0.5;
     if (consensusProbability !== null && statisticalProbability !== null) {
       const statisticalWeight = clamp(
         0.30 + (values.length - 4) * 0.05,
@@ -466,17 +457,15 @@ export async function estimateMarket(
       probability =
         consensusProbability * (1 - statisticalWeight) +
         statisticalProbability * statisticalWeight;
-    } else if (
-      consensusProbability !== null &&
-      external.points.length === 1
-    ) {
-      // One projection source can move us away from the market, but it should
-      // not dominate the estimate by itself. Shrinking toward the live market
-      // preserves realistic long-shot tails instead of imposing an artificial
-      // probability floor.
-      probability =
-        consensusProbability * 0.72 + marketBaselineProbability * 0.28;
     }
+
+    // Keep the model estimate independent from the executable market price.
+    // Previously, a one-source player projection was shrunk 28% toward the
+    // current market midpoint. A price tick could therefore move both the
+    // market side of the edge and Lynerva's own probability at the same time,
+    // amplifying ordinary odds movement into a larger score jump. Reliability
+    // already discounts one-source estimates, so the market should not be
+    // allowed to feed back into the model probability itself.
 
     let contextAdjustment = 0;
     const gameProjection =
