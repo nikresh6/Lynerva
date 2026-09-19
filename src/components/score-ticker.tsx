@@ -1,19 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { LiveNflGame } from "@/lib/nfl/live";
 import { teamLogo } from "./subject-visual";
+import { GameBetsModal } from "./game-bets-modal";
 
 function matchupKey(game: LiveNflGame) {
   return [game.away.team, game.home.team].toSorted().join("-");
-}
-
-function destinationFor(game: LiveNflGame) {
-  const gameKey = matchupKey(game);
-  return game.state === "in"
-    ? `/live?game=${encodeURIComponent(gameKey)}`
-    : `/?game=${encodeURIComponent(gameKey)}`;
 }
 
 function shortStatus(game: LiveNflGame) {
@@ -109,15 +102,18 @@ function TeamScore({
 function TickerItem({
   game,
   mobile = false,
+  onOpen,
 }: {
   game: LiveNflGame;
   mobile?: boolean;
+  onOpen: (game: LiveNflGame) => void;
 }) {
   const showScore = game.state !== "pre";
 
   return (
-    <Link
-      href={destinationFor(game)}
+    <button
+      type="button"
+      onClick={() => onOpen(game)}
       className={
         mobile
           ? "score-ticker-item-mobile flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-[10px] transition-colors hover:bg-surface"
@@ -147,16 +143,18 @@ function TickerItem({
       >
         {shortStatus(game)}
       </span>
-    </Link>
+    </button>
   );
 }
 
 function Track({
   games,
   mobile = false,
+  onOpen,
 }: {
   games: LiveNflGame[];
   mobile?: boolean;
+  onOpen: (game: LiveNflGame) => void;
 }) {
   if (!games.length) return null;
   const repeated = games.length > (mobile ? 2 : 3);
@@ -176,6 +174,7 @@ function Track({
             key={`${game.id}:${index}`}
             game={game}
             mobile={mobile}
+            onOpen={onOpen}
           />
         ))}
       </div>
@@ -184,25 +183,37 @@ function Track({
 }
 
 export function DesktopScoreTicker({ games }: { games: LiveNflGame[] }) {
+  const [selectedGame, setSelectedGame] = useState<LiveNflGame | null>(null);
   if (!games.length) return null;
 
   return (
+    <>
     <div className="hidden min-w-0 flex-1 items-center lg:flex">
       <span className="mr-2 flex shrink-0 items-center gap-1.5 text-[8px] font-bold uppercase tracking-[0.12em] text-faint">
         <span className="size-1.5 rounded-full bg-positive" />
         NFL
       </span>
-      <Track games={games} />
+      <Track games={games} onOpen={setSelectedGame} />
     </div>
+    {selectedGame ? (
+      <GameBetsModal game={selectedGame} onClose={() => setSelectedGame(null)} />
+    ) : null}
+    </>
   );
 }
 
 export function MobileScoreTicker({ games }: { games: LiveNflGame[] }) {
+  const [selectedGame, setSelectedGame] = useState<LiveNflGame | null>(null);
   if (!games.length) return null;
 
   return (
-    <div className="score-ticker-mobile -mx-1 flex min-w-0 items-center overflow-hidden pb-2 sm:hidden">
-      <Track games={games} mobile />
-    </div>
+    <>
+      <div className="score-ticker-mobile -mx-1 flex min-w-0 items-center overflow-hidden pb-2 sm:hidden">
+        <Track games={games} mobile onOpen={setSelectedGame} />
+      </div>
+      {selectedGame ? (
+        <GameBetsModal game={selectedGame} onClose={() => setSelectedGame(null)} />
+      ) : null}
+    </>
   );
 }
