@@ -363,11 +363,41 @@ export async function estimateMarket(
       scheduleGame?.season ?? 2026,
     );
 
+    if (external.projection === null && values.length < 4) {
+      return {
+        probabilityBps: null,
+        reliabilityBps: 0,
+        version: MODEL_VERSION,
+        evidence: {
+          ...emptyEvidence,
+          sampleSize: values.length,
+          recentValues: values.slice(0, 10),
+        },
+        factors: [
+          "Lynerva does not publish a player-prop probability when there is no independent weekly projection and fewer than four current-season results.",
+        ],
+        components: {
+          consensusProjection: null,
+          consensusProbabilityBps: null,
+          statisticalProbabilityBps: null,
+          contextAdjustmentBps: 0,
+          projectionSourceCount: 0,
+          projectionSources: [],
+          projectionSeason: scheduleGame?.season ?? null,
+          projectionWeek: scheduleGame?.week ?? null,
+          learnedSourceWeightWeek: external.weightWeek,
+          learnedCalibrationSample: 0,
+          learnedCalibrationActive: false,
+        },
+      };
+    }
+
     const distributionStdDev: Partial<Record<CanonicalMarket["family"], number>> = {
       passing_yards: 58,
       rushing_yards: 26,
       receiving_yards: 29,
       receptions: 2.25,
+      longest_reception: 8.5,
     };
 
     let consensusProbability: number | null = null;
