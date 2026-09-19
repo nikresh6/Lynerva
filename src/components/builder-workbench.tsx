@@ -1187,7 +1187,10 @@ export function BuilderWorkbench() {
                 {portfolioPlan.positions.map((position, index) => (
                   <article
                     key={position.id}
-                    className="rounded-xl border bg-surface-raised/35 p-4"
+                    className={cn(
+                      "builder-result-card overflow-hidden rounded-2xl border p-4",
+                      builderScoreTone(position.lynervaScore),
+                    )}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -1209,23 +1212,47 @@ export function BuilderWorkbench() {
                           Pays about {"$"}{Math.round(position.payoutIfWin).toLocaleString()} if it wins
                         </p>
                       </div>
-                      <div className="text-right">
-                        <p className="text-sm font-semibold tabular">
-                          {formatPercent(
-                            Math.round(position.estimatedProbability * 10_000),
-                            1,
-                          )}
-                        </p>
-                        <p className="mt-0.5 text-[9px] text-faint">Model hit chance</p>
+                      <div className="flex shrink-0 items-start gap-2.5">
+                        <div className="text-right">
+                          <p className="text-sm font-semibold tabular">
+                            {formatPercent(
+                              Math.round(position.estimatedProbability * 10_000),
+                              1,
+                            )}
+                          </p>
+                          <p className="mt-0.5 text-[9px] text-faint">
+                            Model hit chance
+                          </p>
+                        </div>
+                        <div className={cn(
+                          "builder-mini-score grid size-11 place-items-center rounded-xl border bg-surface text-center",
+                          builderScoreTone(position.lynervaScore),
+                        )}>
+                          <div>
+                            <p className="text-sm font-bold tabular leading-none">
+                              {position.lynervaScore}
+                            </p>
+                            <p className="mt-1 text-[7px] font-semibold uppercase tracking-[0.08em] text-faint">
+                              score
+                            </p>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
                     <div className="mt-4 space-y-2">
                       {position.legs.map((leg, legIndex) => (
-                        <div
+                        <button
                           key={`${position.id}:${leg.platformMarketId}`}
-                          className="flex items-start gap-2 rounded-lg border bg-surface px-3 py-2.5"
+                          type="button"
+                          onClick={() => setSelectedMarket(leg)}
+                          className="group flex w-full items-center gap-2.5 rounded-xl border bg-surface/80 px-2.5 py-2.5 text-left transition-all hover:border-strong hover:bg-surface"
                         >
+                          <SubjectVisual
+                            market={leg}
+                            visual={playerVisuals[leg.canonical?.subject ?? ""]}
+                            size="sm"
+                          />
                           <span className="grid size-5 shrink-0 place-items-center rounded-md border bg-background text-[8px] font-semibold text-muted">
                             {legIndex + 1}
                           </span>
@@ -1233,16 +1260,24 @@ export function BuilderWorkbench() {
                             <p className="text-[11px] font-medium leading-4">
                               {builderPickLabel(leg)}
                             </p>
-                            <div className="mt-1 flex items-center gap-2 text-[9px] text-faint">
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[9px] text-faint">
                               <span>{leg.canonical?.matchup ?? leg.eventTitle}</span>
                               <span>·</span>
                               <span className="capitalize">{leg.platform}</span>
+                              <span>·</span>
+                              <span>Score {leg.lynervaScore ?? "n/a"}</span>
                             </div>
                           </div>
-                          <span className="shrink-0 text-[10px] font-medium tabular">
-                            {formatPercent(leg.executablePriceBps)}
-                          </span>
-                        </div>
+                          <div className="shrink-0 text-right">
+                            <span className="block text-[10px] font-medium tabular">
+                              {formatPercent(leg.executablePriceBps)}
+                            </span>
+                            <span className="mt-1 inline-flex items-center gap-0.5 text-[8px] text-muted group-hover:text-foreground">
+                              <FlaskConical size={9} />
+                              Lab
+                            </span>
+                          </div>
+                        </button>
                       ))}
                     </div>
 
@@ -1286,6 +1321,13 @@ export function BuilderWorkbench() {
           )}
         </section>
       </div>
+
+      {selectedMarket ? (
+        <BetLab
+          market={selectedMarket}
+          onClose={() => setSelectedMarket(null)}
+        />
+      ) : null}
     </div>
   );
 }
