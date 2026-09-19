@@ -9,8 +9,25 @@ import { MarketTable } from "./market-table";
 import { useMarketData } from "./market-data-provider";
 import { teamLogo } from "./subject-visual";
 
+function canonicalTeamCode(code: string) {
+  const upper = code.toUpperCase();
+  if (upper === "WSH") return "WAS";
+  if (upper === "JAC") return "JAX";
+  if (upper === "LA") return "LAR";
+  return upper;
+}
+
+function normalizeMatchup(value: string | null | undefined) {
+  if (!value) return "";
+  return value
+    .split("-")
+    .map(canonicalTeamCode)
+    .toSorted()
+    .join("-");
+}
+
 function keyFor(game: LiveNflGame) {
-  return [game.away.team, game.home.team].toSorted().join("-");
+  return normalizeMatchup(`${game.away.team}-${game.home.team}`);
 }
 
 function status(game: LiveNflGame) {
@@ -108,7 +125,7 @@ export function GameBoard() {
     const target = keyFor(game);
     return opportunities.filter(
       (market) =>
-        market.canonical?.matchup === target &&
+        normalizeMatchup(market.canonical?.matchup) === target &&
         market.lynervaScore !== null &&
         market.recommendedSide !== null &&
         (game.state === "in" ? market.isLive : !market.isLive),
