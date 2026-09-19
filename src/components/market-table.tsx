@@ -572,7 +572,7 @@ export function MarketTable({
   emptyMessage?: string;
 }) {
   const [selected, setSelected] = useState<MarketOpportunity | null>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [alternateGroup, setAlternateGroup] = useState<{ key: string; lines: MarketOpportunity[] } | null>(null);
 
   const groups = useMemo(() => {
     const sorted = markets.toSorted((a, b) => (b.lynervaScore ?? -1) - (a.lynervaScore ?? -1));
@@ -667,7 +667,6 @@ export function MarketTable({
         {groups.map(({ key, lines, best: market }, index) => {
           const rate = hitRate(market);
           const profit = profitOn100(market);
-          const isExpanded = expanded.has(key);
           const alternates = lines.slice(1);
 
           return (
@@ -737,82 +736,63 @@ export function MarketTable({
                 <div className="border-t">
                   <button
                     type="button"
-                    onClick={() => setExpanded((current) => {
-                      const next = new Set(current);
-                      if (next.has(key)) next.delete(key);
-                      else next.add(key);
-                      return next;
-                    })}
+                    onClick={() => setAlternateGroup({ key, lines: alternates })}
                     className="flex w-full items-center justify-between px-4 py-3 text-xs font-medium text-muted transition-colors hover:bg-surface-raised hover:text-foreground"
                   >
                     <span>{alternates.length} alternate line{alternates.length === 1 ? "" : "s"}</span>
-                    <ChevronDown size={14} className={cn("transition-transform", isExpanded ? "rotate-180" : "")} />
+                    <ChevronDown size={14} />
                   </button>
-
-                  {isExpanded ? (
-                    <div className="absolute inset-x-2 bottom-12 z-30 overflow-hidden rounded-2xl border bg-surface/95 shadow-[0_20px_70px_rgb(0_0_0/0.42)] backdrop-blur-xl sm:inset-x-3">
-                      <div className="flex items-center justify-between border-b bg-surface-raised/70 px-3 py-2.5">
-                        <span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-faint">Alternate lines</span>
-                        <button
-                          type="button"
-                          onClick={() => setExpanded((current) => {
-                            const next = new Set(current);
-                            next.delete(key);
-                            return next;
-                          })}
-                          className="grid size-6 place-items-center rounded-md text-faint hover:bg-background hover:text-foreground"
-                          aria-label="Close alternate lines"
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                      <div className="scrollbar-subtle grid max-h-[min(52vh,360px)] gap-1.5 overflow-y-auto overscroll-contain p-2 [scrollbar-gutter:stable] sm:grid-cols-2 sm:p-2.5">
-                        {alternates.map((alt) => {
-                          const altProfit = profitOn100(alt);
-                          return (
-                            <button
-                              key={`${alt.platform}:${alt.platformMarketId}:${alt.platformOutcomeId ?? "yes"}`}
-                              type="button"
-                              onClick={() => {
-                                setSelected(alt);
-                                setExpanded((current) => {
-                                  const next = new Set(current);
-                                  next.delete(key);
-                                  return next;
-                                });
-                              }}
-                              className="group rounded-xl border border-transparent bg-background/70 px-3 py-2.5 text-left transition-[background-color,border-color,transform] hover:-translate-y-px hover:border-border-strong hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-positive/40"
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <div className="text-[13px] font-semibold leading-5">
-                                    <span className="mr-1 text-positive">{displayPickSide(alt)}</span>
-                                    {alt.canonical?.threshold ?? displayMarketTitle(alt)}
-                                  </div>
-                                  <div className="mt-0.5 text-[10px] leading-4 text-muted">
-                                    {formatPercent(alt.executablePriceBps)} market · {formatPercent(alt.recommendedProbabilityBps)} Lynerva
-                                  </div>
-                                </div>
-                                <div className="text-right">
-                                  <div className="text-[15px] font-bold tabular leading-5">{alt.lynervaScore ?? "—"}</div>
-                                  <div className="text-[8px] font-semibold uppercase tracking-[0.12em] text-faint">Score</div>
-                                </div>
-                              </div>
-                              <div className="mt-2 flex items-center justify-between border-t pt-2 text-[10px] text-muted">
-                                $100 profit <span className="font-semibold tabular text-foreground">{altProfit === null ? "—" : `$${altProfit.toFixed(0)}`}</span>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : null}
                 </div>
               ) : null}
             </div>
           );
         })}
       </div>
+
+      {alternateGroup ? (
+        <div className="fixed inset-0 z-[65] grid place-items-center p-4 sm:p-6" role="dialog" aria-modal="true" aria-label="Alternate lines">
+          <button type="button" className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-[2px]" onClick={() => setAlternateGroup(null)} aria-label="Close alternate lines" />
+          <div className="sheet-enter relative z-10 w-full max-w-[680px] overflow-hidden rounded-[24px] border bg-surface shadow-[0_28px_100px_rgb(0_0_0/0.5)]">
+            <div className="flex items-center justify-between border-b px-5 py-4">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Alternate lines</div>
+                <div className="mt-1 text-sm font-semibold">{displayContext(alternateGroup.lines[0]!)}</div>
+              </div>
+              <button type="button" onClick={() => setAlternateGroup(null)} className="grid size-9 place-items-center rounded-full border bg-background text-muted hover:text-foreground" aria-label="Close alternate lines"><X size={15} /></button>
+            </div>
+            <div className="scrollbar-subtle max-h-[min(68vh,620px)] space-y-2 overflow-y-auto overscroll-contain p-3 sm:p-4">
+              {alternateGroup.lines.map((alt) => {
+                const altProfit = profitOn100(alt);
+                return (
+                  <button
+                    key={`${alt.platform}:${alt.platformMarketId}:${alt.platformOutcomeId ?? "yes"}`}
+                    type="button"
+                    onClick={() => { setSelected(alt); setAlternateGroup(null); }}
+                    className="group flex w-full items-center gap-4 rounded-2xl border bg-background p-3.5 text-left transition-colors hover:border-border-strong hover:bg-surface-raised sm:p-4"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-base font-semibold">
+                        <span className="mr-1.5 text-positive">{displayPickSide(alt)}</span>
+                        {alt.canonical?.threshold ?? displayMarketTitle(alt)}
+                      </div>
+                      <div className="mt-1 text-[11px] text-muted">
+                        {formatPercent(alt.executablePriceBps)} market · <span className="font-medium text-positive">{formatPercent(alt.recommendedProbabilityBps)} Lynerva</span>
+                      </div>
+                      <div className="mt-2 text-[11px] text-muted">
+                        $100 profit <span className="font-semibold tabular text-foreground">{altProfit === null ? "—" : `${altProfit.toFixed(0)}`}</span>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-col items-center gap-1">
+                      <ScoreRing score={alt.lynervaScore} size={56} />
+                      <span className="text-[8px] font-semibold uppercase tracking-[0.14em] text-faint">Score</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {selected ? <BetLab market={selected} onClose={() => setSelected(null)} /> : null}
     </>
