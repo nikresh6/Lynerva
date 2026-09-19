@@ -750,8 +750,8 @@ export function MarketTable({
                   </button>
 
                   {isExpanded ? (
-                    <div className="absolute inset-x-3 bottom-14 z-30 rounded-2xl border bg-surface p-3 shadow-[0_18px_55px_rgb(0_0_0/0.32)]">
-                      <div className="mb-2 flex items-center justify-between px-1">
+                    <div className="absolute inset-x-2 bottom-12 z-30 overflow-hidden rounded-2xl border bg-surface/95 shadow-[0_20px_70px_rgb(0_0_0/0.42)] backdrop-blur-xl sm:inset-x-3">
+                      <div className="flex items-center justify-between border-b bg-surface-raised/70 px-3 py-2.5">
                         <span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-faint">Alternate lines</span>
                         <button
                           type="button"
@@ -766,7 +766,7 @@ export function MarketTable({
                           <X size={12} />
                         </button>
                       </div>
-                      <div className="grid max-h-[280px] gap-2 overflow-y-auto sm:grid-cols-2">
+                      <div className="scrollbar-subtle grid max-h-[min(52vh,360px)] gap-1.5 overflow-y-auto overscroll-contain p-2 [scrollbar-gutter:stable] sm:grid-cols-2 sm:p-2.5">
                         {alternates.map((alt) => {
                           const altProfit = profitOn100(alt);
                           return (
@@ -781,24 +781,24 @@ export function MarketTable({
                                   return next;
                                 });
                               }}
-                              className="rounded-xl border bg-background p-3 text-left transition-colors hover:border-border-strong hover:bg-surface-raised"
+                              className="group rounded-xl border border-transparent bg-background/70 px-3 py-2.5 text-left transition-[background-color,border-color,transform] hover:-translate-y-px hover:border-border-strong hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-positive/40"
                             >
                               <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
-                                  <div className="text-[12px] font-semibold leading-5">
+                                  <div className="text-[13px] font-semibold leading-5">
                                     <span className="mr-1 text-positive">{displayPickSide(alt)}</span>
                                     {alt.canonical?.threshold ?? displayMarketTitle(alt)}
                                   </div>
-                                  <div className="mt-1 text-[9px] text-faint">
+                                  <div className="mt-0.5 text-[10px] leading-4 text-muted">
                                     {formatPercent(alt.executablePriceBps)} market · {formatPercent(alt.recommendedProbabilityBps)} Lynerva
                                   </div>
                                 </div>
                                 <div className="text-right">
-                                  <div className="text-sm font-bold tabular">{alt.lynervaScore ?? "—"}</div>
-                                  <div className="text-[7px] font-semibold uppercase tracking-[0.08em] text-faint">Score</div>
+                                  <div className="text-[15px] font-bold tabular leading-5">{alt.lynervaScore ?? "—"}</div>
+                                  <div className="text-[8px] font-semibold uppercase tracking-[0.12em] text-faint">Score</div>
                                 </div>
                               </div>
-                              <div className="mt-2 border-t pt-2 text-[9px] text-muted">
+                              <div className="mt-2 flex items-center justify-between border-t pt-2 text-[10px] text-muted">
                                 $100 profit <span className="font-semibold tabular text-foreground">{altProfit === null ? "—" : `$${altProfit.toFixed(0)}`}</span>
                               </div>
                             </button>
