@@ -674,7 +674,7 @@ export function MarketTable({
             <div
               key={key}
               className={cn(
-                "pick-card pick-card-enter flex h-full flex-col rounded-2xl border bg-surface text-left",
+                "pick-card pick-card-enter relative flex h-full flex-col rounded-2xl border bg-surface text-left",
                 scoreTone(market.lynervaScore),
               )}
               style={{ animationDelay: `${Math.min(index, 10) * 35}ms` }}
@@ -750,24 +750,38 @@ export function MarketTable({
                   </button>
 
                   {isExpanded ? (
-                    <div className="border-t bg-background p-3">
+                    <div className="absolute inset-x-3 bottom-14 z-30 rounded-2xl border bg-surface p-3 shadow-[0_18px_55px_rgb(0_0_0/0.32)]">
                       <div className="mb-2 flex items-center justify-between px-1">
-                        <span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-faint">
-                          Choose a line
-                        </span>
-                        <span className="text-[9px] text-faint">
-                          Best score first
-                        </span>
+                        <span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-faint">Alternate lines</span>
+                        <button
+                          type="button"
+                          onClick={() => setExpanded((current) => {
+                            const next = new Set(current);
+                            next.delete(key);
+                            return next;
+                          })}
+                          className="grid size-6 place-items-center rounded-md text-faint hover:bg-background hover:text-foreground"
+                          aria-label="Close alternate lines"
+                        >
+                          <X size={12} />
+                        </button>
                       </div>
-                      <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="grid max-h-[280px] gap-2 overflow-y-auto sm:grid-cols-2">
                         {alternates.map((alt) => {
                           const altProfit = profitOn100(alt);
                           return (
                             <button
                               key={`${alt.platform}:${alt.platformMarketId}:${alt.platformOutcomeId ?? "yes"}`}
                               type="button"
-                              onClick={() => setSelected(alt)}
-                              className="group rounded-xl border bg-surface p-3 text-left transition-colors hover:border-border-strong hover:bg-surface-raised"
+                              onClick={() => {
+                                setSelected(alt);
+                                setExpanded((current) => {
+                                  const next = new Set(current);
+                                  next.delete(key);
+                                  return next;
+                                });
+                              }}
+                              className="rounded-xl border bg-background p-3 text-left transition-colors hover:border-border-strong hover:bg-surface-raised"
                             >
                               <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
@@ -776,25 +790,16 @@ export function MarketTable({
                                     {alt.canonical?.threshold ?? displayMarketTitle(alt)}
                                   </div>
                                   <div className="mt-1 text-[9px] text-faint">
-                                    {formatPercent(alt.executablePriceBps)} market
+                                    {formatPercent(alt.executablePriceBps)} market · {formatPercent(alt.recommendedProbabilityBps)} Lynerva
                                   </div>
                                 </div>
-                                <div className="rounded-lg bg-background px-2 py-1.5 text-center">
+                                <div className="text-right">
                                   <div className="text-sm font-bold tabular">{alt.lynervaScore ?? "—"}</div>
                                   <div className="text-[7px] font-semibold uppercase tracking-[0.08em] text-faint">Score</div>
                                 </div>
                               </div>
-                              <div className="mt-3 grid grid-cols-2 gap-2 border-t pt-2.5 text-[9px]">
-                                <div>
-                                  <div className="text-faint">Lynerva</div>
-                                  <div className="mt-0.5 font-semibold tabular text-positive">{formatPercent(alt.recommendedProbabilityBps)}</div>
-                                </div>
-                                <div className="text-right">
-                                  <div className="text-faint">$100 profit</div>
-                                  <div className="mt-0.5 font-semibold tabular">
-                                    {altProfit === null ? "—" : `${altProfit.toFixed(0)}`}
-                                  </div>
-                                </div>
+                              <div className="mt-2 border-t pt-2 text-[9px] text-muted">
+                                $100 profit <span className="font-semibold tabular text-foreground">{altProfit === null ? "—" : `$${altProfit.toFixed(0)}`}</span>
                               </div>
                             </button>
                           );
