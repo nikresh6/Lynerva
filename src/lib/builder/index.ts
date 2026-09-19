@@ -662,3 +662,42 @@ export function buildBestAvailableCombination(
 ): BuiltCombination | null {
   return buildCombination(opportunities, options);
 }
+
+
+export function buildRankedCombinations(
+  opportunities: MarketOpportunity[],
+  options: BuilderOptions,
+  limit = 6,
+): BuiltCombination[] {
+  return buildCombinationCandidates(
+    opportunities,
+    options,
+    Math.max(8, Math.min(limit * 4, 48)),
+  )
+    .toSorted(
+      (first, second) =>
+        second.lynervaScore - first.lynervaScore ||
+        second.expectedValueMultiplier - first.expectedValueMultiplier ||
+        second.estimatedProbability - first.estimatedProbability,
+    )
+    .slice(0, Math.max(1, limit));
+}
+
+export function buildTopScoredCombinations(
+  opportunities: MarketOpportunity[],
+  limit = 10,
+): BuiltCombination[] {
+  return buildRankedCombinations(
+    opportunities,
+    {
+      minReturn: 1.3,
+      maxReturn: 150,
+      maxLegs: 8,
+      platform: "either",
+      live: "pregame",
+      mode: "any",
+      objective: "balanced",
+    },
+    limit,
+  );
+}
