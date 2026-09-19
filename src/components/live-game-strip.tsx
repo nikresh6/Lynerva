@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { LiveNflGame } from "@/lib/nfl/live";
+import { teamLogo } from "./subject-visual";
 
 function gameLabel(game: LiveNflGame) {
   if (game.state === "in") return game.status;
@@ -68,25 +69,50 @@ export function LiveGameStrip({ games }: { games: LiveNflGame[] }) {
       {visible.map((game) => (
         <div
           key={game.id}
-          className="min-w-[220px] snap-start rounded-2xl border bg-surface px-4 py-3.5 shadow-[0_8px_24px_rgb(0_0_0/0.025)] sm:min-w-[240px]"
+          className="premium-panel min-w-[232px] snap-start overflow-hidden rounded-2xl sm:min-w-[260px]"
         >
-          <div className="mb-2 flex items-center justify-between text-[10px] text-muted">
+          <div className="flex items-center justify-between border-b px-4 py-2.5 text-[10px] text-muted">
             <span>{gameLabel(game)}</span>
-            <span className={game.state === "in" ? "rounded-full bg-negative-bg px-2 py-0.5 font-semibold text-negative" : ""}>{game.state === "in" ? game.clock : "NFL"}</span>
+            <span
+              className={
+                game.state === "in"
+                  ? "live-badge rounded-full bg-negative-bg px-2 py-0.5 font-semibold text-negative"
+                  : "rounded-full bg-accent-bg px-2 py-0.5 font-semibold text-accent"
+              }
+            >
+              {game.state === "in" ? game.clock : "NFL"}
+            </span>
           </div>
-          <div className="flex items-center justify-between font-medium tabular">
-            <span>{game.away.team}</span>
-            <span>{game.state === "in" ? game.away.score : "—"}</span>
+          <div className="space-y-2.5 px-4 py-3.5">
+            {[
+              [game.away.team, game.away.score],
+              [game.home.team, game.home.score],
+            ].map(([team, score]) => (
+              <div
+                key={team}
+                className="flex items-center justify-between font-medium tabular"
+              >
+                <span className="flex items-center gap-2.5">
+                  <span className="grid size-7 place-items-center rounded-lg border bg-surface p-1">
+                    <img
+                      src={teamLogo(String(team))}
+                      alt=""
+                      className="size-full object-contain"
+                    />
+                  </span>
+                  {team}
+                </span>
+                <span className="text-base font-semibold">
+                  {game.state === "in" ? score : "—"}
+                </span>
+              </div>
+            ))}
+            {game.state === "in" && game.possession ? (
+              <p className="border-t pt-2 text-[10px] text-faint">
+                Possession: {game.possession}
+              </p>
+            ) : null}
           </div>
-          <div className="mt-1 flex items-center justify-between font-medium tabular">
-            <span>{game.home.team}</span>
-            <span>{game.state === "in" ? game.home.score : "—"}</span>
-          </div>
-          {game.state === "in" && game.possession ? (
-            <p className="mt-2 text-[10px] text-faint">
-              Possession: {game.possession}
-            </p>
-          ) : null}
         </div>
       ))}
     </div>
