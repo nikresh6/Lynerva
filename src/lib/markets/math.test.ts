@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectArbitrage, expectedRoi, expectedValueBps, kalshiTakerFeeBps, riskReturn } from "./math";
+import { detectArbitrage, expectedRoi, expectedValueBps, kalshiTakerFeeBps, lynervaScore, riskReturn } from "./math";
 import type { ProviderMarket } from "./types";
 
 function market(platform: "kalshi" | "polymarket", yesAskBps: number, noAskBps: number): ProviderMarket {
@@ -29,4 +29,30 @@ describe("market math", () => {
     const result = detectArbitrage({ canonicalKey: "similar", first: market("kalshi", 4_000, 5_900), second: market("polymarket", 5_600, 4_300), settlementRulesMatch: false });
     expect(result?.classification).toBe("price_dislocation");
   });
+
+  it("does not let a transient bid-ask spread create a large score jump", () => {
+    const base = {
+      probabilityBps: 6_500,
+      edgeBps: 1_500,
+      priceBps: 5_000,
+      expectedRoi: 0.3,
+      reliabilityBps: 7_500,
+      seasonHits: null,
+      seasonGames: null,
+      last10Hits: null,
+      sampleSize: 0,
+      recommendedSide: "yes" as const,
+      liquidityCents: 20_000,
+      volumeCents: 50_000,
+      ageSeconds: 5,
+    };
+
+    const tight = lynervaScore({ ...base, spreadBps: 100 });
+    const wide = lynervaScore({ ...base, spreadBps: 2_000 });
+
+    expect(tight).not.toBeNull();
+    expect(wide).not.toBeNull();
+    expect(Math.abs((tight?.score ?? 0) - (wide?.score ?? 0))).toBeLessThanOrEqual(2);
+  });
+
 });

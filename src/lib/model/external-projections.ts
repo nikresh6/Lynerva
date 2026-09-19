@@ -45,6 +45,7 @@ const PAGE_TTL_MS = 20 * 60_000;
 const FAILURE_TTL_MS = 30_000;
 const CONSENSUS_TTL_MS = 20 * 60_000;
 const SOURCE_TIMEOUT_MS = 2_200;
+const SOURCE_LAST_GOOD_TTL_MS = 45 * 60_000;
 
 const pageCache = new Map<
   string,
@@ -57,6 +58,10 @@ const jsonCache = new Map<
 const sourceCache = new Map<
   string,
   { expiresAt: number; promise: Promise<ProjectionMap> }
+>();
+const lastGoodSourceCache = new Map<
+  string,
+  { storedAt: number; map: ProjectionMap }
 >();
 const consensusCache = new Map<
   string,
@@ -204,9 +209,44 @@ function cachedSource(
   const cached = sourceCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.promise;
 
+  const load = async () => {
+    const previous = lastGoodSourceCache.get(key);
+    try {
+      const next = await loader();
+
+      // Projection sites occasionally return an incomplete/empty response
+      // during a transient refresh. Do not let one bad fetch remove a large
+      // chunk of the source set and jerk consensus probabilities around.
+      if (
+        previous &&
+        Date.now() - previous.storedAt <= SOURCE_LAST_GOOD_TTL_MS &&
+        (next.size === 0 ||
+          (previous.map.size >= 20 && next.size < previous.map.size * 0.6))
+      ) {
+        return previous.map;
+      }
+
+      if (next.size > 0) {
+        lastGoodSourceCache.set(key, {
+          storedAt: Date.now(),
+          map: next,
+        });
+      }
+      return next;
+    } catch {
+      if (
+        previous &&
+        Date.now() - previous.storedAt <= SOURCE_LAST_GOOD_TTL_MS
+      ) {
+        return previous.map;
+      }
+      throw new Error(`Projection source ${source} unavailable`);
+    }
+  };
+
   const entry = {
     expiresAt: Date.now() + PAGE_TTL_MS,
-    promise: loader(),
+    promise: load(),
   };
   sourceCache.set(key, entry);
 

@@ -312,7 +312,7 @@ export function MarketExplorer({
 
   return (
     <>
-      <div className="filter-dock premium-panel sticky top-[112px] z-30 mb-3 rounded-2xl p-2.5 backdrop-blur-xl">
+      <div className="filter-dock premium-panel sticky top-[94px] z-30 mb-3 rounded-2xl p-2.5 backdrop-blur-xl sm:top-14">
         <div className="grid grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
           <label className="relative col-span-2 min-w-0 sm:col-span-1 sm:min-w-[220px] sm:flex-1">
             <Search

@@ -9,11 +9,20 @@ function matchupKey(game: LiveNflGame) {
   return [game.away.team, game.home.team].toSorted().join("-");
 }
 
-function statusLabel(game: LiveNflGame) {
+function destinationFor(game: LiveNflGame) {
+  const gameKey = matchupKey(game);
+  return game.state === "in"
+    ? `/live?game=${encodeURIComponent(gameKey)}`
+    : `/?game=${encodeURIComponent(gameKey)}`;
+}
+
+function shortStatus(game: LiveNflGame) {
   if (game.state === "in") {
-    return game.clock ? `${game.status} · ${game.clock}` : game.status;
+    const quarter = game.period > 4 ? "OT" : `Q${game.period}`;
+    return game.clock ? `${quarter} ${game.clock}` : quarter;
   }
   if (game.state === "post") return "Final";
+
   const start = new Date(game.startsAt);
   if (Number.isNaN(start.getTime())) return game.status;
   return new Intl.DateTimeFormat(undefined, {
@@ -23,65 +32,7 @@ function statusLabel(game: LiveNflGame) {
   }).format(start);
 }
 
-function GameTickerItem({ game }: { game: LiveNflGame }) {
-  const gameKey = matchupKey(game);
-  const destination =
-    game.state === "in"
-      ? `/live?game=${encodeURIComponent(gameKey)}`
-      : `/?game=${encodeURIComponent(gameKey)}`;
-
-  return (
-    <Link
-      href={destination}
-      className="score-ticker-item group flex shrink-0 items-center gap-3 rounded-xl border px-3 py-2 transition-colors hover:border-accent/40 hover:bg-accent-bg/50"
-      aria-label={`Open best bets for ${game.away.team} at ${game.home.team}`}
-    >
-      <div className="flex items-center gap-1.5">
-        <img
-          src={teamLogo(game.away.team)}
-          alt=""
-          className="size-5 object-contain"
-        />
-        <span className="text-[11px] font-semibold">{game.away.team}</span>
-        {game.state !== "pre" ? (
-          <span className="min-w-4 text-right text-[12px] font-bold tabular">
-            {game.away.score}
-          </span>
-        ) : null}
-      </div>
-
-      <span className="text-[9px] font-medium uppercase tracking-[0.1em] text-faint">
-        {game.state === "pre" ? "at" : "vs"}
-      </span>
-
-      <div className="flex items-center gap-1.5">
-        <img
-          src={teamLogo(game.home.team)}
-          alt=""
-          className="size-5 object-contain"
-        />
-        <span className="text-[11px] font-semibold">{game.home.team}</span>
-        {game.state !== "pre" ? (
-          <span className="min-w-4 text-right text-[12px] font-bold tabular">
-            {game.home.score}
-          </span>
-        ) : null}
-      </div>
-
-      <span
-        className={
-          game.state === "in"
-            ? "rounded-full bg-negative-bg px-2 py-1 text-[8px] font-bold uppercase tracking-[0.08em] text-negative"
-            : "text-[9px] font-medium text-muted"
-        }
-      >
-        {statusLabel(game)}
-      </span>
-    </Link>
-  );
-}
-
-export function ScoreTicker() {
+export function useTickerGames() {
   const [games, setGames] = useState<LiveNflGame[]>([]);
 
   useEffect(() => {
@@ -113,7 +64,7 @@ export function ScoreTicker() {
     };
   }, []);
 
-  const visible = useMemo(
+  return useMemo(
     () =>
       games
         .filter((game) => game.home.team !== "—" && game.away.team !== "—")
@@ -129,35 +80,129 @@ export function ScoreTicker() {
         }),
     [games],
   );
+}
 
-  if (!visible.length) return null;
+function TeamScore({
+  team,
+  score,
+  showScore,
+}: {
+  team: string;
+  score: number;
+  showScore: boolean;
+}) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <img
+        src={teamLogo(team)}
+        alt=""
+        className="size-4 shrink-0 object-contain"
+      />
+      <span className="font-semibold">{team}</span>
+      {showScore ? (
+        <span className="min-w-3 text-right font-bold tabular">{score}</span>
+      ) : null}
+    </span>
+  );
+}
 
-  const tickerGames = visible.length > 4 ? [...visible, ...visible] : visible;
+function TickerItem({
+  game,
+  mobile = false,
+}: {
+  game: LiveNflGame;
+  mobile?: boolean;
+}) {
+  const showScore = game.state !== "pre";
 
   return (
-    <div className="score-ticker-shell border-b bg-[var(--header)] backdrop-blur-xl">
-      <div className="mx-auto flex max-w-[1480px] items-center gap-3 overflow-hidden px-3 py-2 sm:px-6 lg:px-8">
-        <div className="hidden shrink-0 items-center gap-2 pr-1 sm:flex">
-          <span className="size-1.5 rounded-full bg-positive" />
-          <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted">
-            NFL
-          </span>
-        </div>
+    <Link
+      href={destinationFor(game)}
+      className={
+        mobile
+          ? "score-ticker-item-mobile flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-[10px] transition-colors hover:bg-surface"
+          : "score-ticker-item-desktop flex shrink-0 items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[10px] transition-colors hover:bg-surface"
+      }
+      aria-label={`Open best bets for ${game.away.team} at ${game.home.team}`}
+    >
+      <TeamScore
+        team={game.away.team}
+        score={game.away.score}
+        showScore={showScore}
+      />
+      <span className="text-[8px] font-medium uppercase tracking-[0.08em] text-faint">
+        {showScore ? "vs" : "at"}
+      </span>
+      <TeamScore
+        team={game.home.team}
+        score={game.home.score}
+        showScore={showScore}
+      />
+      <span
+        className={
+          game.state === "in"
+            ? "rounded-full bg-negative-bg px-1.5 py-0.5 text-[8px] font-bold uppercase text-negative"
+            : "whitespace-nowrap text-[8px] font-medium text-muted"
+        }
+      >
+        {shortStatus(game)}
+      </span>
+    </Link>
+  );
+}
 
-        <div className="score-ticker-window min-w-0 flex-1 overflow-hidden">
-          <div
-            className={
-              visible.length > 4
-                ? "score-ticker-track score-ticker-track-moving flex w-max gap-2"
-                : "score-ticker-track flex w-max gap-2"
-            }
-          >
-            {tickerGames.map((game, index) => (
-              <GameTickerItem key={`${game.id}:${index}`} game={game} />
-            ))}
-          </div>
-        </div>
+function Track({
+  games,
+  mobile = false,
+}: {
+  games: LiveNflGame[];
+  mobile?: boolean;
+}) {
+  if (!games.length) return null;
+  const repeated = games.length > (mobile ? 2 : 3);
+  const items = repeated ? [...games, ...games] : games;
+
+  return (
+    <div className="score-ticker-window min-w-0 flex-1 overflow-hidden">
+      <div
+        className={
+          repeated
+            ? "score-ticker-track score-ticker-track-moving flex w-max items-center gap-1.5"
+            : "score-ticker-track flex w-max items-center gap-1.5"
+        }
+      >
+        {items.map((game, index) => (
+          <TickerItem
+            key={`${game.id}:${index}`}
+            game={game}
+            mobile={mobile}
+          />
+        ))}
       </div>
+    </div>
+  );
+}
+
+export function DesktopScoreTicker({ games }: { games: LiveNflGame[] }) {
+  if (!games.length) return null;
+
+  return (
+    <div className="hidden min-w-0 flex-1 items-center lg:flex">
+      <span className="mr-2 flex shrink-0 items-center gap-1.5 text-[8px] font-bold uppercase tracking-[0.12em] text-faint">
+        <span className="size-1.5 rounded-full bg-positive" />
+        NFL
+      </span>
+      <Track games={games} />
+    </div>
+  );
+}
+
+export function MobileScoreTicker({ games }: { games: LiveNflGame[] }) {
+  if (!games.length) return null;
+
+  return (
+    <div className="score-ticker-mobile -mx-1 flex min-w-0 items-center overflow-hidden pb-2 sm:hidden">
+      <Track games={games} mobile />
     </div>
   );
 }

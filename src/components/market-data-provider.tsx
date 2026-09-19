@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import { usePathname } from "next/navigation";
-import type { MarketOpportunity, Platform } from "@/lib/markets/types";
+import type { MarketOpportunity, Platform, ScoreMovement } from "@/lib/markets/types";
 
 export interface ProviderSummary {
   provider: Platform;
@@ -63,6 +63,122 @@ function readStored(): MarketClientPayload | null {
   }
 }
 
+function marketIdentity(market: MarketOpportunity) {
+  return [
+    market.platform,
+    market.platformMarketId,
+    market.platformOutcomeId ?? "yes",
+    market.recommendedSide ?? "none",
+  ].join(":");
+}
+
+function movementBetween(
+  previous: MarketOpportunity,
+  current: MarketOpportunity,
+): ScoreMovement | null {
+  if (
+    previous.lynervaScore === null ||
+    current.lynervaScore === null ||
+    previous.lynervaScore === current.lynervaScore
+  ) {
+    return null;
+  }
+
+  const delta = current.lynervaScore - previous.lynervaScore;
+  const priceDeltaBps =
+    previous.executablePriceBps === null || current.executablePriceBps === null
+      ? null
+      : current.executablePriceBps - previous.executablePriceBps;
+  const probabilityDeltaBps =
+    previous.recommendedProbabilityBps === null ||
+    current.recommendedProbabilityBps === null
+      ? null
+      : current.recommendedProbabilityBps -
+        previous.recommendedProbabilityBps;
+  const reliabilityDeltaBps =
+    current.model.reliabilityBps - previous.model.reliabilityBps;
+  const marketQualityDelta =
+    previous.scoreBreakdown && current.scoreBreakdown
+      ? current.scoreBreakdown.marketQuality -
+        previous.scoreBreakdown.marketQuality
+      : null;
+  const projectionSourceCountDelta =
+    (current.model.components?.projectionSourceCount ?? 0) -
+    (previous.model.components?.projectionSourceCount ?? 0);
+  const previousConsensus =
+    previous.model.components?.consensusProjection ?? null;
+  const currentConsensus = current.model.components?.consensusProjection ?? null;
+  const consensusProjectionDelta =
+    previousConsensus === null || currentConsensus === null
+      ? null
+      : currentConsensus - previousConsensus;
+
+  let reason: ScoreMovement["reason"] = "mixed";
+  let detail = "Several scoring inputs changed on the latest refresh.";
+
+  if (projectionSourceCountDelta !== 0) {
+    reason = "projection_sources";
+    detail =
+      projectionSourceCountDelta > 0
+        ? `Projection coverage increased by ${projectionSourceCountDelta} source${projectionSourceCountDelta === 1 ? "" : "s"}.`
+        : `Projection coverage decreased by ${Math.abs(projectionSourceCountDelta)} source${Math.abs(projectionSourceCountDelta) === 1 ? "" : "s"}.`;
+  } else if (
+    probabilityDeltaBps !== null &&
+    Math.abs(probabilityDeltaBps) >= 75
+  ) {
+    reason = "model_probability";
+    detail = `Lynerva probability moved ${probabilityDeltaBps > 0 ? "+" : ""}${(
+      probabilityDeltaBps / 100
+    ).toFixed(1)} percentage points.`;
+  } else if (priceDeltaBps !== null && Math.abs(priceDeltaBps) >= 50) {
+    reason = "market_price";
+    detail = `Executable market price moved ${priceDeltaBps > 0 ? "+" : ""}${(
+      priceDeltaBps / 100
+    ).toFixed(1)} percentage points.`;
+  } else if (
+    marketQualityDelta !== null &&
+    Math.abs(marketQualityDelta) >= 2
+  ) {
+    reason = "market_quality";
+    detail =
+      "Bid-ask spread, liquidity, or quote freshness changed on the latest refresh.";
+  }
+
+  return {
+    delta,
+    previousScore: previous.lynervaScore,
+    currentScore: current.lynervaScore,
+    priceDeltaBps,
+    probabilityDeltaBps,
+    reliabilityDeltaBps,
+    marketQualityDelta,
+    projectionSourceCountDelta,
+    consensusProjectionDelta,
+    reason,
+    detail,
+  };
+}
+
+function annotateMovements(
+  previous: MarketClientPayload,
+  next: MarketClientPayload,
+): MarketClientPayload {
+  const previousByKey = new Map(
+    previous.opportunities.map((market) => [marketIdentity(market), market]),
+  );
+
+  return {
+    ...next,
+    opportunities: next.opportunities.map((market) => {
+      const earlier = previousByKey.get(marketIdentity(market));
+      return {
+        ...market,
+        scoreMovement: earlier ? movementBetween(earlier, market) : null,
+      };
+    }),
+  };
+}
+
 function writeStored(payload: MarketClientPayload) {
   try {
     localStorage.setItem(
@@ -81,6 +197,13 @@ export function MarketDataProvider({
 }) {
   const pathname = usePathname();
   const [data, setData] = useState<MarketClientPayload>({
+    opportunities: [],
+    providers: [],
+    ratedCount: 0,
+    displayedCount: 0,
+    fetchedAt: "",
+  });
+  const latestDataRef = useRef<MarketClientPayload>({
     opportunities: [],
     providers: [],
     ratedCount: 0,
@@ -114,14 +237,18 @@ export function MarketDataProvider({
           throw new Error(`Market feed returned ${response.status}`);
         }
         const payload = (await response.json()) as MarketClientPayload;
-        setData(payload);
-        writeStored(payload);
+        const annotated = annotateMovements(latestDataRef.current, payload);
+        latestDataRef.current = annotated;
+        setData(annotated);
+        writeStored(annotated);
         lastSuccessfulRefreshAt.current = Date.now();
         setError(null);
       } catch (caught) {
         setData((current) => {
           if (current.opportunities.length > 0) return current;
-          return readStored() ?? current;
+          const stored = readStored();
+          if (stored) latestDataRef.current = stored;
+          return stored ?? current;
         });
         setError(
           caught instanceof DOMException && caught.name === "AbortError"

@@ -139,6 +139,34 @@ function ScoreRing({ score, size = 58 }: { score: number | null; size?: number }
   );
 }
 
+function ScoreMovementBadge({
+  market,
+  compact = false,
+}: {
+  market: MarketOpportunity;
+  compact?: boolean;
+}) {
+  const movement = market.scoreMovement;
+  if (!movement || Math.abs(movement.delta) < 2) return null;
+  const positive = movement.delta > 0;
+
+  return (
+    <span
+      title={movement.detail}
+      className={cn(
+        "inline-flex items-center justify-center rounded-full border font-semibold tabular",
+        compact ? "mt-1 px-1.5 py-0.5 text-[8px]" : "px-2 py-1 text-[10px]",
+        positive
+          ? "border-positive/20 bg-positive-bg text-positive"
+          : "border-negative/20 bg-negative-bg text-negative",
+      )}
+    >
+      {positive ? "+" : ""}
+      {movement.delta} refresh
+    </span>
+  );
+}
+
 function Metric({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
   return (
     <div className="min-w-0">
@@ -441,12 +469,47 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
               <h2 className="mt-2 text-lg font-semibold leading-snug">{title}</h2>
               <p className="mt-1 text-xs text-muted">{displayContext(market)}</p>
             </div>
-            <ScoreRing score={market.lynervaScore} size={64} />
+            <div className="flex shrink-0 flex-col items-center">
+              <ScoreRing score={market.lynervaScore} size={64} />
+              <ScoreMovementBadge market={market} compact />
+            </div>
             <button type="button" onClick={onClose} className="grid size-8 place-items-center rounded-md text-muted hover:bg-background" aria-label="Close"><X size={17} /></button>
           </div>
         </div>
 
         <div className="space-y-4 p-5 sm:p-7">
+          {market.scoreMovement && Math.abs(market.scoreMovement.delta) >= 2 ? (
+            <section className="rounded-2xl border bg-background p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold">What changed</h3>
+                <ScoreMovementBadge market={market} />
+              </div>
+              <p className="mt-2 text-xs leading-5 text-muted">
+                {market.scoreMovement.detail}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-[10px] text-faint">
+                {market.scoreMovement.priceDeltaBps !== null ? (
+                  <span>
+                    Market price {market.scoreMovement.priceDeltaBps > 0 ? "+" : ""}
+                    {(market.scoreMovement.priceDeltaBps / 100).toFixed(1)}pp
+                  </span>
+                ) : null}
+                {market.scoreMovement.probabilityDeltaBps !== null ? (
+                  <span>
+                    Lynerva probability {market.scoreMovement.probabilityDeltaBps > 0 ? "+" : ""}
+                    {(market.scoreMovement.probabilityDeltaBps / 100).toFixed(1)}pp
+                  </span>
+                ) : null}
+                {market.scoreMovement.projectionSourceCountDelta !== 0 ? (
+                  <span>
+                    Projection sources {market.scoreMovement.projectionSourceCountDelta > 0 ? "+" : ""}
+                    {market.scoreMovement.projectionSourceCountDelta}
+                  </span>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
+
           <section className="rounded-2xl border bg-background p-4">
             <h3 className="text-sm font-semibold">At a glance</h3>
             <div className="mt-4 grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-4 sm:gap-x-6">
@@ -648,7 +711,10 @@ export function MarketTable({
                     </div>
                     <div className="mt-1 text-[11px] text-faint">{displayContext(market)}</div>
                   </div>
-                  <ScoreRing score={market.lynervaScore} />
+                  <div className="flex shrink-0 flex-col items-center">
+                    <ScoreRing score={market.lynervaScore} />
+                    <ScoreMovementBadge market={market} compact />
+                  </div>
                 </div>
 
                 <div className="metric-strip mt-4 grid grid-cols-2 gap-x-5 gap-y-3 rounded-xl border border-transparent bg-background p-3.5 sm:grid-cols-4 sm:gap-3">
