@@ -540,7 +540,7 @@ export function MarketTable({
 
   if (!groups.length) {
     return (
-      <div className="rounded-xl border bg-surface px-6 py-16 text-center">
+      <div className="premium-panel rounded-2xl px-6 py-16 text-center">
         <p className="font-medium">{emptyMessage}</p>
         <p className="mt-1 text-xs text-muted">Try another filter or check back when markets move.</p>
       </div>
@@ -565,7 +565,7 @@ export function MarketTable({
               )}
               style={{ animationDelay: `${Math.min(index, 10) * 35}ms` }}
             >
-              <button type="button" onClick={() => setSelected(market)} className="w-full p-5 text-left">
+              <button type="button" onClick={() => setSelected(market)} className="w-full p-4 text-left sm:p-5">
                 <div className="flex items-start gap-4">
                   <div className="relative">
                     <SubjectVisual
