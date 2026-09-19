@@ -141,7 +141,7 @@ export function ManualTracker() {
   };
 
   const inputClass =
-    "h-11 w-full rounded-xl border bg-background px-3 text-xs outline-none transition-colors focus:border-foreground";
+    "control-surface h-11 w-full rounded-xl px-3 text-xs outline-none transition-colors focus:border-accent";
 
   return (
     <div className="space-y-5">
@@ -178,7 +178,7 @@ export function ManualTracker() {
           <div
             key={label}
             className={cn(
-              "rounded-2xl border bg-surface p-3.5 shadow-[0_8px_24px_rgb(0_0_0/0.02)] sm:p-4",
+              "premium-panel rounded-2xl p-3.5 sm:p-4",
               index === 4 ? "col-span-2 lg:col-span-1" : "",
             )}
           >
@@ -201,7 +201,7 @@ export function ManualTracker() {
         ))}
       </div>
 
-      <section className="overflow-hidden rounded-2xl border bg-surface shadow-[0_8px_30px_rgb(0_0_0/0.025)]">
+      <section className="premium-panel overflow-hidden rounded-2xl">
         <div className="flex flex-col gap-3 border-b bg-surface-raised/45 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
           <div>
             <h2 className="font-semibold">Manual bet log</h2>
@@ -213,7 +213,7 @@ export function ManualTracker() {
           <button
             type="button"
             onClick={() => setShowForm((value) => !value)}
-            className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-foreground px-4 text-xs font-semibold text-background sm:w-auto"
+            className="primary-action inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-xl px-4 text-xs font-semibold sm:w-auto"
           >
             <Plus size={14} />
             {showForm ? "Close form" : "Add bet"}
@@ -315,7 +315,7 @@ export function ManualTracker() {
             </label>
 
             <div className="sm:col-span-2 lg:col-span-5 lg:flex lg:items-end">
-              <button className="h-11 w-full rounded-xl bg-foreground px-4 text-xs font-semibold text-background sm:w-auto">
+              <button className="primary-action h-11 w-full rounded-xl px-4 text-xs font-semibold sm:w-auto">
                 Save bet
               </button>
             </div>
