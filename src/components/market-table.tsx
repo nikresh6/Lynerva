@@ -523,10 +523,61 @@ export function MarketTable({
       group.push(market);
       map.set(key, group);
     }
-    return [...map.entries()]
+    const allGroups = [...map.entries()]
       .map(([key, lines]) => ({ key, lines, best: lines[0]! }))
-      .toSorted((a, b) => (b.best.lynervaScore ?? -1) - (a.best.lynervaScore ?? -1))
-      .slice(0, 30);
+      .toSorted(
+        (a, b) => (b.best.lynervaScore ?? -1) - (a.best.lynervaScore ?? -1),
+      );
+
+    if (allGroups.length <= 30) return allGroups;
+
+    // Keep the page genuinely useful across the weekly prop board. Pure score
+    // sorting can let one deep market family, usually receiving yards, consume
+    // every visible slot even when strong reception, QB, or TD opportunities
+    // exist. Preserve the top 24 outright, then reserve the remaining space
+    // for the best solid setup from any missing family before filling by score.
+    const selected = allGroups.slice(0, 24);
+    const selectedKeys = new Set(selected.map((group) => group.key));
+    const representedFamilies = new Set(
+      selected
+        .map((group) => group.best.canonical?.family)
+        .filter((family): family is NonNullable<typeof family> => Boolean(family)),
+    );
+    const familyOrder = [
+      "passing_yards",
+      "passing_touchdowns",
+      "passing_interceptions",
+      "rushing_yards",
+      "receiving_yards",
+      "receptions",
+      "touchdowns",
+    ] as const;
+
+    for (const family of familyOrder) {
+      if (selected.length >= 30) break;
+      if (representedFamilies.has(family)) continue;
+      const candidate = allGroups.find(
+        (group) =>
+          !selectedKeys.has(group.key) &&
+          group.best.canonical?.family === family &&
+          (group.best.lynervaScore ?? 0) >= 52,
+      );
+      if (!candidate) continue;
+      selected.push(candidate);
+      selectedKeys.add(candidate.key);
+      representedFamilies.add(family);
+    }
+
+    for (const group of allGroups) {
+      if (selected.length >= 30) break;
+      if (selectedKeys.has(group.key)) continue;
+      selected.push(group);
+      selectedKeys.add(group.key);
+    }
+
+    return selected.toSorted(
+      (a, b) => (b.best.lynervaScore ?? -1) - (a.best.lynervaScore ?? -1),
+    );
   }, [markets]);
 
   const playerNames = useMemo(
