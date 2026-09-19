@@ -433,13 +433,12 @@ button, a, input, select, textarea { outline-offset: 3px; }
 }
 
 .mobile-nav-shell {
-  border: 1px solid color-mix(in srgb, var(--border-strong) 78%, transparent);
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
   box-shadow:
-    0 16px 50px rgb(0 0 0 / 0.2),
-    inset 0 1px 0 rgb(255 255 255 / 0.06);
-  backdrop-filter: blur(24px) saturate(1.25);
-  -webkit-backdrop-filter: blur(24px) saturate(1.25);
+    0 -8px 28px rgb(0 0 0 / 0.07),
+    inset 0 1px 0 rgb(255 255 255 / 0.05);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
 }
 
 .mobile-nav-item {
@@ -509,43 +508,44 @@ button, a, input, select, textarea { outline-offset: 3px; }
 
 
 /* NFL score ticker */
-.score-ticker-shell {
-  position: sticky;
-  top: 56px;
-  z-index: 35;
-}
-
 .score-ticker-window {
   mask-image: linear-gradient(
     90deg,
     transparent 0,
-    black 20px,
-    black calc(100% - 20px),
+    black 14px,
+    black calc(100% - 14px),
     transparent 100%
   );
   -webkit-mask-image: linear-gradient(
     90deg,
     transparent 0,
-    black 20px,
-    black calc(100% - 20px),
+    black 14px,
+    black calc(100% - 14px),
     transparent 100%
   );
 }
 
-.score-ticker-item {
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--surface-raised) 76%, transparent),
-      transparent
-    ),
-    var(--surface);
-  border-color: var(--border);
-  min-height: 40px;
+.score-ticker-item-desktop,
+.score-ticker-item-mobile {
+  border: 1px solid transparent;
+  color: var(--foreground);
+}
+
+.score-ticker-item-desktop:hover,
+.score-ticker-item-mobile:hover {
+  border-color: color-mix(in srgb, var(--border-strong) 72%, transparent);
+}
+
+.score-ticker-item-desktop {
+  background: color-mix(in srgb, var(--surface) 48%, transparent);
+}
+
+.score-ticker-item-mobile {
+  background: color-mix(in srgb, var(--surface) 62%, transparent);
 }
 
 .score-ticker-track-moving {
-  animation: lynerva-score-ticker 48s linear infinite;
+  animation: lynerva-score-ticker 52s linear infinite;
   will-change: transform;
 }
 
@@ -576,16 +576,28 @@ button, a, input, select, textarea { outline-offset: 3px; }
 }
 
 @media (max-width: 639px) {
-  .score-ticker-shell {
-    top: 56px;
+  .score-ticker-mobile {
+    min-height: 38px;
   }
 
   .score-ticker-track-moving {
-    animation-duration: 58s;
+    animation-duration: 60s;
   }
 
-  .score-ticker-item {
-    min-height: 38px;
-    padding-block: 0.4rem;
+  .score-ticker-window {
+    mask-image: linear-gradient(
+      90deg,
+      transparent 0,
+      black 8px,
+      black calc(100% - 8px),
+      transparent 100%
+    );
+    -webkit-mask-image: linear-gradient(
+      90deg,
+      transparent 0,
+      black 8px,
+      black calc(100% - 8px),
+      transparent 100%
+    );
   }
 }
