@@ -71,10 +71,7 @@ export function findNflTeamsInQuery(query: string) {
   return NFL_TEAMS.filter((team) =>
     team.aliases.some((alias) => {
       const candidate = normalize(alias);
-      if (candidate.length < 3) {
-        return normalize(query) === candidate;
-      }
-      return normalized.includes(` ${candidate} `);
+      return Boolean(candidate) && normalized.includes(` ${candidate} `);
     }),
   );
 }
