@@ -703,7 +703,21 @@ export function BuilderWorkbench() {
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:min-w-[520px]">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 lg:min-w-[650px]">
+                  <div className={cn(
+                    "builder-score-tile rounded-xl border bg-surface p-3",
+                    builderScoreTone(combination.lynervaScore),
+                  )}>
+                    <p className="text-[10px] text-faint">Parlay score</p>
+                    <div className="mt-1 flex items-baseline gap-1.5">
+                      <p className="text-lg font-semibold tabular">
+                        {combination.lynervaScore}
+                      </p>
+                      <span className="text-[9px] font-semibold uppercase tracking-[0.06em] text-muted">
+                        {builderScoreLabel(combination.lynervaScore)}
+                      </span>
+                    </div>
+                  </div>
                   <div className="rounded-xl border bg-surface p-3">
                     <p className="text-[10px] text-faint">Est. hit chance</p>
                     <p className="mt-1 text-lg font-semibold tabular">
@@ -754,61 +768,81 @@ export function BuilderWorkbench() {
                 return (
                   <li
                     key={`${leg.platform}:${leg.platformMarketId}`}
-                    className="rounded-xl border bg-surface-raised/35 p-4 transition-colors hover:bg-surface-raised"
+                    className={cn(
+                      "builder-result-card overflow-hidden rounded-2xl border",
+                      builderScoreTone(leg.lynervaScore),
+                    )}
                   >
-                    <div className="flex items-start gap-3">
-                      <span className="grid size-7 shrink-0 place-items-center rounded-lg border bg-surface text-[10px] font-semibold text-muted">
-                        {index + 1}
-                      </span>
-
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-faint">
-                          {matchup}
-                        </p>
-                        <p className="mt-1 text-sm font-semibold leading-5">
-                          {builderPickLabel(leg)}
-                        </p>
-
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                          <PlatformMark platform={leg.platform} />
-                          <span className="rounded-full border bg-surface px-2 py-0.5 text-[9px] font-semibold">
-                            Score {leg.lynervaScore ?? "n/a"}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMarket(leg)}
+                      className="group w-full p-4 text-left sm:p-4.5"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="relative">
+                          <SubjectVisual
+                            market={leg}
+                            visual={playerVisuals[leg.canonical?.subject ?? ""]}
+                          />
+                          <span className="rank-badge absolute -left-1.5 -top-1.5 grid size-5 place-items-center rounded-full text-[9px] font-bold">
+                            {index + 1}
                           </span>
-                          <span className="rounded-full bg-positive-bg px-2 py-0.5 text-[9px] font-semibold text-positive">
-                            {formatEdge(
-                              (leg.recommendedProbabilityBps ?? 0) -
-                                (leg.executablePriceBps ?? 0),
-                            )}
-                          </span>
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <PlatformMark platform={leg.platform} />
+                            <span className="rounded-full border bg-surface/80 px-2 py-0.5 text-[9px] font-semibold">
+                              Score {leg.lynervaScore ?? "n/a"}
+                            </span>
+                            <span className="rounded-full bg-positive-bg px-2 py-0.5 text-[9px] font-semibold text-positive">
+                              {formatEdge(
+                                (leg.recommendedProbabilityBps ?? 0) -
+                                  (leg.executablePriceBps ?? 0),
+                              )}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm font-semibold leading-5">
+                            {builderPickLabel(leg)}
+                          </p>
+                          <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.08em] text-faint">
+                            {matchup}
+                          </p>
+                        </div>
+
+                        <div className="shrink-0 text-right">
+                          <p className="text-sm font-semibold tabular">
+                            {formatPercent(leg.executablePriceBps)}
+                          </p>
+                          <p className="mt-0.5 text-[10px] text-positive tabular">
+                            Model {formatPercent(leg.recommendedProbabilityBps)}
+                          </p>
                         </div>
                       </div>
 
-                      <div className="shrink-0 text-right">
-                        <p className="text-sm font-semibold tabular">
-                          {formatPercent(leg.executablePriceBps)}
-                        </p>
-                        <p className="mt-0.5 text-[10px] text-muted tabular">
-                          Model {formatPercent(leg.recommendedProbabilityBps)}
-                        </p>
+                      <div className="mt-4">
+                        <div className="mb-1.5 flex items-center justify-between text-[9px] text-faint">
+                          <span>Payout contribution</span>
+                          <span className="tabular">
+                            {Math.round(contribution * 100)}%
+                          </span>
+                        </div>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-background">
+                          <div
+                            className="builder-contribution h-full rounded-full transition-[width]"
+                            style={{
+                              width: `${Math.max(4, contribution * 100)}%`,
+                            }}
+                          />
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="mt-4">
-                      <div className="mb-1.5 flex items-center justify-between text-[9px] text-faint">
-                        <span>Payout contribution</span>
-                        <span className="tabular">
-                          {Math.round(contribution * 100)}%
-                        </span>
+                      <div className="mt-3 flex items-center justify-end gap-1 text-[10px] font-medium text-muted transition-colors group-hover:text-foreground">
+                        <FlaskConical size={11} />
+                        Open Bet Lab
+                        <ChevronRight size={11} />
                       </div>
-                      <div className="h-1.5 overflow-hidden rounded-full bg-background">
-                        <div
-                          className="h-full rounded-full bg-foreground/70 transition-[width]"
-                          style={{
-                            width: `${Math.max(4, contribution * 100)}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
+                    </button>
                   </li>
                 );
               })}
