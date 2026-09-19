@@ -506,3 +506,86 @@ button, a, input, select, textarea { outline-offset: 3px; }
     }
   }
 }
+
+
+/* NFL score ticker */
+.score-ticker-shell {
+  position: sticky;
+  top: 56px;
+  z-index: 35;
+}
+
+.score-ticker-window {
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    black 20px,
+    black calc(100% - 20px),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    black 20px,
+    black calc(100% - 20px),
+    transparent 100%
+  );
+}
+
+.score-ticker-item {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-raised) 76%, transparent),
+      transparent
+    ),
+    var(--surface);
+  border-color: var(--border);
+  min-height: 40px;
+}
+
+.score-ticker-track-moving {
+  animation: lynerva-score-ticker 48s linear infinite;
+  will-change: transform;
+}
+
+.score-ticker-window:hover .score-ticker-track-moving,
+.score-ticker-window:focus-within .score-ticker-track-moving {
+  animation-play-state: paused;
+}
+
+@keyframes lynerva-score-ticker {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .score-ticker-track-moving {
+    animation: none;
+  }
+
+  .score-ticker-window {
+    overflow-x: auto;
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
+}
+
+@media (max-width: 639px) {
+  .score-ticker-shell {
+    top: 56px;
+  }
+
+  .score-ticker-track-moving {
+    animation-duration: 58s;
+  }
+
+  .score-ticker-item {
+    min-height: 38px;
+    padding-block: 0.4rem;
+  }
+}
