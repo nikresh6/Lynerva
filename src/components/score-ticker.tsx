@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { LiveNflGame } from "@/lib/nfl/live";
 import { teamLogo } from "./subject-visual";
-import { GameBetsModal } from "./game-bets-modal";
 
 function matchupKey(game: LiveNflGame) {
   return [game.away.team, game.home.team].toSorted().join("-");
@@ -183,37 +183,31 @@ function Track({
 }
 
 export function DesktopScoreTicker({ games }: { games: LiveNflGame[] }) {
-  const [selectedGame, setSelectedGame] = useState<LiveNflGame | null>(null);
+  const router = useRouter();
   if (!games.length) return null;
+  const openGame = (game: LiveNflGame) =>
+    router.push(`/games?game=${encodeURIComponent(matchupKey(game))}`);
 
   return (
-    <>
     <div className="hidden min-w-0 flex-1 items-center lg:flex">
       <span className="mr-2 flex shrink-0 items-center gap-1.5 text-[8px] font-bold uppercase tracking-[0.12em] text-faint">
         <span className="size-1.5 rounded-full bg-positive" />
         NFL
       </span>
-      <Track games={games} onOpen={setSelectedGame} />
+      <Track games={games} onOpen={openGame} />
     </div>
-    {selectedGame ? (
-      <GameBetsModal game={selectedGame} onClose={() => setSelectedGame(null)} />
-    ) : null}
-    </>
   );
 }
 
 export function MobileScoreTicker({ games }: { games: LiveNflGame[] }) {
-  const [selectedGame, setSelectedGame] = useState<LiveNflGame | null>(null);
+  const router = useRouter();
   if (!games.length) return null;
+  const openGame = (game: LiveNflGame) =>
+    router.push(`/games?game=${encodeURIComponent(matchupKey(game))}`);
 
   return (
-    <>
-      <div className="score-ticker-mobile -mx-1 flex min-w-0 items-center overflow-hidden pb-2 sm:hidden">
-        <Track games={games} mobile onOpen={setSelectedGame} />
-      </div>
-      {selectedGame ? (
-        <GameBetsModal game={selectedGame} onClose={() => setSelectedGame(null)} />
-      ) : null}
-    </>
+    <div className="score-ticker-mobile -mx-1 flex min-w-0 items-center overflow-hidden pb-2 sm:hidden">
+      <Track games={games} mobile onOpen={openGame} />
+    </div>
   );
 }
