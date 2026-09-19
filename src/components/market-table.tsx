@@ -1,10 +1,12 @@
 "use client";
 
-import { ChevronDown, CloudSun, ExternalLink, X } from "lucide-react";
+import { ChevronDown, CloudSun, ExternalLink, FlaskConical, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { MarketOpportunity } from "@/lib/markets/types";
 import { cn, formatPercent, relativeTime, titleCase } from "@/lib/utils";
 import { PlatformMark } from "./platform-mark";
+import { SubjectVisual } from "./subject-visual";
+import { usePlayerVisuals } from "./player-visuals";
 
 const FAMILY_LABEL: Record<string, string> = {
   passing_yards: "Passing Yards",
@@ -18,17 +20,6 @@ const FAMILY_LABEL: Record<string, string> = {
   spread: "Spread",
   game_total: "Game Total",
 };
-
-const TEAM_CODES = new Set([
-  "ARI","ATL","BAL","BUF","CAR","CHI","CIN","CLE","DAL","DEN","DET","GB",
-  "HOU","IND","JAX","KC","LV","LAC","LAR","MIA","MIN","NE","NO","NYG",
-  "NYJ","PHI","PIT","SF","SEA","TB","TEN","WAS",
-]);
-
-function teamLogo(team: string) {
-  const slug = team === "WAS" ? "wsh" : team.toLowerCase();
-  return `https://a.espncdn.com/i/teamlogos/nfl/500/${slug}.png`;
-}
 
 function displayMarketTitle(market: MarketOpportunity) {
   const canonical = market.canonical;
@@ -104,6 +95,20 @@ function scoreTone(score: number | null) {
   if ((score ?? 0) >= 72) return "pick-card-good";
   if ((score ?? 0) >= 52) return "pick-card-watch";
   return "pick-card-low";
+}
+
+function scoreLabel(score: number | null) {
+  if ((score ?? 0) >= 80) return "Elite setup";
+  if ((score ?? 0) >= 72) return "Strong setup";
+  if ((score ?? 0) >= 60) return "Worth a look";
+  if ((score ?? 0) >= 52) return "Watchlist";
+  return "Thin edge";
+}
+
+function edgeLabel(market: MarketOpportunity) {
+  if (market.edgeBps === null) return null;
+  const value = market.edgeBps / 100;
+  return `${value >= 0 ? "+" : ""}${value.toFixed(1)}pp edge`;
 }
 
 function didPickHit(market: MarketOpportunity, value: number) {
@@ -431,8 +436,10 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
   );
 }
 
-function BetLab({ market, onClose }: { market: MarketOpportunity; onClose: () => void }) {
+export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose: () => void }) {
   const title = displayMarketTitle(market);
+  const subject = market.canonical?.subject ?? "";
+  const visuals = usePlayerVisuals(subject ? [subject] : []);
   const count = hitCount(market);
   const profit = profitOn100(market);
 
@@ -466,7 +473,7 @@ function BetLab({ market, onClose }: { market: MarketOpportunity; onClose: () =>
       <aside className="sheet-enter scrollbar-subtle absolute inset-y-0 right-0 w-full overflow-y-auto border-l bg-surface shadow-[0_0_70px_rgb(0_0_0/0.2)] sm:max-w-[620px]">
         <div className="sticky top-0 z-10 border-b bg-[var(--header)] px-5 py-4 backdrop-blur-xl sm:px-7">
           <div className="flex items-start gap-4">
-            <SubjectVisual market={market} />
+            <SubjectVisual market={market} visual={visuals[subject]} />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <PlatformMark platform={market.platform} />
@@ -563,6 +570,15 @@ export function MarketTable({
       .slice(0, 30);
   }, [markets]);
 
+  const playerNames = useMemo(
+    () =>
+      groups
+        .map(({ best }) => best.canonical?.subject ?? "")
+        .filter(Boolean),
+    [groups],
+  );
+  const visuals = usePlayerVisuals(playerNames);
+
   if (!groups.length) {
     return (
       <div className="rounded-xl border bg-surface px-6 py-16 text-center">
@@ -593,12 +609,23 @@ export function MarketTable({
               <button type="button" onClick={() => setSelected(market)} className="w-full p-5 text-left">
                 <div className="flex items-start gap-4">
                   <div className="relative">
-                    <SubjectVisual market={market} />
+                    <SubjectVisual
+                      market={market}
+                      visual={visuals[market.canonical?.subject ?? ""]}
+                    />
                     <span className="rank-badge absolute -left-1.5 -top-1.5 grid size-5 place-items-center rounded-full text-[9px] font-bold">{index + 1}</span>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <PlatformMark platform={market.platform} />
+                      <span className="opportunity-label rounded-full px-2 py-0.5 text-[9px] font-semibold">
+                        {scoreLabel(market.lynervaScore)}
+                      </span>
+                      {edgeLabel(market) ? (
+                        <span className="rounded-full bg-positive-bg px-2 py-0.5 text-[9px] font-semibold text-positive">
+                          {edgeLabel(market)}
+                        </span>
+                      ) : null}
                       {market.isLive ? <span className="live-badge rounded-full bg-negative-bg px-1.5 py-0.5 text-[9px] font-bold uppercase text-negative">Live</span> : null}
                     </div>
                     <div className="mt-2 line-clamp-2 text-[15px] font-semibold leading-6">
@@ -619,7 +646,10 @@ export function MarketTable({
 
                 <div className="mt-3.5 flex items-center justify-between gap-3 text-[10px] text-muted">
                   <span>{americanOdds(market.executablePriceBps)} equivalent</span>
-                  <span>Open Bet Lab →</span>
+                  <span className="inline-flex items-center gap-1 font-medium text-foreground/80">
+                    <FlaskConical size={11} />
+                    Bet Lab
+                  </span>
                 </div>
               </button>
 
