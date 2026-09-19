@@ -139,47 +139,6 @@ function ScoreRing({ score, size = 58 }: { score: number | null; size?: number }
   );
 }
 
-function SubjectVisual({ market }: { market: MarketOpportunity }) {
-  const subject = market.canonical?.subject ?? "";
-  const matchup = market.canonical?.matchup?.split("-") ?? [];
-
-  if (TEAM_CODES.has(subject)) {
-    return (
-      <div className="grid size-12 shrink-0 place-items-center rounded-xl border bg-background p-1.5">
-        <img loading="lazy" src={teamLogo(subject)} alt={subject} className="size-full object-contain" />
-      </div>
-    );
-  }
-
-  const initials =
-    subject
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0])
-      .join("")
-      .toUpperCase() || "NFL";
-
-  return (
-    <div className="relative grid size-12 shrink-0 place-items-center rounded-xl border bg-surface-raised text-sm font-bold">
-      {initials}
-      <div className="absolute -bottom-1 -right-1 flex">
-        {matchup.slice(0, 2).map((team, index) => (
-          <span
-            key={team}
-            className={cn(
-              "grid size-5 place-items-center rounded-full border bg-surface p-0.5",
-              index ? "-ml-1.5" : "",
-            )}
-          >
-            <img loading="lazy" src={teamLogo(team)} alt="" className="size-full object-contain" />
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function Metric({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
   return (
     <div className="min-w-0">
