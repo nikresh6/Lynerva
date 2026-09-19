@@ -164,6 +164,28 @@ describe("additional weekly player prop normalization", () => {
     });
   });
 
+  it("recognizes quarterback interception props", () => {
+    const normalized = normalizeMarket(
+      contract({
+        marketTitle: "Patrick Mahomes: Over 0.5 interceptions",
+        outcomeLabel: "Over 0.5",
+        platformMarketId: "KXNFLPASSINT-26SEP20INDKC-PMAHOMES-1",
+        eventTitle: "Indianapolis Colts at Kansas City Chiefs",
+        resolutionRules:
+          "Resolves Yes if Patrick Mahomes throws at least 1 interception.",
+      }),
+    );
+
+    expect(normalized).toMatchObject({
+      family: "passing_interceptions",
+      statistic: "passing_interceptions",
+      direction: "over",
+      threshold: 0.5,
+      subject: "Patrick Mahomes",
+      matchup: "IND-KC",
+    });
+  });
+
   it("keeps rushing yards as a separate searchable family", () => {
     const normalized = normalizeMarket(
       contract({

@@ -412,7 +412,8 @@ export async function estimateMarket(
     if (external.projection !== null) {
       const countMarket =
         canonical.family === "touchdowns" ||
-        canonical.family === "passing_touchdowns";
+        canonical.family === "passing_touchdowns" ||
+        canonical.family === "passing_interceptions";
       const overProbability = countMarket
         ? poissonAtLeastProbability(threshold, external.projection)
         : 1 -
@@ -517,6 +518,7 @@ export async function estimateMarket(
       const environmentSensitive = [
         "passing_yards",
         "passing_touchdowns",
+        "passing_interceptions",
         "receiving_yards",
         "receptions",
         "longest_reception",

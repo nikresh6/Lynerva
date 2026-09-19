@@ -32,6 +32,7 @@ function projectionIsPlausible(
   if (!Number.isFinite(value) || value < 0) return false;
   if (family === "passing_yards") return value <= 600;
   if (family === "passing_touchdowns") return value <= 6;
+  if (family === "passing_interceptions") return value <= 5;
   if (family === "rushing_yards") return value <= 300;
   if (family === "receiving_yards") return value <= 300;
   if (family === "receptions") return value <= 20;
@@ -107,6 +108,7 @@ async function main() {
     [
       "passing_yards",
       "passing_touchdowns",
+      "passing_interceptions",
       "rushing_yards",
       "receiving_yards",
       "receptions",

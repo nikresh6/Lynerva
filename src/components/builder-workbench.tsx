@@ -14,7 +14,8 @@ import {
   Zap,
 } from "lucide-react";
 import {
-  buildBestAvailableCombination,
+  buildRankedCombinations,
+  buildTopScoredCombinations,
   type BuilderMode,
   type BuilderObjective,
 } from "@/lib/builder";
@@ -57,8 +58,10 @@ function builderPickLabel(market: MarketOpportunity) {
           ? "passing yards"
           : canonical.family === "receptions"
             ? "receptions"
-            : canonical.family === "passing_touchdowns"
-              ? "passing TDs"
+            : canonical.family === "passing_interceptions"
+              ? "interceptions"
+              : canonical.family === "passing_touchdowns"
+                ? "passing TDs"
               : canonical.family === "touchdowns"
                 ? "TDs"
                 : canonical.family.replaceAll("_", " ");
@@ -243,6 +246,8 @@ export function BuilderWorkbench() {
     useState<PortfolioRequest | null>(null);
   const [selectedMarket, setSelectedMarket] =
     useState<MarketOpportunity | null>(null);
+  const [rankingMode, setRankingMode] = useState(false);
+  const [activeParlayIndex, setActiveParlayIndex] = useState(0);
 
   const minReturnNumber = Number(minReturnInput);
   const maxReturnNumber = Number(maxReturnInput);
@@ -269,18 +274,28 @@ export function BuilderWorkbench() {
     ? targetPayoutNumber / planAmountNumber
     : null;
 
-  const combination = useMemo(() => {
-    if (!parlayRequest) return null;
-    return buildBestAvailableCombination(parlayRequest.markets, {
-      minReturn: parlayRequest.minReturn,
-      maxReturn: parlayRequest.maxReturn,
-      maxLegs: parlayRequest.maxLegs,
-      platform: parlayRequest.platform,
-      live: parlayRequest.live,
-      mode: parlayRequest.mode,
-      objective: parlayRequest.objective,
-    });
-  }, [parlayRequest]);
+  const combinations = useMemo(() => {
+    if (!parlayRequest) return [];
+    if (rankingMode) {
+      return buildTopScoredCombinations(parlayRequest.markets, 10);
+    }
+    return buildRankedCombinations(
+      parlayRequest.markets,
+      {
+        minReturn: parlayRequest.minReturn,
+        maxReturn: parlayRequest.maxReturn,
+        maxLegs: parlayRequest.maxLegs,
+        platform: parlayRequest.platform,
+        live: parlayRequest.live,
+        mode: parlayRequest.mode,
+        objective: parlayRequest.objective,
+      },
+      6,
+    );
+  }, [parlayRequest, rankingMode]);
+
+  const combination =
+    combinations[activeParlayIndex] ?? combinations[0] ?? null;
 
   const portfolioPlan = useMemo(() => {
     if (!portfolioRequest) return null;
@@ -321,6 +336,8 @@ export function BuilderWorkbench() {
 
   function buildParlay() {
     if (!canBuildParlay) return;
+    setRankingMode(false);
+    setActiveParlayIndex(0);
     setParlayRequest({
       markets: currentMarkets,
       minReturn: minReturnNumber,
@@ -331,6 +348,24 @@ export function BuilderWorkbench() {
       mode,
       objective,
       stake: stakeNumber,
+    });
+  }
+
+  function showBestParlaysThisWeek() {
+    if (currentMarkets.length === 0) return;
+    setRankingMode(true);
+    setActiveParlayIndex(0);
+    setParlayRequest({
+      markets: currentMarkets,
+      minReturn: 1.3,
+      maxReturn: 150,
+      maxLegs: 8,
+      platform: "either",
+      live: "pregame",
+      mode: "any",
+      objective: "balanced",
+      stake:
+        Number.isFinite(stakeNumber) && stakeNumber > 0 ? stakeNumber : 100,
     });
   }
 
@@ -371,7 +406,7 @@ export function BuilderWorkbench() {
               builderView === "parlay" ? "text-accent/75" : "text-muted",
             )}
           >
-            Find the best combination inside a payout range.
+            Get several ranked combinations inside a payout range.
           </p>
         </button>
         <button
@@ -415,6 +450,29 @@ export function BuilderWorkbench() {
               {currentMarkets.length.toLocaleString()} eligible live markets
             </div>
           </div>
+        </div>
+
+        <div className="border-b bg-accent-bg/35 p-3 sm:p-4">
+          <button
+            type="button"
+            onClick={showBestParlaysThisWeek}
+            disabled={currentMarkets.length === 0}
+            className="group flex w-full items-center gap-3 rounded-2xl border border-accent/30 bg-surface px-4 py-3.5 text-left transition-all hover:border-accent/50 hover:shadow-[0_12px_32px_var(--accent-glow)] disabled:cursor-not-allowed disabled:opacity-40 sm:px-5"
+          >
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-accent-bg text-accent">
+              <Sparkles className="size-4" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold">
+                Show me the best parlays of the week
+              </span>
+              <span className="mt-0.5 block text-[10px] leading-4 text-muted">
+                No filters. Lynerva searches every eligible pregame market and
+                ranks the strongest combinations by parlay score.
+              </span>
+            </span>
+            <ChevronRight className="size-4 shrink-0 text-muted transition-transform group-hover:translate-x-0.5" />
+          </button>
         </div>
 
         <div className="grid gap-5 p-4 sm:p-5 xl:grid-cols-[1.08fr_1fr]">
@@ -634,7 +692,7 @@ export function BuilderWorkbench() {
             className="primary-action inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl px-5 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
           >
             <Sparkles className="size-3.5" />
-            {parlayRequest ? "Update parlay" : "Build parlay"}
+            {parlayRequest && !rankingMode ? "Update parlays" : "Build parlays"}
           </button>
         </div>
       </section>
@@ -674,23 +732,89 @@ export function BuilderWorkbench() {
           </div>
         ) : (
           <>
+            {combinations.length > 1 ? (
+              <div className="border-b bg-background/35 px-3 py-3 sm:px-4 sm:py-4">
+                <div className="mb-2.5 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold">
+                      {rankingMode ? "Best parlays this week" : "Top matching parlays"}
+                    </p>
+                    <p className="mt-0.5 text-[9px] text-muted">
+                      Ranked by Lynerva parlay score. Tap one to inspect every leg.
+                    </p>
+                  </div>
+                  <span className="rounded-full border bg-surface px-2.5 py-1 text-[9px] font-semibold text-muted">
+                    {combinations.length} ranked
+                  </span>
+                </div>
+                <div className="scrollbar-subtle flex snap-x gap-2 overflow-x-auto pb-1">
+                  {combinations.map((row, index) => {
+                    const active = combination === row;
+                    return (
+                      <button
+                        key={row.legs
+                          .map((leg) => `${leg.platform}:${leg.platformMarketId}`)
+                          .join("|")}
+                        type="button"
+                        onClick={() => setActiveParlayIndex(index)}
+                        className={cn(
+                          "min-w-[164px] snap-start rounded-xl border px-3 py-2.5 text-left transition-all sm:min-w-[180px]",
+                          active
+                            ? "border-accent/45 bg-accent-bg shadow-[0_8px_24px_var(--accent-glow)]"
+                            : "bg-surface hover:border-strong hover:bg-surface-raised",
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[9px] font-semibold uppercase tracking-[0.08em] text-faint">
+                            #{index + 1}
+                          </span>
+                          <span className={cn(
+                            "rounded-full border px-2 py-0.5 text-[9px] font-bold tabular",
+                            builderScoreTone(row.lynervaScore),
+                          )}>
+                            {row.lynervaScore}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm font-semibold tabular">
+                          {row.grossReturn.toFixed(2)}x
+                        </p>
+                        <div className="mt-1 flex items-center justify-between text-[9px] text-muted">
+                          <span>{row.legs.length} legs</span>
+                          <span>
+                            {formatPercent(
+                              Math.round(row.estimatedProbability * 10_000),
+                              1,
+                            )} hit
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
             <div className="border-b bg-[linear-gradient(135deg,var(--surface-raised),var(--surface))] px-4 py-5 sm:px-6 sm:py-6">
               <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-full border bg-surface px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
-                      {parlayRequest?.mode === "sgp"
-                        ? "Same game parlay"
-                        : parlayRequest?.mode === "multi_game"
-                          ? "Cross-game build"
-                          : "Smart build"}
+                      {rankingMode
+                        ? "Best of week"
+                        : parlayRequest?.mode === "sgp"
+                          ? "Same game parlay"
+                          : parlayRequest?.mode === "multi_game"
+                            ? "Cross-game build"
+                            : "Smart build"}
                     </span>
                     <span className="rounded-full border bg-surface px-2.5 py-1 text-[10px] font-medium text-muted">
-                      {parlayRequest?.objective === "balanced"
-                        ? "Balanced"
-                        : parlayRequest?.objective === "safer"
-                          ? "Safer"
-                          : "Max EV"}
+                      {rankingMode
+                        ? "Score ranked"
+                        : parlayRequest?.objective === "balanced"
+                          ? "Balanced"
+                          : parlayRequest?.objective === "safer"
+                            ? "Safer"
+                            : "Max EV"}
                     </span>
                   </div>
 

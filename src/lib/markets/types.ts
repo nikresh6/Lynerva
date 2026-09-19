@@ -7,6 +7,7 @@ export const marketFamilies = [
   "game_total",
   "passing_yards",
   "passing_touchdowns",
+  "passing_interceptions",
   "rushing_yards",
   "receiving_yards",
   "receptions",
