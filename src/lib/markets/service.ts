@@ -301,24 +301,18 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
         item.liveGame?.state === "in"
           ? `:${item.liveGame.period}:${item.liveGame.clock}:${item.liveGame.home.score}:${item.liveGame.away.score}`
           : ":pregame";
-      const marketPriceKey = `:${item.market.yesBidBps ?? "na"}:${item.market.yesAskBps ?? "na"}`;
-      const key = `${item.canonical.key}${liveKey}${marketPriceKey}`;
+      // Model probability is intentionally independent from the current
+      // executable market price. Odds changes should move edge/value, not
+      // silently recompute Lynerva's own probability.
+      const key = `${item.canonical.key}${liveKey}`;
       const cached = modelSnapshotCache.get(key);
       if (cached && Date.now() - cached.storedAt < 15 * 60 * 1_000) {
         return cached.estimate;
       }
-      const yesBaselineBps =
-        item.market.yesBidBps !== null &&
-        item.market.yesAskBps !== null &&
-        item.market.yesBidBps > 0 &&
-        item.market.yesAskBps < 10_000
-          ? Math.round((item.market.yesBidBps + item.market.yesAskBps) / 2)
-          : item.market.yesAskBps;
       const estimate = await estimateMarket(
         item.canonical,
         item.scheduleGame,
         item.liveGame,
-        yesBaselineBps,
       );
       modelSnapshotCache.set(key, { estimate, storedAt: Date.now() });
       return estimate;
