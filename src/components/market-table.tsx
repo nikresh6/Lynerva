@@ -384,7 +384,7 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
           {components?.consensusProjection === null ||
           components?.consensusProjection === undefined ? (
             <p className="mt-1.5 text-[11px] leading-5 text-muted">
-              Projection sites did not respond in time, so Lynerva used the market as a low-confidence starting point.
+              Independent weekly projections are unavailable for this stat. Lynerva only publishes the pick when separate current-season evidence is strong enough to support it.
             </p>
           ) : (
             <>
@@ -470,7 +470,7 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
   return (
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={`Bet Lab for ${title}`}>
       <button type="button" className="absolute inset-0 bg-[var(--overlay)]" onClick={onClose} aria-label="Close details" />
-      <aside className="sheet-enter scrollbar-subtle absolute inset-y-0 right-0 w-full overflow-y-auto border-l bg-surface shadow-[0_0_70px_rgb(0_0_0/0.2)] sm:max-w-[620px]">
+      <aside className="sheet-enter scrollbar-subtle absolute inset-x-2 bottom-2 top-[6vh] overflow-y-auto rounded-[24px] border bg-surface shadow-[0_20px_80px_rgb(0_0_0/0.36)] sm:inset-y-0 sm:left-auto sm:right-0 sm:w-full sm:max-w-[620px] sm:rounded-none sm:border-y-0 sm:border-r-0">
         <div className="sticky top-0 z-10 border-b bg-[var(--header)] px-5 py-4 backdrop-blur-xl sm:px-7">
           <div className="flex items-start gap-4">
             <SubjectVisual market={market} visual={visuals[subject]} />
@@ -527,7 +527,7 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
           </section>
 
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={track} className="rounded-lg bg-foreground px-4 py-2.5 text-xs font-semibold text-background">Track this bet</button>
+            <button type="button" onClick={track} className="primary-action rounded-lg px-4 py-2.5 text-xs font-semibold">Track this bet</button>
             <a href={market.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border px-4 py-2.5 text-xs font-semibold">
               Open on {titleCase(market.platform)} <ExternalLink size={12} />
             </a>
