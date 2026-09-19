@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { LiveNflGame } from "@/lib/nfl/live";
 import { teamLogo } from "./subject-visual";
-import { GameBetsModal } from "./game-bets-modal";
 
 function gameLabel(game: LiveNflGame) {
   if (game.state === "in") return game.status;
@@ -18,7 +18,7 @@ function gameLabel(game: LiveNflGame) {
 
 export function LiveGameStrip({ games }: { games: LiveNflGame[] }) {
   const [current, setCurrent] = useState(games);
-  const [selectedGame, setSelectedGame] = useState<LiveNflGame | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
     setCurrent(games);
@@ -74,7 +74,13 @@ export function LiveGameStrip({ games }: { games: LiveNflGame[] }) {
         <button
           type="button"
           key={game.id}
-          onClick={() => setSelectedGame(game)}
+          onClick={() =>
+            router.push(
+              `/games?game=${encodeURIComponent(
+                [game.away.team, game.home.team].toSorted().join("-"),
+              )}`,
+            )
+          }
           className="premium-panel group min-w-[232px] snap-start overflow-hidden rounded-2xl text-left transition-all hover:border-accent/35 hover:shadow-[0_14px_36px_var(--accent-glow)] sm:min-w-[260px]"
           aria-label={`Open best bets for ${game.away.team} at ${game.home.team}`}
         >
@@ -124,9 +130,6 @@ export function LiveGameStrip({ games }: { games: LiveNflGame[] }) {
         );
       })}
       </div>
-      {selectedGame ? (
-        <GameBetsModal game={selectedGame} onClose={() => setSelectedGame(null)} />
-      ) : null}
     </>
   );
 }
