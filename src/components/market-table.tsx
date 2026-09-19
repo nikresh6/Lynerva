@@ -560,13 +560,17 @@ export function MarketTable({
             <div
               key={key}
               className={cn(
-                "pick-card pick-card-enter rounded-2xl border bg-surface text-left",
+                "pick-card pick-card-enter flex h-full flex-col rounded-2xl border bg-surface text-left",
                 scoreTone(market.lynervaScore),
               )}
               style={{ animationDelay: `${Math.min(index, 10) * 35}ms` }}
             >
-              <button type="button" onClick={() => setSelected(market)} className="w-full p-4 text-left sm:p-5">
-                <div className="flex items-start gap-4">
+              <button
+                type="button"
+                onClick={() => setSelected(market)}
+                className="flex w-full flex-1 flex-col p-4 text-left sm:p-5"
+              >
+                <div className="flex items-start gap-4 sm:min-h-[116px]">
                   <div className="relative">
                     <SubjectVisual
                       market={market}
@@ -603,7 +607,7 @@ export function MarketTable({
                   <Metric label="$100 profit" value={profit === null ? "—" : `$${profit.toFixed(0)}`} />
                 </div>
 
-                <div className="mt-3.5 flex items-center justify-between gap-3 text-[10px] text-muted">
+                <div className="mt-auto flex items-center justify-between gap-3 pt-3.5 text-[10px] text-muted">
                   <span>{americanOdds(market.executablePriceBps)} equivalent</span>
                   <span className="inline-flex items-center gap-1 font-medium text-foreground/80">
                     <FlaskConical size={11} />
