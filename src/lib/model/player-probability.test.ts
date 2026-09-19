@@ -55,6 +55,7 @@ describe("player probability publication guard", () => {
     expect(
       canPublishPlayerProbability({
         hasExternalProjection: false,
+        projectionSourceCount: 0,
         historyCount: 0,
       }),
     ).toBe(false);
@@ -64,6 +65,7 @@ describe("player probability publication guard", () => {
     expect(
       canPublishPlayerProbability({
         hasExternalProjection: true,
+        projectionSourceCount: 1,
         historyCount: 0,
       }),
     ).toBe(true);
@@ -73,8 +75,30 @@ describe("player probability publication guard", () => {
     expect(
       canPublishPlayerProbability({
         hasExternalProjection: false,
+        projectionSourceCount: 0,
         historyCount: 4,
       }),
     ).toBe(true);
   });
+});
+
+
+it("requires multiple independent projections for unsupported-history markets", () => {
+  expect(
+    canPublishPlayerProbability({
+      hasExternalProjection: true,
+      projectionSourceCount: 1,
+      minimumProjectionSources: 3,
+      historyCount: 0,
+    }),
+  ).toBe(false);
+
+  expect(
+    canPublishPlayerProbability({
+      hasExternalProjection: true,
+      projectionSourceCount: 3,
+      minimumProjectionSources: 3,
+      historyCount: 0,
+    }),
+  ).toBe(true);
 });
