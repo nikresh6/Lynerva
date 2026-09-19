@@ -55,4 +55,98 @@ describe("market math", () => {
     expect(Math.abs((tight?.score ?? 0) - (wide?.score ?? 0))).toBeLessThanOrEqual(2);
   });
 
+
+  it("keeps Lynerva Score identical across refresh-only market noise", () => {
+    const base = {
+      probabilityBps: 6_800,
+      edgeBps: 1_800,
+      priceBps: 5_000,
+      expectedRoi: 0.36,
+      reliabilityBps: 7_800,
+      seasonHits: null,
+      seasonGames: null,
+      last10Hits: null,
+      sampleSize: 0,
+      recommendedSide: "yes" as const,
+      liquidityCents: 25_000,
+      volumeCents: 80_000,
+      spreadBps: 100,
+      ageSeconds: 5,
+    };
+
+    const first = lynervaScore(base);
+    const noisyRefresh = lynervaScore({
+      ...base,
+      reliabilityBps: 5_100,
+      liquidityCents: 500,
+      volumeCents: 500_000,
+      spreadBps: 1_400,
+      ageSeconds: 600,
+    });
+
+    expect(first?.score).toBe(noisyRefresh?.score);
+  });
+
+  it("ignores a one-point market tick in the published score", () => {
+    const common = {
+      probabilityBps: 6_800,
+      edgeBps: 1_800,
+      expectedRoi: 0.36,
+      reliabilityBps: 7_800,
+      seasonHits: null,
+      seasonGames: null,
+      last10Hits: null,
+      sampleSize: 0,
+      recommendedSide: "yes" as const,
+      liquidityCents: 25_000,
+      volumeCents: 80_000,
+      spreadBps: 100,
+      ageSeconds: 5,
+    };
+
+    const first = lynervaScore({
+      ...common,
+      priceBps: 5_000,
+    });
+    const onePointTick = lynervaScore({
+      ...common,
+      priceBps: 5_100,
+      edgeBps: 1_700,
+      expectedRoi: 1_700 / 5_100,
+    });
+
+    expect(first?.score).toBe(onePointTick?.score);
+  });
+
+  it("changes score after a meaningful market move", () => {
+    const common = {
+      probabilityBps: 6_800,
+      reliabilityBps: 7_800,
+      seasonHits: null,
+      seasonGames: null,
+      last10Hits: null,
+      sampleSize: 0,
+      recommendedSide: "yes" as const,
+      liquidityCents: 25_000,
+      volumeCents: 80_000,
+      spreadBps: 100,
+      ageSeconds: 5,
+    };
+
+    const first = lynervaScore({
+      ...common,
+      priceBps: 5_000,
+      edgeBps: 1_800,
+      expectedRoi: 0.36,
+    });
+    const moved = lynervaScore({
+      ...common,
+      priceBps: 5_400,
+      edgeBps: 1_400,
+      expectedRoi: 1_400 / 5_400,
+    });
+
+    expect(first?.score).not.toBe(moved?.score);
+  });
+
 });
