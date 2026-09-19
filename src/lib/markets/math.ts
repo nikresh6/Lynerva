@@ -107,21 +107,30 @@ export function lynervaScore(input: {
   const liquidity = dollars > 0
     ? clamp((Math.log10(dollars + 1) / 5) * 100, 0, 100)
     : 20;
-  const spread = clamp(100 - ((input.spreadBps ?? 1_000) / 20), 0, 100);
+  // Market microstructure should matter, but it should not be able to
+  // whip a player score around because one bid disappears for a minute.
+  // Spread quality therefore moves gradually and has a bounded floor.
+  const spread = clamp(
+    100 - ((input.spreadBps ?? 1_000) / 50),
+    35,
+    100,
+  );
   const freshness = clamp(100 - input.ageSeconds / 36, 20, 100);
   const marketQuality =
-    liquidity * 0.35 +
-    spread * 0.45 +
-    freshness * 0.2;
+    liquidity * 0.40 +
+    spread * 0.35 +
+    freshness * 0.25;
 
   // Current-season hit rate is informational only for now. With such a
-  // small 2026 sample it belongs in Bet Lab, not in ranking.
+  // small 2026 sample it belongs in Bet Lab, not in ranking. Market quality
+  // remains part of the score, but its weight is deliberately capped so a
+  // transient spread/liquidity update cannot create a five-point jump.
   const score =
     value * 0.40 +
-    probability * 0.18 +
+    probability * 0.20 +
     reliability * 0.18 +
-    edge * 0.12 +
-    marketQuality * 0.12;
+    edge * 0.14 +
+    marketQuality * 0.08;
 
   return {
     score: Math.round(clamp(score, 0, 100)),
