@@ -32,7 +32,7 @@ function shortStatus(game: LiveNflGame) {
   }).format(start);
 }
 
-function useTickerGames() {
+export function useTickerGames() {
   const [games, setGames] = useState<LiveNflGame[]>([]);
 
   useEffect(() => {
@@ -183,23 +183,26 @@ function Track({
   );
 }
 
-export function HeaderScoreTicker() {
-  const games = useTickerGames();
+export function DesktopScoreTicker({ games }: { games: LiveNflGame[] }) {
   if (!games.length) return null;
 
   return (
-    <>
-      <div className="hidden min-w-0 flex-1 items-center lg:flex">
-        <span className="mr-2 flex shrink-0 items-center gap-1.5 text-[8px] font-bold uppercase tracking-[0.12em] text-faint">
-          <span className="size-1.5 rounded-full bg-positive" />
-          NFL
-        </span>
-        <Track games={games} />
-      </div>
+    <div className="hidden min-w-0 flex-1 items-center lg:flex">
+      <span className="mr-2 flex shrink-0 items-center gap-1.5 text-[8px] font-bold uppercase tracking-[0.12em] text-faint">
+        <span className="size-1.5 rounded-full bg-positive" />
+        NFL
+      </span>
+      <Track games={games} />
+    </div>
+  );
+}
 
-      <div className="score-ticker-mobile -mx-1 flex min-w-0 items-center overflow-hidden pb-2 sm:hidden">
-        <Track games={games} mobile />
-      </div>
-    </>
+export function MobileScoreTicker({ games }: { games: LiveNflGame[] }) {
+  if (!games.length) return null;
+
+  return (
+    <div className="score-ticker-mobile -mx-1 flex min-w-0 items-center overflow-hidden pb-2 sm:hidden">
+      <Track games={games} mobile />
+    </div>
   );
 }
