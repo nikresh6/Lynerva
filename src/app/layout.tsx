@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import { MarketDataProvider } from "@/components/market-data-provider";
 import { SiteHeader } from "@/components/site-header";
+import { ScoreTicker } from "@/components/score-ticker";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         </Script>
         <MarketDataProvider>
           <SiteHeader />
+          <ScoreTicker />
           <main className="mx-auto w-full max-w-[1480px] px-3 pb-28 pt-5 sm:px-6 sm:pb-12 sm:pt-8 lg:px-8">
             {children}
           </main>
