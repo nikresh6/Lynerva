@@ -98,6 +98,27 @@ export interface ModelEstimate {
   };
 }
 
+
+
+export interface ScoreMovement {
+  delta: number;
+  previousScore: number;
+  currentScore: number;
+  priceDeltaBps: number | null;
+  probabilityDeltaBps: number | null;
+  reliabilityDeltaBps: number;
+  marketQualityDelta: number | null;
+  projectionSourceCountDelta: number;
+  consensusProjectionDelta: number | null;
+  reason:
+    | "market_price"
+    | "model_probability"
+    | "projection_sources"
+    | "market_quality"
+    | "mixed";
+  detail: string;
+}
+
 export interface MarketOpportunity extends ProviderMarket {
   canonical: CanonicalMarket | null;
   model: ModelEstimate;
@@ -115,6 +136,7 @@ export interface MarketOpportunity extends ProviderMarket {
   discrepancyBps: number | null;
   equivalentPlatform: Platform | null;
   arbitrage: ArbitrageOpportunity | null;
+  scoreMovement?: ScoreMovement | null;
 }
 
 export interface ArbitrageLeg {
