@@ -180,6 +180,7 @@ function sourceValue(
   if (!stats) return null;
   if (family === "passing_yards") return stats.passingYards ?? null;
   if (family === "passing_touchdowns") return stats.passingTouchdowns ?? null;
+  if (family === "passing_interceptions") return stats.passingInterceptions ?? null;
   if (family === "rushing_yards") return stats.rushingYards ?? null;
   if (family === "receptions") return stats.receptions ?? null;
   if (family === "receiving_yards") return stats.receivingYards ?? null;
@@ -531,6 +532,7 @@ function ffTodayRowStats(
     return {
       passingYards: values[2],
       passingTouchdowns: values[3],
+      passingInterceptions: values[4],
       rushingYards: values[6],
       rushingTouchdowns: values[7],
     };
@@ -646,6 +648,7 @@ function loadFfToday(season: number, week: number) {
                   mergeStats(map, match[1] ?? "", {
                     passingYards: toNumber(match[4]) ?? undefined,
                     passingTouchdowns: toNumber(match[5]) ?? undefined,
+                    passingInterceptions: toNumber(match[6]) ?? undefined,
                     rushingYards: toNumber(match[8]) ?? undefined,
                     rushingTouchdowns: toNumber(match[9]) ?? undefined,
                   });
@@ -885,7 +888,11 @@ function loadNfl(season: number, week: number) {
 }
 
 function likelyPositions(family: CanonicalMarket["family"]) {
-  if (family === "passing_yards" || family === "passing_touchdowns") {
+  if (
+    family === "passing_yards" ||
+    family === "passing_touchdowns" ||
+    family === "passing_interceptions"
+  ) {
     return ["QB"] as const;
   }
   if (family === "rushing_yards") return ["RB", "QB", "WR"] as const;
@@ -1323,6 +1330,7 @@ function plausibleProjection(
   if (!Number.isFinite(value) || value < 0) return false;
   if (family === "passing_yards") return value <= 600;
   if (family === "passing_touchdowns") return value <= 6;
+  if (family === "passing_interceptions") return value <= 5;
   if (family === "rushing_yards") return value <= 300;
   if (family === "receiving_yards") return value <= 300;
   if (family === "receptions") return value <= 20;
