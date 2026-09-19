@@ -750,30 +750,56 @@ export function MarketTable({
                   </button>
 
                   {isExpanded ? (
-                    <div className="space-y-1 border-t bg-background p-2">
-                      {alternates.map((alt) => {
-                        const altProfit = profitOn100(alt);
-                        return (
-                          <button
-                            key={`${alt.platform}:${alt.platformMarketId}:${alt.platformOutcomeId ?? "yes"}`}
-                            type="button"
-                            onClick={() => setSelected(alt)}
-                            className="grid w-full grid-cols-[1fr_auto_auto] items-center gap-3 rounded-lg px-3 py-2 text-left text-[11px] hover:bg-surface-raised"
-                          >
-                            <div className="min-w-0">
-                              <div className="truncate font-medium"><span className="mr-1 text-positive">{displayPickSide(alt)}</span>{displayMarketTitle(alt)}</div>
-                              <div className="mt-0.5 text-faint">{formatPercent(alt.executablePriceBps)} market · {formatPercent(alt.recommendedProbabilityBps)} Lynerva</div>
-                            </div>
-                            <div className="text-right">
-                              <div className="font-bold tabular">{alt.lynervaScore ?? "—"}</div>
-                              <div className="text-[8px] uppercase text-faint">score</div>
-                            </div>
-                            <div className="min-w-12 text-right tabular text-muted">
-                              {altProfit === null ? "—" : `+$${altProfit.toFixed(0)}`}
-                            </div>
-                          </button>
-                        );
-                      })}
+                    <div className="border-t bg-background p-3">
+                      <div className="mb-2 flex items-center justify-between px-1">
+                        <span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-faint">
+                          Choose a line
+                        </span>
+                        <span className="text-[9px] text-faint">
+                          Best score first
+                        </span>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {alternates.map((alt) => {
+                          const altProfit = profitOn100(alt);
+                          return (
+                            <button
+                              key={`${alt.platform}:${alt.platformMarketId}:${alt.platformOutcomeId ?? "yes"}`}
+                              type="button"
+                              onClick={() => setSelected(alt)}
+                              className="group rounded-xl border bg-surface p-3 text-left transition-colors hover:border-border-strong hover:bg-surface-raised"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-[12px] font-semibold leading-5">
+                                    <span className="mr-1 text-positive">{displayPickSide(alt)}</span>
+                                    {alt.canonical?.threshold ?? displayMarketTitle(alt)}
+                                  </div>
+                                  <div className="mt-1 text-[9px] text-faint">
+                                    {formatPercent(alt.executablePriceBps)} market
+                                  </div>
+                                </div>
+                                <div className="rounded-lg bg-background px-2 py-1.5 text-center">
+                                  <div className="text-sm font-bold tabular">{alt.lynervaScore ?? "—"}</div>
+                                  <div className="text-[7px] font-semibold uppercase tracking-[0.08em] text-faint">Score</div>
+                                </div>
+                              </div>
+                              <div className="mt-3 grid grid-cols-2 gap-2 border-t pt-2.5 text-[9px]">
+                                <div>
+                                  <div className="text-faint">Lynerva</div>
+                                  <div className="mt-0.5 font-semibold tabular text-positive">{formatPercent(alt.recommendedProbabilityBps)}</div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-faint">$100 profit</div>
+                                  <div className="mt-0.5 font-semibold tabular">
+                                    {altProfit === null ? "—" : `${altProfit.toFixed(0)}`}
+                                  </div>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   ) : null}
                 </div>
