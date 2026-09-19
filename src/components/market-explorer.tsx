@@ -44,7 +44,7 @@ function Select({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-10 w-full appearance-none rounded-lg border bg-surface py-1 pl-3 pr-8 text-xs text-foreground outline-none transition-colors hover:border-border-strong focus:border-foreground sm:w-auto"
+        className="h-10 w-full appearance-none rounded-lg border bg-surface py-1 pl-3 pr-8 text-xs text-foreground outline-none transition-colors hover:border-border-strong focus:border-accent sm:w-auto"
       >
         {children}
       </select>
@@ -163,7 +163,7 @@ export function MarketExplorer({
 
   return (
     <>
-      <div className="filter-dock sticky top-[100px] z-30 mb-3 rounded-2xl border bg-[var(--header)] p-2.5 backdrop-blur-xl sm:top-14">
+      <div className="filter-dock premium-panel sticky top-14 z-30 mb-3 rounded-2xl p-2.5 backdrop-blur-xl sm:top-14">
         <div className="grid grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
           <label className="relative col-span-2 min-w-0 sm:col-span-1 sm:min-w-[220px] sm:flex-1">
             <Search
@@ -174,7 +174,7 @@ export function MarketExplorer({
               value={filters.query}
               onChange={(event) => update("query", event.target.value)}
               placeholder="Player, team, market…"
-              className="h-10 w-full rounded-lg border bg-surface pl-9 pr-3 text-xs outline-none placeholder:text-faint focus:border-foreground"
+              className="h-10 w-full rounded-lg border bg-surface pl-9 pr-3 text-xs outline-none placeholder:text-faint focus:border-accent"
             />
           </label>
 
@@ -217,8 +217,7 @@ export function MarketExplorer({
             <option value="rushing_yards">Rushing yards</option>
             <option value="receiving_yards">Receiving yards</option>
             <option value="receptions">Receptions</option>
-            <option value="longest_reception">Longest reception</option>
-            <option value="touchdowns">Touchdowns</option>
+                        <option value="touchdowns">Touchdowns</option>
           </Select>
 
           <button
@@ -265,7 +264,7 @@ export function MarketExplorer({
                           : Math.round(value * 100),
                       );
                     }}
-                    className="mt-1 h-9 w-full rounded-lg border bg-surface px-2.5 text-xs text-foreground outline-none focus:border-foreground"
+                    className="mt-1 h-9 w-full rounded-lg border bg-surface px-2.5 text-xs text-foreground outline-none focus:border-accent"
                   />
                 </label>
               );
