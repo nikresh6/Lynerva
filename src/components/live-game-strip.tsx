@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { LiveNflGame } from "@/lib/nfl/live";
 import { teamLogo } from "./subject-visual";
@@ -66,10 +67,19 @@ export function LiveGameStrip({ games }: { games: LiveNflGame[] }) {
 
   return (
     <div className="scrollbar-subtle -mx-1 mb-4 flex snap-x gap-2 overflow-x-auto px-1 pb-2">
-      {visible.map((game) => (
-        <div
+      {visible.map((game) => {
+        const gameKey = [game.away.team, game.home.team].toSorted().join("-");
+        const destination =
+          game.state === "in"
+            ? `/live?game=${encodeURIComponent(gameKey)}`
+            : `/?game=${encodeURIComponent(gameKey)}`;
+
+        return (
+        <Link
           key={game.id}
-          className="premium-panel min-w-[232px] snap-start overflow-hidden rounded-2xl sm:min-w-[260px]"
+          href={destination}
+          className="premium-panel group min-w-[232px] snap-start overflow-hidden rounded-2xl transition-all hover:border-accent/35 hover:shadow-[0_14px_36px_var(--accent-glow)] sm:min-w-[260px]"
+          aria-label={`Open best bets for ${game.away.team} at ${game.home.team}`}
         >
           <div className="flex items-center justify-between border-b px-4 py-2.5 text-[10px] text-muted">
             <span>{gameLabel(game)}</span>
@@ -113,8 +123,9 @@ export function LiveGameStrip({ games }: { games: LiveNflGame[] }) {
               </p>
             ) : null}
           </div>
-        </div>
-      ))}
+        </Link>
+        );
+      })}
     </div>
   );
 }
