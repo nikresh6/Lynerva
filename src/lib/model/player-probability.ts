@@ -38,3 +38,10 @@ export function poissonAtLeastProbability(
   }
   return clamp(1 - cumulative, 0, 1);
 }
+
+export function canPublishPlayerProbability(input: {
+  hasExternalProjection: boolean;
+  historyCount: number;
+}) {
+  return input.hasExternalProjection || input.historyCount >= 4;
+}
