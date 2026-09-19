@@ -5,7 +5,7 @@ import { findPublicPlayerHistory } from "@/lib/nfl/history";
 import { getMatchupProjection } from "@/lib/nfl/team-history";
 import type { NflScheduleGame } from "@/lib/nfl/schedule-match";
 import type { LiveNflGame } from "@/lib/nfl/live";
-import { empiricalPlayerProbability, poissonAtLeastProbability } from "./player-probability";
+import { canPublishPlayerProbability, empiricalPlayerProbability, poissonAtLeastProbability } from "./player-probability";
 import { getExternalProjectionConsensus } from "./external-projections";
 import { selfCalibrateProbability } from "./self-learning";
 import { weatherProbabilityAdjustment } from "./weather-adjustment";
@@ -363,7 +363,12 @@ export async function estimateMarket(
       scheduleGame?.season ?? 2026,
     );
 
-    if (external.projection === null && values.length < 4) {
+    if (
+      !canPublishPlayerProbability({
+        hasExternalProjection: external.projection !== null,
+        historyCount: values.length,
+      })
+    ) {
       return {
         probabilityBps: null,
         reliabilityBps: 0,
