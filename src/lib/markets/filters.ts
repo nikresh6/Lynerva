@@ -68,7 +68,7 @@ export function filterAndSortMarkets(
     const price = market.executablePriceBps;
     const hitRate = historicalHitRate(market);
     if (query) {
-      const haystack = `${market.eventTitle} ${market.marketTitle} ${market.outcomeLabel} ${market.canonical?.subject ?? ""}`.toLowerCase();
+      const haystack = `${market.eventTitle} ${market.marketTitle} ${market.outcomeLabel} ${market.canonical?.subject ?? ""} ${market.canonical?.matchup ?? ""}`.toLowerCase();
       if (!haystack.includes(query)) return false;
     }
     if (filters.platform !== "all" && market.platform !== filters.platform) return false;
