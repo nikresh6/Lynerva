@@ -37,6 +37,7 @@ export interface PortfolioPosition {
   expectedValueMultiplier: number;
   expectedProfit: number;
   payoutIfWin: number;
+  lynervaScore: number;
   legs: MarketOpportunity[];
   parlayMode: "multi_game" | "sgp" | null;
 }
@@ -66,6 +67,7 @@ interface Candidate {
   probability: number;
   expectedValueMultiplier: number;
   score: number;
+  displayScore: number;
   parlayMode: "multi_game" | "sgp" | null;
 }
 
@@ -174,6 +176,7 @@ function straightCandidates(
       probability,
       expectedValueMultiplier,
       score,
+      displayScore: market.lynervaScore ?? 50,
       parlayMode: null,
     });
   }
@@ -230,6 +233,7 @@ function parlayCandidate(
     probability: combination.estimatedProbability,
     expectedValueMultiplier: combination.expectedValueMultiplier,
     score,
+    displayScore: combination.lynervaScore,
     parlayMode: mode,
   };
 }
@@ -599,6 +603,7 @@ function toPosition(
     expectedValueMultiplier: candidate.expectedValueMultiplier,
     expectedProfit: stake * (candidate.expectedValueMultiplier - 1),
     payoutIfWin: stake * candidate.grossReturn,
+    lynervaScore: candidate.displayScore,
     legs: candidate.legs,
     parlayMode: candidate.parlayMode,
   };

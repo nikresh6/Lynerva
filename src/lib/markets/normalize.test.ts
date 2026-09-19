@@ -147,6 +147,23 @@ describe("additional weekly player prop normalization", () => {
     });
   });
 
+  it("cleans the stat suffix from compact longest-reception subjects", () => {
+    const normalized = normalizeMarket(
+      contract({
+        marketTitle: "Malik Nabers: longest reception 21.5",
+        outcomeLabel: "Over 21.5",
+        platformMarketId: "KXNFLLONGREC-26SEP20LARNYG-MNABERS-22",
+        eventTitle: "Los Angeles Rams at New York Giants",
+      }),
+    );
+
+    expect(normalized).toMatchObject({
+      family: "longest_reception",
+      threshold: 21.5,
+      subject: "Malik Nabers",
+    });
+  });
+
   it("keeps rushing yards as a separate searchable family", () => {
     const normalized = normalizeMarket(
       contract({

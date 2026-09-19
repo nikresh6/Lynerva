@@ -66,10 +66,10 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-sm pt-10 sm:pt-16">
+    <div className="premium-panel mx-auto w-full max-w-sm rounded-[24px] p-5 sm:mt-8 sm:p-7">
       <div className="mb-7">
-        <p className="text-[11px] font-semibold tracking-[0.14em] text-faint">
-          LYNERVA
+        <p className="page-kicker text-[10px] font-semibold tracking-[0.14em]">
+          LYNERVA ACCESS
         </p>
         <h1 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">
           {mode === "sign-in" ? "Sign in" : "Create an account"}
@@ -90,7 +90,7 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
               autoComplete="name"
               required
               minLength={2}
-              className="h-10 w-full rounded-md border bg-surface px-3 outline-none focus:border-foreground"
+              className="control-surface h-11 w-full rounded-xl px-3 outline-none focus:border-accent"
             />
           </label>
         ) : null}
@@ -102,7 +102,7 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
             type="email"
             autoComplete="email"
             required
-            className="h-10 w-full rounded-md border bg-surface px-3 outline-none focus:border-foreground"
+            className="control-surface h-11 w-full rounded-xl px-3 outline-none focus:border-accent"
           />
         </label>
 
@@ -115,7 +115,7 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
             required
             minLength={10}
             maxLength={128}
-            className="h-10 w-full rounded-md border bg-surface px-3 outline-none focus:border-foreground"
+            className="control-surface h-11 w-full rounded-xl px-3 outline-none focus:border-accent"
           />
           <span className="mt-1 block text-[10px] text-faint">
             At least 10 characters
@@ -134,7 +134,7 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
         <button
           type="submit"
           disabled={pending}
-          className="h-10 w-full rounded-md bg-foreground text-sm font-medium text-background transition-opacity disabled:opacity-50"
+          className="primary-action h-11 w-full rounded-xl text-sm font-semibold transition-opacity disabled:opacity-50"
         >
           {pending ? "Working…" : mode === "sign-in" ? "Sign in" : "Create account"}
         </button>

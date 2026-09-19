@@ -5,7 +5,7 @@ import { findPublicPlayerHistory } from "@/lib/nfl/history";
 import { getMatchupProjection } from "@/lib/nfl/team-history";
 import type { NflScheduleGame } from "@/lib/nfl/schedule-match";
 import type { LiveNflGame } from "@/lib/nfl/live";
-import { empiricalPlayerProbability, poissonAtLeastProbability } from "./player-probability";
+import { canPublishPlayerProbability, empiricalPlayerProbability, poissonAtLeastProbability } from "./player-probability";
 import { getExternalProjectionConsensus } from "./external-projections";
 import { selfCalibrateProbability } from "./self-learning";
 import { weatherProbabilityAdjustment } from "./weather-adjustment";
@@ -363,11 +363,49 @@ export async function estimateMarket(
       scheduleGame?.season ?? 2026,
     );
 
+    if (
+      !canPublishPlayerProbability({
+        hasExternalProjection: external.projection !== null,
+        projectionSourceCount: external.points.length,
+        minimumProjectionSources:
+          canonical.family === "longest_reception" ? 3 : 1,
+        historyCount: values.length,
+      })
+    ) {
+      return {
+        probabilityBps: null,
+        reliabilityBps: 0,
+        version: MODEL_VERSION,
+        evidence: {
+          ...emptyEvidence,
+          sampleSize: values.length,
+          recentValues: values.slice(0, 10),
+        },
+        factors: [
+          "Lynerva does not publish a player-prop probability when there is no independent weekly projection and fewer than four current-season results.",
+        ],
+        components: {
+          consensusProjection: null,
+          consensusProbabilityBps: null,
+          statisticalProbabilityBps: null,
+          contextAdjustmentBps: 0,
+          projectionSourceCount: 0,
+          projectionSources: [],
+          projectionSeason: scheduleGame?.season ?? null,
+          projectionWeek: scheduleGame?.week ?? null,
+          learnedSourceWeightWeek: external.weightWeek,
+          learnedCalibrationSample: 0,
+          learnedCalibrationActive: false,
+        },
+      };
+    }
+
     const distributionStdDev: Partial<Record<CanonicalMarket["family"], number>> = {
       passing_yards: 58,
       rushing_yards: 26,
       receiving_yards: 29,
       receptions: 2.25,
+      longest_reception: 8.5,
     };
 
     let consensusProbability: number | null = null;
@@ -531,7 +569,9 @@ export async function estimateMarket(
     const factors = [
       external.projection !== null
         ? `Independent projection consensus: ${external.projection.toFixed(1)} from ${sourceCount} source${sourceCount === 1 ? "" : "s"} (${external.points.map((point) => point.source).join(", ")}).`
-        : "Independent projections unavailable, using the live market as a low-confidence baseline so the prop remains rated.",
+        : statisticalProbability !== null
+          ? "Independent weekly projections are unavailable for this stat, so the estimate is carried by current-season regular-season results."
+          : "Independent weekly projections are unavailable.",
       values.length >= 4
         ? `Four-game statistical model active using ${values.length} current-season regular-season games.`
         : `Statistical model locked until four current-season games; ${values.length} available now.`,

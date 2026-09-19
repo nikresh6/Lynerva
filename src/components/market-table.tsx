@@ -1,10 +1,12 @@
 "use client";
 
-import { ChevronDown, CloudSun, ExternalLink, X } from "lucide-react";
+import { ChevronDown, CloudSun, ExternalLink, FlaskConical, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { MarketOpportunity } from "@/lib/markets/types";
 import { cn, formatPercent, relativeTime, titleCase } from "@/lib/utils";
 import { PlatformMark } from "./platform-mark";
+import { SubjectVisual } from "./subject-visual";
+import { usePlayerVisuals } from "./player-visuals";
 
 const FAMILY_LABEL: Record<string, string> = {
   passing_yards: "Passing Yards",
@@ -18,17 +20,6 @@ const FAMILY_LABEL: Record<string, string> = {
   spread: "Spread",
   game_total: "Game Total",
 };
-
-const TEAM_CODES = new Set([
-  "ARI","ATL","BAL","BUF","CAR","CHI","CIN","CLE","DAL","DEN","DET","GB",
-  "HOU","IND","JAX","KC","LV","LAC","LAR","MIA","MIN","NE","NO","NYG",
-  "NYJ","PHI","PIT","SF","SEA","TB","TEN","WAS",
-]);
-
-function teamLogo(team: string) {
-  const slug = team === "WAS" ? "wsh" : team.toLowerCase();
-  return `https://a.espncdn.com/i/teamlogos/nfl/500/${slug}.png`;
-}
 
 function displayMarketTitle(market: MarketOpportunity) {
   const canonical = market.canonical;
@@ -106,6 +97,20 @@ function scoreTone(score: number | null) {
   return "pick-card-low";
 }
 
+function scoreLabel(score: number | null) {
+  if ((score ?? 0) >= 80) return "Elite setup";
+  if ((score ?? 0) >= 72) return "Strong setup";
+  if ((score ?? 0) >= 60) return "Worth a look";
+  if ((score ?? 0) >= 52) return "Watchlist";
+  return "Thin edge";
+}
+
+function edgeLabel(market: MarketOpportunity) {
+  if (market.edgeBps === null) return null;
+  const value = market.edgeBps / 100;
+  return `${value >= 0 ? "+" : ""}${value.toFixed(1)}pp edge`;
+}
+
 function didPickHit(market: MarketOpportunity, value: number) {
   const threshold = market.canonical?.threshold;
   const direction = market.canonical?.direction;
@@ -129,47 +134,6 @@ function ScoreRing({ score, size = 58 }: { score: number | null; size?: number }
     >
       <div className="grid size-[82%] place-items-center rounded-full bg-surface shadow-[inset_0_0_0_1px_var(--border)]">
         <div className="text-lg font-bold tabular leading-none">{score ?? "—"}</div>
-      </div>
-    </div>
-  );
-}
-
-function SubjectVisual({ market }: { market: MarketOpportunity }) {
-  const subject = market.canonical?.subject ?? "";
-  const matchup = market.canonical?.matchup?.split("-") ?? [];
-
-  if (TEAM_CODES.has(subject)) {
-    return (
-      <div className="grid size-12 shrink-0 place-items-center rounded-xl border bg-background p-1.5">
-        <img loading="lazy" src={teamLogo(subject)} alt={subject} className="size-full object-contain" />
-      </div>
-    );
-  }
-
-  const initials =
-    subject
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0])
-      .join("")
-      .toUpperCase() || "NFL";
-
-  return (
-    <div className="relative grid size-12 shrink-0 place-items-center rounded-xl border bg-surface-raised text-sm font-bold">
-      {initials}
-      <div className="absolute -bottom-1 -right-1 flex">
-        {matchup.slice(0, 2).map((team, index) => (
-          <span
-            key={team}
-            className={cn(
-              "grid size-5 place-items-center rounded-full border bg-surface p-0.5",
-              index ? "-ml-1.5" : "",
-            )}
-          >
-            <img loading="lazy" src={teamLogo(team)} alt="" className="size-full object-contain" />
-          </span>
-        ))}
       </div>
     </div>
   );
@@ -379,7 +343,7 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
           {components?.consensusProjection === null ||
           components?.consensusProjection === undefined ? (
             <p className="mt-1.5 text-[11px] leading-5 text-muted">
-              Projection sites did not respond in time, so Lynerva used the market as a low-confidence starting point.
+              Independent weekly projections are unavailable for this stat. Lynerva only publishes the pick when separate current-season evidence is strong enough to support it.
             </p>
           ) : (
             <>
@@ -431,8 +395,10 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
   );
 }
 
-function BetLab({ market, onClose }: { market: MarketOpportunity; onClose: () => void }) {
+export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose: () => void }) {
   const title = displayMarketTitle(market);
+  const subject = market.canonical?.subject ?? "";
+  const visuals = usePlayerVisuals(subject ? [subject] : []);
   const count = hitCount(market);
   const profit = profitOn100(market);
 
@@ -463,10 +429,10 @@ function BetLab({ market, onClose }: { market: MarketOpportunity; onClose: () =>
   return (
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={`Bet Lab for ${title}`}>
       <button type="button" className="absolute inset-0 bg-[var(--overlay)]" onClick={onClose} aria-label="Close details" />
-      <aside className="sheet-enter scrollbar-subtle absolute inset-y-0 right-0 w-full overflow-y-auto border-l bg-surface shadow-[0_0_70px_rgb(0_0_0/0.2)] sm:max-w-[620px]">
+      <aside className="sheet-enter scrollbar-subtle absolute inset-x-2 bottom-2 top-[6vh] overflow-y-auto rounded-[24px] border bg-surface shadow-[0_20px_80px_rgb(0_0_0/0.36)] sm:inset-y-0 sm:left-auto sm:right-0 sm:w-full sm:max-w-[620px] sm:rounded-none sm:border-y-0 sm:border-r-0">
         <div className="sticky top-0 z-10 border-b bg-[var(--header)] px-5 py-4 backdrop-blur-xl sm:px-7">
           <div className="flex items-start gap-4">
-            <SubjectVisual market={market} />
+            <SubjectVisual market={market} visual={visuals[subject]} />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <PlatformMark platform={market.platform} />
@@ -520,7 +486,7 @@ function BetLab({ market, onClose }: { market: MarketOpportunity; onClose: () =>
           </section>
 
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={track} className="rounded-lg bg-foreground px-4 py-2.5 text-xs font-semibold text-background">Track this bet</button>
+            <button type="button" onClick={track} className="primary-action rounded-lg px-4 py-2.5 text-xs font-semibold">Track this bet</button>
             <a href={market.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border px-4 py-2.5 text-xs font-semibold">
               Open on {titleCase(market.platform)} <ExternalLink size={12} />
             </a>
@@ -563,9 +529,18 @@ export function MarketTable({
       .slice(0, 30);
   }, [markets]);
 
+  const playerNames = useMemo(
+    () =>
+      groups
+        .map(({ best }) => best.canonical?.subject ?? "")
+        .filter(Boolean),
+    [groups],
+  );
+  const visuals = usePlayerVisuals(playerNames);
+
   if (!groups.length) {
     return (
-      <div className="rounded-xl border bg-surface px-6 py-16 text-center">
+      <div className="premium-panel rounded-2xl px-6 py-16 text-center">
         <p className="font-medium">{emptyMessage}</p>
         <p className="mt-1 text-xs text-muted">Try another filter or check back when markets move.</p>
       </div>
@@ -590,15 +565,26 @@ export function MarketTable({
               )}
               style={{ animationDelay: `${Math.min(index, 10) * 35}ms` }}
             >
-              <button type="button" onClick={() => setSelected(market)} className="w-full p-5 text-left">
+              <button type="button" onClick={() => setSelected(market)} className="w-full p-4 text-left sm:p-5">
                 <div className="flex items-start gap-4">
                   <div className="relative">
-                    <SubjectVisual market={market} />
+                    <SubjectVisual
+                      market={market}
+                      visual={visuals[market.canonical?.subject ?? ""]}
+                    />
                     <span className="rank-badge absolute -left-1.5 -top-1.5 grid size-5 place-items-center rounded-full text-[9px] font-bold">{index + 1}</span>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <PlatformMark platform={market.platform} />
+                      <span className="opportunity-label rounded-full px-2 py-0.5 text-[9px] font-semibold">
+                        {scoreLabel(market.lynervaScore)}
+                      </span>
+                      {edgeLabel(market) ? (
+                        <span className="rounded-full bg-positive-bg px-2 py-0.5 text-[9px] font-semibold text-positive">
+                          {edgeLabel(market)}
+                        </span>
+                      ) : null}
                       {market.isLive ? <span className="live-badge rounded-full bg-negative-bg px-1.5 py-0.5 text-[9px] font-bold uppercase text-negative">Live</span> : null}
                     </div>
                     <div className="mt-2 line-clamp-2 text-[15px] font-semibold leading-6">
@@ -619,7 +605,10 @@ export function MarketTable({
 
                 <div className="mt-3.5 flex items-center justify-between gap-3 text-[10px] text-muted">
                   <span>{americanOdds(market.executablePriceBps)} equivalent</span>
-                  <span>Open Bet Lab →</span>
+                  <span className="inline-flex items-center gap-1 font-medium text-foreground/80">
+                    <FlaskConical size={11} />
+                    Bet Lab
+                  </span>
                 </div>
               </button>
 
