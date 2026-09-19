@@ -151,6 +151,28 @@ function balanceLabel(score: number) {
   return "Concentrated";
 }
 
+function portfolioRoleLabel(
+  role:
+    | "core_straight"
+    | "value_straight"
+    | "aggressive_straight"
+    | "core_parlay"
+    | "upside_parlay"
+    | "hail_mary",
+  parlayMode: "multi_game" | "sgp" | null,
+) {
+  if (role === "core_straight") return "Core straight";
+  if (role === "value_straight") return "Value straight";
+  if (role === "aggressive_straight") return "Aggressive straight";
+  if (role === "core_parlay") {
+    return parlayMode === "sgp" ? "Core SGP" : "Core parlay";
+  }
+  if (role === "upside_parlay") {
+    return parlayMode === "sgp" ? "Upside SGP" : "Upside parlay";
+  }
+  return parlayMode === "sgp" ? "Hail Mary SGP" : "Hail Mary parlay";
+}
+
 export function BuilderWorkbench() {
   const { opportunities, loading } = useMarketData();
   const currentMarkets = useMemo(
@@ -1045,7 +1067,7 @@ export function BuilderWorkbench() {
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:min-w-[560px]">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:min-w-[680px]">
                     <div className="rounded-xl border bg-surface p-3">
                       <p className="text-[10px] text-faint">Model expected P/L</p>
                       <p
@@ -1067,9 +1089,21 @@ export function BuilderWorkbench() {
                       </p>
                     </div>
                     <div className="rounded-xl border bg-surface p-3">
+                      <p className="text-[10px] text-faint">Riskier straights</p>
+                      <p className="mt-1 text-lg font-semibold tabular">
+                        {Math.round(portfolioPlan.riskyStraightStakeShare * 100)}%
+                      </p>
+                    </div>
+                    <div className="rounded-xl border bg-surface p-3">
                       <p className="text-[10px] text-faint">Parlay money</p>
                       <p className="mt-1 text-lg font-semibold tabular">
                         {Math.round(portfolioPlan.parlayStakeShare * 100)}%
+                      </p>
+                    </div>
+                    <div className="rounded-xl border bg-surface p-3">
+                      <p className="text-[10px] text-faint">Hail Mary money</p>
+                      <p className="mt-1 text-lg font-semibold tabular">
+                        {Math.round(portfolioPlan.hailMaryStakeShare * 100)}%
                       </p>
                     </div>
                     <div className="rounded-xl border bg-surface p-3">
@@ -1092,11 +1126,10 @@ export function BuilderWorkbench() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="rounded-full border bg-surface px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-muted">
-                            {position.kind === "straight"
-                              ? "Straight"
-                              : position.parlayMode === "sgp"
-                                ? "Same game parlay"
-                                : "Cross-game parlay"}
+                            {portfolioRoleLabel(
+                              position.role,
+                              position.parlayMode,
+                            )}
                           </span>
                           <span className="text-[9px] text-faint">
                             Bet {index + 1}
@@ -1176,10 +1209,11 @@ export function BuilderWorkbench() {
                 <strong className="font-semibold text-foreground">
                   The plan optimizes the mix, not just the biggest payout.
                 </strong>{" "}
-                It starts with positive-edge straight bets, adds only the amount
-                of parlay exposure needed for your target, caps any single
-                position, and prefers different underlying legs across tickets.
-                Higher payout targets naturally require more variance.
+                It now uses a barbell mix: a safer core, 50% to 70% style
+                value straights, a smaller aggressive straight, core and upside
+                parlays, and a tiny Hail Mary allocation when your target calls
+                for it. Higher payout targets increase upside exposure without
+                forcing every dollar of potential return into the same parlay.
               </div>
             </>
           )}

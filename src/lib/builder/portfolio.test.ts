@@ -127,7 +127,7 @@ describe("bankroll portfolio builder", () => {
     expect(plan?.maxPositionShare ?? 1).toBeLessThanOrEqual(0.341);
   });
 
-  it("uses more parlay exposure when the requested payout is higher", () => {
+  it("uses more high-variance upside when the requested payout is higher", () => {
     const lowerTarget = buildPortfolioPlan(markets, {
       amount: 100,
       targetPayout: 180,
@@ -149,8 +149,8 @@ describe("bankroll portfolio builder", () => {
 
     expect(lowerTarget).not.toBeNull();
     expect(higherTarget).not.toBeNull();
-    expect(higherTarget!.parlayStakeShare).toBeGreaterThan(
-      lowerTarget!.parlayStakeShare,
+    expect(higherTarget!.hailMaryStakeShare).toBeGreaterThan(
+      lowerTarget!.hailMaryStakeShare,
     );
   });
 
@@ -168,10 +168,10 @@ describe("bankroll portfolio builder", () => {
     expect(plan).not.toBeNull();
     expect(
       Math.abs(plan!.allWinPayout - 300) / 300,
-    ).toBeLessThanOrEqual(0.4);
+    ).toBeLessThanOrEqual(0.15);
   });
 
-  it("does not duplicate the same exact leg as both a straight and a parlay leg", () => {
+  it("keeps the plan spread across multiple underlying markets", () => {
     const plan = buildPortfolioPlan(markets, {
       amount: 150,
       targetPayout: 400,
@@ -183,23 +183,68 @@ describe("bankroll portfolio builder", () => {
     });
 
     expect(plan).not.toBeNull();
-    const straightKeys = new Set(
-      plan!.positions
-        .filter((position) => position.kind === "straight")
-        .flatMap((position) =>
-          position.legs.map(
-            (leg) => leg.canonical?.key ?? leg.platformMarketId,
-          ),
+    const uniqueMarkets = new Set(
+      plan!.positions.flatMap((position) =>
+        position.legs.map(
+          (leg) => leg.canonical?.key ?? leg.platformMarketId,
         ),
+      ),
     );
-    const duplicated = plan!.positions
-      .filter((position) => position.kind === "parlay")
-      .flatMap((position) => position.legs)
-      .some((leg) =>
-        straightKeys.has(leg.canonical?.key ?? leg.platformMarketId),
-      );
 
-    expect(duplicated).toBe(false);
+    expect(uniqueMarkets.size).toBeGreaterThanOrEqual(4);
+  });
+
+  it("mixes safer straights with a genuinely riskier straight", () => {
+    const plan = buildPortfolioPlan(markets, {
+      amount: 100,
+      targetPayout: 500,
+      risk: "balanced",
+      platform: "either",
+      live: "pregame",
+      mode: "multi_game",
+      maxLegs: 8,
+    });
+
+    expect(plan).not.toBeNull();
+
+    const straightProbabilities = plan!.positions
+      .filter((position) => position.kind === "straight")
+      .map((position) => position.estimatedProbability);
+
+    expect(
+      straightProbabilities.some(
+        (probability) => probability >= 0.72,
+      ),
+    ).toBe(true);
+    expect(
+      straightProbabilities.some(
+        (probability) => probability >= 0.28 && probability <= 0.7,
+      ),
+    ).toBe(true);
+    expect(plan!.riskyStraightStakeShare).toBeGreaterThan(0.1);
+  });
+
+  it("adds a small Hail Mary parlay for a higher target without making it the bankroll", () => {
+    const plan = buildPortfolioPlan(markets, {
+      amount: 100,
+      targetPayout: 500,
+      risk: "balanced",
+      platform: "either",
+      live: "pregame",
+      mode: "multi_game",
+      maxLegs: 8,
+    });
+
+    expect(plan).not.toBeNull();
+
+    const hailMary = plan!.positions.find(
+      (position) => position.role === "hail_mary",
+    );
+
+    expect(hailMary).toBeDefined();
+    expect(hailMary!.grossReturn).toBeGreaterThanOrEqual(25);
+    expect(plan!.hailMaryStakeShare).toBeGreaterThan(0);
+    expect(plan!.hailMaryStakeShare).toBeLessThanOrEqual(0.081);
   });
 
   it("keeps lower-risk plans from putting most capital into parlays", () => {

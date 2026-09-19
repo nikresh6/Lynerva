@@ -413,7 +413,7 @@ function searchCombinations(
     },
   ];
   let best: BuiltCombination | null = null;
-  const bestByReturnBucket = new Map<number, BuiltCombination>();
+  const bestByReturnBucket = new Map<number, BuiltCombination[]>();
 
   for (let depth = 1; depth <= options.maxLegs; depth += 1) {
     const next: SearchState[] = [];
@@ -487,18 +487,47 @@ function searchCombinations(
 
           if (resultLimit > 1) {
             const bucket = Math.floor(Math.log(grossReturn) / 0.24);
-            const previous = bestByReturnBucket.get(bucket);
             const bucketTarget = Math.exp((bucket + 0.5) * 0.24);
-            if (
-              isBetterCombination(
-                built,
-                previous ?? null,
-                bucketTarget,
-                options.objective,
+            const rows = bestByReturnBucket.get(bucket) ?? [];
+            const key = built.legs
+              .map(
+                (leg) =>
+                  leg.canonical?.key ??
+                  `${leg.platform}:${leg.platformMarketId}`,
               )
-            ) {
-              bestByReturnBucket.set(bucket, built);
-            }
+              .toSorted()
+              .join("|");
+
+            const nextRows = [
+              ...rows.filter((row) => {
+                const rowKey = row.legs
+                  .map(
+                    (leg) =>
+                      leg.canonical?.key ??
+                      `${leg.platform}:${leg.platformMarketId}`,
+                  )
+                  .toSorted()
+                  .join("|");
+                return rowKey !== key;
+              }),
+              built,
+            ]
+              .toSorted(
+                (first, second) =>
+                  combinationScore(
+                    second,
+                    bucketTarget,
+                    options.objective,
+                  ) -
+                  combinationScore(
+                    first,
+                    bucketTarget,
+                    options.objective,
+                  ),
+              )
+              .slice(0, 3);
+
+            bestByReturnBucket.set(bucket, nextRows);
           }
         }
 
@@ -543,30 +572,45 @@ function searchCombinations(
   if (resultLimit <= 1) return [best];
 
   const unique = new Map<string, BuiltCombination>();
-  for (const combination of [best, ...bestByReturnBucket.values()]) {
-    const key = combination.legs
-      .map((leg) => leg.canonical?.key ?? `${leg.platform}:${leg.platformMarketId}`)
-      .toSorted()
-      .join("|");
-    const previous = unique.get(key);
-    if (
-      !previous ||
-      combination.expectedValueMultiplier > previous.expectedValueMultiplier
-    ) {
-      unique.set(key, combination);
-    }
-  }
-
-  return [...unique.values()]
+  const bucketEntries = [...bestByReturnBucket.entries()].toSorted(
+    (first, second) => first[0] - second[0],
+  );
+  const bucketLeaders = bucketEntries.flatMap(([, rows]) =>
+    rows.length ? [rows[0]!] : [],
+  );
+  const extras = bucketEntries
+    .flatMap(([, rows]) => rows.slice(1))
     .toSorted((first, second) => {
-      const firstScore = combinationScore(first, targetReturn, options.objective);
-      const secondScore = combinationScore(second, targetReturn, options.objective);
+      const firstScore = combinationScore(
+        first,
+        targetReturn,
+        options.objective,
+      );
+      const secondScore = combinationScore(
+        second,
+        targetReturn,
+        options.objective,
+      );
       return (
         secondScore - firstScore ||
         second.expectedValueMultiplier - first.expectedValueMultiplier
       );
-    })
-    .slice(0, resultLimit);
+    });
+
+  for (const combination of [best, ...bucketLeaders, ...extras]) {
+    const key = combination.legs
+      .map(
+        (leg) =>
+          leg.canonical?.key ??
+          `${leg.platform}:${leg.platformMarketId}`,
+      )
+      .toSorted()
+      .join("|");
+    if (!unique.has(key)) unique.set(key, combination);
+    if (unique.size >= resultLimit) break;
+  }
+
+  return [...unique.values()];
 }
 
 export function buildCombination(
@@ -584,7 +628,7 @@ export function buildCombinationCandidates(
   return searchCombinations(
     opportunities,
     options,
-    Math.max(2, Math.min(limit, 12)),
+    Math.max(2, Math.min(limit, 48)),
   );
 }
 
