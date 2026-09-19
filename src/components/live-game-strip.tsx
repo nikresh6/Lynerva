@@ -67,7 +67,8 @@ export function LiveGameStrip({ games }: { games: LiveNflGame[] }) {
   if (!visible.length) return null;
 
   return (
-    <div className="scrollbar-subtle -mx-1 mb-4 flex snap-x gap-2 overflow-x-auto px-1 pb-2">
+    <>
+      <div className="scrollbar-subtle -mx-1 mb-4 flex snap-x gap-2 overflow-x-auto px-1 pb-2">
       {visible.map((game) => {
         return (
         <button
@@ -122,9 +123,10 @@ export function LiveGameStrip({ games }: { games: LiveNflGame[] }) {
         </button>
         );
       })}
+      </div>
       {selectedGame ? (
         <GameBetsModal game={selectedGame} onClose={() => setSelectedGame(null)} />
       ) : null}
-    </div>
+    </>
   );
 }
