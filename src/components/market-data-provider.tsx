@@ -39,7 +39,7 @@ const STORAGE_KEY = "lynerva-market-snapshot-v6";
 // Only hydrate from a very recent browser snapshot. A 30-minute cache made
 // cards appear to "randomly" jump seconds after page load when the immediate
 // live refresh replaced an old score with the current market.
-const STORAGE_MAX_AGE = 60_000;
+const STORAGE_MAX_AGE = 20_000;
 
 function readStored(): MarketClientPayload | null {
   try {
@@ -91,6 +91,7 @@ export function MarketDataProvider({
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inflight = useRef<Promise<void> | null>(null);
+  const lastSuccessfulRefreshAt = useRef(0);
 
   const refresh = async () => {
     if (inflight.current) return inflight.current;
@@ -115,6 +116,7 @@ export function MarketDataProvider({
         const payload = (await response.json()) as MarketClientPayload;
         setData(payload);
         writeStored(payload);
+        lastSuccessfulRefreshAt.current = Date.now();
         setError(null);
       } catch (caught) {
         setError(
@@ -150,7 +152,12 @@ export function MarketDataProvider({
     }, intervalMs);
 
     const onVisibility = () => {
-      if (document.visibilityState === "visible") void refresh();
+      if (
+        document.visibilityState === "visible" &&
+        Date.now() - lastSuccessfulRefreshAt.current >= intervalMs
+      ) {
+        void refresh();
+      }
     };
     document.addEventListener("visibilitychange", onVisibility);
 
