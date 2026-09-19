@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import {
   ArrowRight,
   BarChart3,
+  ChevronRight,
+  FlaskConical,
   Layers3,
   ShieldCheck,
   Sparkles,
@@ -25,6 +27,9 @@ import type { MarketOpportunity } from "@/lib/markets/types";
 import { cn, formatEdge, formatPercent } from "@/lib/utils";
 import { PlatformMark } from "./platform-mark";
 import { useMarketData } from "./market-data-provider";
+import { BetLab } from "./market-table";
+import { SubjectVisual } from "./subject-visual";
+import { usePlayerVisuals } from "./player-visuals";
 
 function builderPickLabel(market: MarketOpportunity) {
   const canonical = market.canonical;
@@ -151,6 +156,20 @@ function balanceLabel(score: number) {
   return "Concentrated";
 }
 
+function builderScoreTone(score: number | null | undefined) {
+  if ((score ?? 0) >= 72) return "builder-card-good";
+  if ((score ?? 0) >= 52) return "builder-card-watch";
+  return "builder-card-low";
+}
+
+function builderScoreLabel(score: number | null | undefined) {
+  if ((score ?? 0) >= 80) return "Elite";
+  if ((score ?? 0) >= 72) return "Strong";
+  if ((score ?? 0) >= 60) return "Solid";
+  if ((score ?? 0) >= 52) return "Watch";
+  return "Thin";
+}
+
 function portfolioRoleLabel(
   role:
     | "core_straight"
@@ -222,6 +241,8 @@ export function BuilderWorkbench() {
     useState<ParlayRequest | null>(null);
   const [portfolioRequest, setPortfolioRequest] =
     useState<PortfolioRequest | null>(null);
+  const [selectedMarket, setSelectedMarket] =
+    useState<MarketOpportunity | null>(null);
 
   const minReturnNumber = Number(minReturnInput);
   const maxReturnNumber = Number(maxReturnInput);
@@ -273,6 +294,18 @@ export function BuilderWorkbench() {
       maxLegs: portfolioRequest.maxLegs,
     });
   }, [portfolioRequest]);
+
+  const resultPlayerNames = useMemo(
+    () =>
+      [
+        ...(combination?.legs ?? []),
+        ...(portfolioPlan?.positions.flatMap((position) => position.legs) ?? []),
+      ]
+        .map((market) => market.canonical?.subject ?? "")
+        .filter(Boolean),
+    [combination, portfolioPlan],
+  );
+  const playerVisuals = usePlayerVisuals(resultPlayerNames);
 
   const payout =
     combination && parlayRequest
