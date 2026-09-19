@@ -87,7 +87,7 @@ function PerformanceTable({
   const bestSource = bySource[0]?.source ?? null;
 
   return (
-    <section className="overflow-hidden rounded-2xl border bg-surface shadow-[0_8px_30px_rgb(0_0_0/0.025)]">
+    <section className="premium-panel overflow-hidden rounded-2xl">
       <div className="flex flex-col gap-2 border-b bg-surface-raised/45 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div>
           <h3 className="text-sm font-semibold">
@@ -258,7 +258,7 @@ export default async function SourcesPage() {
       />
 
       <div className="space-y-6">
-        <section className="overflow-hidden rounded-2xl border bg-surface shadow-[0_12px_40px_rgb(0_0_0/0.035)]">
+        <section className="premium-panel overflow-hidden rounded-2xl">
           <div className="grid gap-0 md:grid-cols-[1.35fr_1fr]">
             <div className="border-b bg-[linear-gradient(135deg,var(--surface-raised),var(--surface))] p-5 md:border-b-0 md:border-r sm:p-6">
               <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-faint">
@@ -340,7 +340,7 @@ export default async function SourcesPage() {
                   href={source.href}
                   target="_blank"
                   rel="noreferrer"
-                  className="group relative overflow-hidden rounded-2xl border bg-surface p-4 transition-all hover:-translate-y-0.5 hover:border-strong hover:shadow-[0_14px_36px_rgb(0_0_0/0.06)] sm:p-5"
+                  className="premium-panel group relative overflow-hidden rounded-2xl p-4 transition-all hover:-translate-y-0.5 hover:border-accent/35 hover:shadow-[0_16px_42px_var(--accent-glow)] sm:p-5"
                 >
                   <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--border-strong)] to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
 
@@ -413,7 +413,7 @@ export default async function SourcesPage() {
           </div>
         </section>
 
-        <section className="rounded-2xl border bg-surface p-4 shadow-[0_8px_30px_rgb(0_0_0/0.025)] sm:p-5">
+        <section className="premium-panel rounded-2xl p-4 sm:p-5">
           <div className="flex items-center gap-2">
             <Gauge className="size-4 text-muted" />
             <h2 className="text-sm font-semibold">How accuracy is measured</h2>
@@ -489,7 +489,7 @@ export default async function SourcesPage() {
           </div>
         </section>
 
-        <section className="overflow-hidden rounded-2xl border bg-surface shadow-[0_8px_30px_rgb(0_0_0/0.025)]">
+        <section className="premium-panel overflow-hidden rounded-2xl">
           <div className="grid md:grid-cols-[auto_1fr_auto] md:items-center">
             <div className="grid min-h-24 place-items-center border-b bg-surface-raised p-5 md:min-h-full md:w-24 md:border-b-0 md:border-r">
               <Database className="size-5 text-muted" />
