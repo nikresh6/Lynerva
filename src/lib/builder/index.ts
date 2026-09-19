@@ -28,6 +28,7 @@ export interface BuiltCombination {
   relaxedConstraints: string[];
   maxOddsContributionShare: number;
   balanceScore: number;
+  lynervaScore: number;
 }
 
 interface RankedCandidate {
@@ -238,6 +239,28 @@ function buildFromState(state: SearchState): BuiltCombination {
   const expectedValueMultiplier =
     state.probabilityProduct * grossReturn;
   const { maxShare, balanceScore } = oddsContributionShares(state.legs);
+  const legScores = markets
+    .map((market) => market.lynervaScore)
+    .filter((score): score is number => score !== null);
+  const averageLegScore = legScores.length
+    ? legScores.reduce((sum, score) => sum + score, 0) / legScores.length
+    : 50;
+  const valueQuality = clamp(
+    50 + (expectedValueMultiplier - 1) * 150,
+    0,
+    100,
+  );
+  const hitQuality = clamp(state.probabilityProduct * 130, 0, 100);
+  const lynervaScore = Math.round(
+    clamp(
+      0.56 * averageLegScore +
+        0.22 * valueQuality +
+        0.14 * balanceScore * 100 +
+        0.08 * hitQuality,
+      0,
+      100,
+    ),
+  );
 
   return {
     legs: markets,
@@ -253,6 +276,7 @@ function buildFromState(state: SearchState): BuiltCombination {
     relaxedConstraints: [],
     maxOddsContributionShare: maxShare,
     balanceScore,
+    lynervaScore,
   };
 }
 
