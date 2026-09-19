@@ -9,7 +9,7 @@ import { formatPercent, titleCase } from "@/lib/utils";
 import { BetLab } from "./market-table";
 import { useMarketData } from "./market-data-provider";
 import { PlatformMark } from "./platform-mark";
-import { usePlayerVisuals } from "./player-visuals";
+import { usePlayerVisuals, type PlayerVisualData } from "./player-visuals";
 import { SubjectVisual, teamLogo } from "./subject-visual";
 
 function normalizeMatchup(value: string | null | undefined) {
@@ -145,7 +145,7 @@ function BetRow({
   onOpen,
 }: {
   market: MarketOpportunity;
-  visual: ReturnType<typeof usePlayerVisuals>[string];
+  visual: PlayerVisualData | null | undefined;
   onOpen: () => void;
 }) {
   return (
@@ -201,10 +201,19 @@ export function GameBetsModal({
   game: LiveNflGame;
   onClose: () => void;
 }) {
-  const { opportunities, loading, refreshing } = useMarketData();
+  const { opportunities, loading, refreshing, refresh } = useMarketData();
   const [selectedBet, setSelectedBet] = useState<MarketOpportunity | null>(null);
   const targetMatchup = matchupKey(game);
   const liveOnly = game.state === "in";
+
+  useEffect(() => {
+    if (!liveOnly) return;
+    void refresh();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refresh();
+    }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [liveOnly]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
