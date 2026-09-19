@@ -366,6 +366,9 @@ export async function estimateMarket(
     if (
       !canPublishPlayerProbability({
         hasExternalProjection: external.projection !== null,
+        projectionSourceCount: external.points.length,
+        minimumProjectionSources:
+          canonical.family === "longest_reception" ? 3 : 1,
         historyCount: values.length,
       })
     ) {
@@ -566,7 +569,9 @@ export async function estimateMarket(
     const factors = [
       external.projection !== null
         ? `Independent projection consensus: ${external.projection.toFixed(1)} from ${sourceCount} source${sourceCount === 1 ? "" : "s"} (${external.points.map((point) => point.source).join(", ")}).`
-        : "Independent projections unavailable, using the live market as a low-confidence baseline so the prop remains rated.",
+        : statisticalProbability !== null
+          ? "Independent weekly projections are unavailable for this stat, so the estimate is carried by current-season regular-season results."
+          : "Independent weekly projections are unavailable.",
       values.length >= 4
         ? `Four-game statistical model active using ${values.length} current-season regular-season games.`
         : `Statistical model locked until four current-season games; ${values.length} available now.`,
