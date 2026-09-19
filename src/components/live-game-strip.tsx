@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { LiveNflGame } from "@/lib/nfl/live";
 import { teamLogo } from "./subject-visual";
+import { GameBetsModal } from "./game-bets-modal";
 
 function gameLabel(game: LiveNflGame) {
   if (game.state === "in") return game.status;
@@ -18,6 +18,7 @@ function gameLabel(game: LiveNflGame) {
 
 export function LiveGameStrip({ games }: { games: LiveNflGame[] }) {
   const [current, setCurrent] = useState(games);
+  const [selectedGame, setSelectedGame] = useState<LiveNflGame | null>(null);
 
   useEffect(() => {
     setCurrent(games);
@@ -66,19 +67,15 @@ export function LiveGameStrip({ games }: { games: LiveNflGame[] }) {
   if (!visible.length) return null;
 
   return (
-    <div className="scrollbar-subtle -mx-1 mb-4 flex snap-x gap-2 overflow-x-auto px-1 pb-2">
+    <>
+      <div className="scrollbar-subtle -mx-1 mb-4 flex snap-x gap-2 overflow-x-auto px-1 pb-2">
       {visible.map((game) => {
-        const gameKey = [game.away.team, game.home.team].toSorted().join("-");
-        const destination =
-          game.state === "in"
-            ? `/live?game=${encodeURIComponent(gameKey)}`
-            : `/?game=${encodeURIComponent(gameKey)}`;
-
         return (
-        <Link
+        <button
+          type="button"
           key={game.id}
-          href={destination}
-          className="premium-panel group min-w-[232px] snap-start overflow-hidden rounded-2xl transition-all hover:border-accent/35 hover:shadow-[0_14px_36px_var(--accent-glow)] sm:min-w-[260px]"
+          onClick={() => setSelectedGame(game)}
+          className="premium-panel group min-w-[232px] snap-start overflow-hidden rounded-2xl text-left transition-all hover:border-accent/35 hover:shadow-[0_14px_36px_var(--accent-glow)] sm:min-w-[260px]"
           aria-label={`Open best bets for ${game.away.team} at ${game.home.team}`}
         >
           <div className="flex items-center justify-between border-b px-4 py-2.5 text-[10px] text-muted">
@@ -123,9 +120,13 @@ export function LiveGameStrip({ games }: { games: LiveNflGame[] }) {
               </p>
             ) : null}
           </div>
-        </Link>
+        </button>
         );
       })}
-    </div>
+      </div>
+      {selectedGame ? (
+        <GameBetsModal game={selectedGame} onClose={() => setSelectedGame(null)} />
+      ) : null}
+    </>
   );
 }
