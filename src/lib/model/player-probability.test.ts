@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { empiricalPlayerProbability, poissonAtLeastProbability } from "./player-probability";
+import { canPublishPlayerProbability, empiricalPlayerProbability, poissonAtLeastProbability } from "./player-probability";
 
 describe("empirical player probability", () => {
   it("keeps a never-hit high line appropriately low", () => {
@@ -46,5 +46,35 @@ describe("poissonAtLeastProbability", () => {
   it("returns a sensible 1+ touchdown chance", () => {
     const probability = poissonAtLeastProbability(1, 0.7);
     expect(probability).toBeCloseTo(1 - Math.exp(-0.7), 6);
+  });
+});
+
+
+describe("player probability publication guard", () => {
+  it("does not echo a market price when no independent player data exists", () => {
+    expect(
+      canPublishPlayerProbability({
+        hasExternalProjection: false,
+        historyCount: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it("allows a prop once independent weekly projections exist", () => {
+    expect(
+      canPublishPlayerProbability({
+        hasExternalProjection: true,
+        historyCount: 0,
+      }),
+    ).toBe(true);
+  });
+
+  it("allows a prop after four current-season results even without a projection", () => {
+    expect(
+      canPublishPlayerProbability({
+        hasExternalProjection: false,
+        historyCount: 4,
+      }),
+    ).toBe(true);
   });
 });
