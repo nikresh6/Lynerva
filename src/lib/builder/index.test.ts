@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildBestAvailableCombination, buildCombination } from "./index";
+import { buildBestAvailableCombination, buildCombination, buildRankedCombinations, buildTopScoredCombinations } from "./index";
 import type { MarketOpportunity } from "@/lib/markets/types";
 
 function opportunity(
@@ -318,6 +318,58 @@ describe("combination builder", () => {
     expect(
       result?.legs.some((leg) => leg.platformMarketId === "BARKLEY25REC"),
     ).toBe(false);
+  });
+
+  it("returns multiple custom parlays sorted by Lynerva score", () => {
+    const markets = Array.from({ length: 8 }, (_, index) => ({
+      ...opportunity(
+        `RANK${index}`,
+        `TEAM${index}-OPP${index}`,
+        5_500 + index * 100,
+        6_500 + index * 100,
+      ),
+      lynervaScore: 58 + index * 4,
+    }));
+
+    const results = buildRankedCombinations(markets, {
+      ...baseOptions,
+      minReturn: 2,
+      maxReturn: 12,
+      maxLegs: 4,
+      mode: "any",
+    }, 5);
+
+    expect(results.length).toBeGreaterThan(1);
+    expect(
+      results.every(
+        (result, index) =>
+          index === 0 ||
+          (results[index - 1]?.lynervaScore ?? 0) >= result.lynervaScore,
+      ),
+    ).toBe(true);
+  });
+
+  it("builds a no-filter weekly leaderboard sorted by score", () => {
+    const markets = Array.from({ length: 10 }, (_, index) => ({
+      ...opportunity(
+        `WEEK${index}`,
+        `GAME${index}-RIVAL${index}`,
+        5_000 + (index % 3) * 400,
+        6_200 + (index % 4) * 500,
+      ),
+      lynervaScore: 60 + index * 3,
+    }));
+
+    const results = buildTopScoredCombinations(markets, 6);
+
+    expect(results.length).toBeGreaterThan(1);
+    expect(
+      results.every(
+        (result, index) =>
+          index === 0 ||
+          (results[index - 1]?.lynervaScore ?? 0) >= result.lynervaScore,
+      ),
+    ).toBe(true);
   });
 
   it("never returns a single leg as a parlay", () => {
