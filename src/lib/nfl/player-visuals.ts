@@ -6,10 +6,12 @@ export interface PlayerVisual {
   position: string | null;
 }
 
-interface RosterPlayer extends PlayerVisual {
+export interface TeamRosterPlayer extends PlayerVisual {
   fullName: string;
   footballName: string | null;
 }
+
+interface RosterPlayer extends TeamRosterPlayer {}
 
 let rosterPromise: Promise<Map<string, RosterPlayer>> | null = null;
 
@@ -171,4 +173,46 @@ export async function getPlayerVisuals(names: string[]) {
   }
 
   return result;
+}
+
+
+export async function getTeamRoster(team: string) {
+  const normalizedTeam = team.trim().toUpperCase() === "WSH"
+    ? "WAS"
+    : team.trim().toUpperCase();
+  if (!normalizedTeam) return [];
+
+  try {
+    const players = await rosterMap();
+    const unique = new Map<string, TeamRosterPlayer>();
+    for (const player of players.values()) {
+      if ((player.team ?? "").toUpperCase() !== normalizedTeam) continue;
+      const key = normalizePerson(player.fullName);
+      if (!unique.has(key)) {
+        unique.set(key, {
+          fullName: player.fullName,
+          footballName: player.footballName,
+          imageUrl: player.imageUrl,
+          team: player.team,
+          position: player.position,
+        });
+      }
+    }
+
+    return [...unique.values()].toSorted((first, second) => {
+      const positionOrder = ["QB", "RB", "WR", "TE", "K", "DEF"];
+      const firstPosition = positionOrder.indexOf(first.position ?? "");
+      const secondPosition = positionOrder.indexOf(second.position ?? "");
+      if (firstPosition !== secondPosition) {
+        return (
+          (firstPosition < 0 ? 99 : firstPosition) -
+          (secondPosition < 0 ? 99 : secondPosition)
+        );
+      }
+      return first.fullName.localeCompare(second.fullName);
+    });
+  } catch (error) {
+    console.error("Team roster lookup failed", error);
+    return [];
+  }
 }
