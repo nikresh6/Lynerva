@@ -127,7 +127,7 @@ describe("bankroll portfolio builder", () => {
     expect(plan?.maxPositionShare ?? 1).toBeLessThanOrEqual(0.341);
   });
 
-  it("uses more parlay exposure when the requested payout is higher", () => {
+  it("uses more high-variance upside when the requested payout is higher", () => {
     const lowerTarget = buildPortfolioPlan(markets, {
       amount: 100,
       targetPayout: 180,
@@ -149,8 +149,8 @@ describe("bankroll portfolio builder", () => {
 
     expect(lowerTarget).not.toBeNull();
     expect(higherTarget).not.toBeNull();
-    expect(higherTarget!.parlayStakeShare).toBeGreaterThan(
-      lowerTarget!.parlayStakeShare,
+    expect(higherTarget!.hailMaryStakeShare).toBeGreaterThan(
+      lowerTarget!.hailMaryStakeShare,
     );
   });
 
