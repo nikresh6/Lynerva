@@ -214,6 +214,7 @@ export function MarketExplorer({
             <option value="all">All player props</option>
             <option value="passing_yards">Passing yards</option>
             <option value="passing_touchdowns">Passing TDs</option>
+            <option value="passing_interceptions">Interceptions</option>
             <option value="rushing_yards">Rushing yards</option>
             <option value="receiving_yards">Receiving yards</option>
             <option value="receptions">Receptions</option>
