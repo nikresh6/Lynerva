@@ -196,8 +196,11 @@ async function main() {
       .filter((value): value is string => Boolean(value)),
   );
 
-  const currentEspnGame = livePayload.games
-    .filter((game) => game.state === "in" || game.state === "pre")
+  const currentOpenGames = livePayload.games.filter(
+    (game) => game.state === "in" || game.state === "pre",
+  );
+
+  const currentEspnGame = currentOpenGames
     .toSorted(
       (first, second) =>
         new Date(first.startsAt).getTime() - new Date(second.startsAt).getTime(),
@@ -266,6 +269,7 @@ async function main() {
         completedGameMarkets: completedGameMarkets.length,
         displayedTopPicks: displayedTopPicks.length,
         matchups: [...matchups].slice(0, 20),
+        currentOpenGames: currentOpenGames.length,
         currentEspnGame,
         currentEspnMatchup,
         currentGameMapped:
@@ -393,6 +397,11 @@ async function main() {
   }
   if (!pregameBuild) {
     console.warn("Live smoke note: no qualified current-season pregame combination is available yet.");
+  }
+  if (currentOpenGames.length > 0 && gameMarkets.length === 0) {
+    throw new Error(
+      `Live smoke failed: ESPN shows ${currentOpenGames.length} current NFL games but Lynerva exposed zero Kalshi moneylines.`,
+    );
   }
   if (unwantedGameMarkets.length > 0) {
     throw new Error(
