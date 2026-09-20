@@ -26,7 +26,7 @@ import {
 } from "@/lib/builder/portfolio";
 import { isBuilderEligibleOpportunity } from "@/lib/markets/eligibility";
 import type { MarketOpportunity } from "@/lib/markets/types";
-import { cn, formatEdge, formatPercent } from "@/lib/utils";
+import { cn, formatEdge, formatPercent, relativeTime } from "@/lib/utils";
 import { PlatformMark } from "./platform-mark";
 import { useMarketData } from "./market-data-provider";
 import { BetLab } from "./market-table";
@@ -985,6 +985,9 @@ export function BuilderWorkbench() {
                           <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.08em] text-faint">
                             {matchup}
                           </p>
+                          <p className="mt-1 text-[9px] text-faint">
+                            Odds changed {relativeTime(leg.priceChangedAt ?? leg.updatedAt)}
+                          </p>
                         </div>
 
                         <div className="shrink-0 text-right">
@@ -1444,6 +1447,8 @@ export function BuilderWorkbench() {
                               <span className="capitalize">{leg.platform}</span>
                               <span>·</span>
                               <span>Score {leg.lynervaScore ?? "n/a"}</span>
+                              <span>·</span>
+                              <span>Odds {relativeTime(leg.priceChangedAt ?? leg.updatedAt)}</span>
                             </div>
                           </div>
                           <div className="shrink-0 text-right">
