@@ -239,7 +239,7 @@ function candidatePool(
     usedPrimaryStats.add(statKey);
     perGame.set(game, gameCount + 1);
     perFamily.set(family, familyCount + 1);
-    if (selected.length >= 180) break;
+    if (selected.length >= 130) break;
   }
 
   // Second pass: retain at most one alternate line for payout fitting, but
@@ -257,7 +257,7 @@ function candidatePool(
     selected.push(candidate);
     alternateCount.set(statKey, 1);
     perGame.set(game, (perGame.get(game) ?? 0) + 1);
-    if (selected.length >= 240) break;
+    if (selected.length >= 160) break;
   }
 
   return selected;
@@ -413,6 +413,59 @@ function stateSearchValue(
   );
 }
 
+function diverseStateSlice(
+  rows: SearchState[],
+  targetReturn: number,
+  objective: BuilderObjective,
+  limit: number,
+) {
+  const sorted = rows.toSorted(
+    (first, second) =>
+      stateSearchValue(second, targetReturn, objective) -
+      stateSearchValue(first, targetReturn, objective),
+  );
+  const selected: SearchState[] = [];
+  const perAnchor = new Map<string, number>();
+
+  for (const state of sorted) {
+    const first = state.legs[0]?.market;
+    const anchor = first ? playerStatKey(first) : "empty";
+    const count = perAnchor.get(anchor) ?? 0;
+    if (count >= 3) continue;
+    selected.push(state);
+    perAnchor.set(anchor, count + 1);
+    if (selected.length >= limit) break;
+  }
+
+  return selected;
+}
+
+function diverseBuiltSlice(
+  rows: BuiltCombination[],
+  targetReturn: number,
+  objective: BuilderObjective,
+  limit: number,
+) {
+  const sorted = rows.toSorted(
+    (first, second) =>
+      combinationScore(second, targetReturn, objective) -
+      combinationScore(first, targetReturn, objective),
+  );
+  const selected: BuiltCombination[] = [];
+  const perAnchor = new Map<string, number>();
+
+  for (const row of sorted) {
+    const anchor = row.legs[0] ? playerStatKey(row.legs[0]) : "empty";
+    const count = perAnchor.get(anchor) ?? 0;
+    if (count >= 2) continue;
+    selected.push(row);
+    perAnchor.set(anchor, count + 1);
+    if (selected.length >= limit) break;
+  }
+
+  return selected;
+}
+
 function modeCompatible(
   state: SearchState,
   candidate: RankedCandidate,
@@ -457,7 +510,7 @@ function searchCombinations(
   if (eligible.length === 0) return [];
 
   const targetReturn = Math.sqrt(options.minReturn * options.maxReturn);
-  const beamWidth = resultLimit > 1 ? 4_200 : 3_600;
+  const beamWidth = resultLimit > 1 ? 900 : 1_400;
   let frontier: SearchState[] = [
     {
       legs: [],
@@ -553,34 +606,25 @@ function searchCombinations(
               .toSorted()
               .join("|");
 
-            const nextRows = [
-              ...rows.filter((row) => {
-                const rowKey = row.legs
-                  .map(
-                    (leg) =>
-                      leg.canonical?.key ??
-                      `${leg.platform}:${leg.platformMarketId}`,
-                  )
-                  .toSorted()
-                  .join("|");
-                return rowKey !== key;
-              }),
-              built,
-            ]
-              .toSorted(
-                (first, second) =>
-                  combinationScore(
-                    second,
-                    bucketTarget,
-                    options.objective,
-                  ) -
-                  combinationScore(
-                    first,
-                    bucketTarget,
-                    options.objective,
-                  ),
-              )
-              .slice(0, 8);
+            const nextRows = diverseBuiltSlice(
+              [
+                ...rows.filter((row) => {
+                  const rowKey = row.legs
+                    .map(
+                      (leg) =>
+                        leg.canonical?.key ??
+                        `${leg.platform}:${leg.platformMarketId}`,
+                    )
+                    .toSorted()
+                    .join("|");
+                  return rowKey !== key;
+                }),
+                built,
+              ],
+              bucketTarget,
+              options.objective,
+              12,
+            );
 
             bestByReturnBucket.set(bucket, nextRows);
           }
@@ -607,13 +651,12 @@ function searchCombinations(
 
     frontier = [...buckets.values()]
       .flatMap((rows) =>
-        rows
-          .toSorted(
-            (first, second) =>
-              stateSearchValue(second, targetReturn, options.objective) -
-              stateSearchValue(first, targetReturn, options.objective),
-          )
-          .slice(0, resultLimit > 1 ? 72 : 96),
+        diverseStateSlice(
+          rows,
+          targetReturn,
+          options.objective,
+          resultLimit > 1 ? 24 : 40,
+        ),
       )
       .toSorted(
         (first, second) =>
@@ -806,7 +849,7 @@ export function buildCombinationCandidates(
   return searchCombinations(
     opportunities,
     options,
-    Math.max(2, Math.min(limit, 120)),
+    Math.max(2, Math.min(limit, 64)),
   );
 }
 
@@ -823,7 +866,7 @@ export function buildRankedCombinations(
   options: BuilderOptions,
   limit = 6,
 ): BuiltCombination[] {
-  const searchLimit = Math.max(24, Math.min(limit * 16, 120));
+  const searchLimit = Math.max(24, Math.min(limit * 8, 64));
   const exact = buildCombinationCandidates(
     opportunities,
     options,
