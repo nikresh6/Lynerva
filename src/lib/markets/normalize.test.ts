@@ -37,6 +37,30 @@ describe("market normalization", () => {
     });
   });
 
+  it("recognizes compact KXNFLGAME titles that do not contain the word win", () => {
+    const normalized = normalizeMarket(
+      contract({
+        platformMarketId: "KXNFLGAME-26SEP20CLETB-CLE",
+        eventTitle: "KXNFLGAME-26SEP20CLETB",
+        marketTitle: "Cleveland Browns at Tampa Bay Buccaneers",
+        outcomeLabel: "Cleveland Browns",
+        resolutionRules:
+          "Resolves Yes if Cleveland wins the professional football game.",
+        closesAt: "2026-09-21T03:30:00.000Z",
+      }),
+    );
+
+    expect(normalized).toMatchObject({
+      family: "moneyline",
+      statistic: "game_winner",
+      direction: "yes",
+      threshold: null,
+      subject: "CLE",
+      matchup: "CLE-TB",
+      parseConfidence: "high",
+    });
+  });
+
   it("normalizes each Kalshi team moneyline as its own game-winner outcome", () => {
     const normalized = normalizeMarket(
       contract({
