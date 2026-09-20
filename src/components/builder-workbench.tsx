@@ -62,9 +62,13 @@ function builderPickLabel(market: MarketOpportunity) {
               ? "interceptions"
               : canonical.family === "passing_touchdowns"
                 ? "passing TDs"
-              : canonical.family === "touchdowns"
-                ? "TDs"
-                : canonical.family.replaceAll("_", " ");
+                : canonical.family === "rushing_touchdowns"
+                  ? "rushing TDs"
+                  : canonical.family === "receiving_touchdowns"
+                    ? "receiving TDs"
+                    : canonical.family === "touchdowns"
+                      ? "anytime TDs"
+                      : canonical.family.replaceAll("_", " ");
 
   return `${canonical.subject}: ${pickDirection === "over" ? "Over" : "Under"} ${threshold} ${label}`;
 }
