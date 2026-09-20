@@ -436,11 +436,17 @@ function bestCandidate(
             ),
           );
 
+    const returnPenalty =
+      options.returnTarget === undefined
+        ? 0
+        : options.returnTarget < 4
+          ? 1.15
+          : 0.55;
     const score =
       candidate.score -
       1.45 * maxOverlap -
       0.8 * probabilityDistance -
-      0.4 * returnDistance +
+      returnPenalty * returnDistance +
       hedgeBonus(candidate, avoid, options.subjectTeams);
 
     if (score > bestScore) {
