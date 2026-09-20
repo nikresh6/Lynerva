@@ -241,6 +241,7 @@ function parlayCandidate(
 function parlayCandidates(
   opportunities: MarketOpportunity[],
   options: PortfolioPlanOptions,
+  targetReturn: number,
 ) {
   const modes: Array<"multi_game" | "sgp"> =
     options.mode === "any"
@@ -257,13 +258,27 @@ function parlayCandidates(
   const candidates: Candidate[] = [];
   const seen = new Set<string>();
 
-  const returnBands = [
-    { minReturn: 1.3, maxReturn: 4, limit: 14 },
-    { minReturn: 3.5, maxReturn: 10, limit: 12 },
-    { minReturn: 8, maxReturn: 25, limit: 12 },
-    { minReturn: 20, maxReturn: 80, limit: 10 },
-    { minReturn: 60, maxReturn: 300, limit: 10 },
-  ] as const;
+  const returnBands: Array<{
+    minReturn: number;
+    maxReturn: number;
+    limit: number;
+  }> = [{ minReturn: 1.3, maxReturn: 4, limit: 14 }];
+
+  if (targetReturn >= 2.2 || options.risk === "higher") {
+    returnBands.push({ minReturn: 5, maxReturn: 30, limit: 12 });
+  }
+
+  if (targetReturn >= 2.8 || options.risk === "higher") {
+    returnBands.push({ minReturn: 20, maxReturn: 500, limit: 12 });
+  }
+
+  if (targetReturn >= 6) {
+    returnBands.push({
+      minReturn: Math.max(4, targetReturn * 0.65),
+      maxReturn: Math.min(500, targetReturn * 1.6),
+      limit: 12,
+    });
+  }
 
   for (const mode of modes) {
     for (const band of returnBands) {
@@ -462,12 +477,12 @@ function selectPortfolioCandidates(
     targetReturn >= (risk === "lower" ? 4.5 : 2.8) ||
     risk === "higher"
   ) {
-    const hailTarget = clamp(targetReturn * 20, 35, 300);
+    const hailTarget = clamp(targetReturn * 20, 35, 500);
     addCandidate(
       selected,
       bestCandidate(parlays, selected, {
         returnMin: 25,
-        returnMax: 300,
+        returnMax: 500,
         returnTarget: hailTarget,
         role: "hail_mary",
       }),
@@ -637,9 +652,9 @@ export function buildPortfolioPlan(
     return null;
   }
 
-  const targetReturn = clamp(options.targetPayout / options.amount, 1.05, 250);
+  const targetReturn = clamp(options.targetPayout / options.amount, 1.05, 500);
   const straights = straightCandidates(opportunities, options);
-  const parlays = parlayCandidates(opportunities, options);
+  const parlays = parlayCandidates(opportunities, options, targetReturn);
 
   if (!straights.length || !parlays.length) return null;
 
