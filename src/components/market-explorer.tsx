@@ -12,6 +12,7 @@ import type {
 import { MarketTable } from "./market-table";
 import { useMarketData } from "./market-data-provider";
 import { teamLogo } from "./subject-visual";
+import { relativeTime } from "@/lib/utils";
 
 const DEFAULT_FILTERS: MarketFilters = {
   query: "",
@@ -57,7 +58,14 @@ function Select({
 }
 
 function FeedStatus() {
-  const { providers, refreshing, error, ratedCount, displayedCount } = useMarketData();
+  const {
+    providers,
+    refreshing,
+    error,
+    ratedCount,
+    displayedCount,
+    fetchedAt,
+  } = useMarketData();
 
   return (
     <div className="scrollbar-subtle -mx-1 mb-4 flex flex-nowrap items-center gap-2 overflow-x-auto px-1 pb-1 text-[10px] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
@@ -89,6 +97,9 @@ function FeedStatus() {
         {refreshing
           ? "Refreshing live odds"
           : `${ratedCount} props rated · ${displayedCount} ranked picks`}
+      </span>
+      <span className="feed-pill text-muted">
+        Odds refreshed {fetchedAt ? relativeTime(fetchedAt) : "just now"}
       </span>
       {error ? (
         <span className="feed-pill border-warning/30 bg-warning-bg text-warning">
