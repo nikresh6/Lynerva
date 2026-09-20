@@ -150,8 +150,17 @@ function isAcceptablePayoutShape(legs: RankedCandidate[]) {
   if (maxShare <= normalLimit) return true;
   if (!hasExceptionalLongshotValue(legs)) return false;
 
+  // Exceptional value can justify one payout-heavy leg in a short parlay,
+  // but it should not dominate a four-plus-leg build. At that point the user
+  // asked for a parlay, not three safe legs plus one disguised lottery ticket.
   const exceptionalCeiling =
-    legs.length <= 2 ? 0.9 : legs.length === 3 ? 0.8 : 0.68;
+    legs.length <= 2
+      ? 0.9
+      : legs.length === 3
+        ? 0.72
+        : legs.length === 4
+          ? 0.52
+          : 0.46;
   return maxShare <= exceptionalCeiling;
 }
 
