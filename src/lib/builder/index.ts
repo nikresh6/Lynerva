@@ -849,7 +849,8 @@ function isMeaningfullyDistinct(
         market.canonical?.subject.toLowerCase() ??
         combinationIdentity(market),
     );
-    return subjectOverlap <= 0.67;
+    const subjectLimit = smallerLegCount <= 2 ? 0.75 : 0.67;
+    return subjectOverlap <= subjectLimit;
   });
 }
 
