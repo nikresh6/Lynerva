@@ -500,6 +500,7 @@ function parlayPulse(
     relativePct,
     label: `Parlay pulse ${relativePct >= 0 ? "+" : ""}${relativePct.toFixed(0)}%`,
     detail: [
+      `${priced.length}/${bet.legMarketIds.length} priced`,
       up ? `${up} up` : "",
       down ? `${down} down` : "",
       steady ? `${steady} steady` : "",
@@ -711,12 +712,12 @@ export function ManualTracker() {
       let changed = false;
       const next = current.map((bet) => {
         if (!bet.isParlay || !bet.legMarketIds.length) return bet;
-        if (
-          bet.legSides.length === bet.legMarketIds.length &&
-          bet.legEntryPriceBps.length === bet.legMarketIds.length
-        ) {
-          return bet;
-        }
+        const needsRepair =
+          bet.legSides.length !== bet.legMarketIds.length ||
+          bet.legEntryPriceBps.length !== bet.legMarketIds.length ||
+          bet.legSides.some((side) => side === null) ||
+          bet.legEntryPriceBps.some((price) => price === null);
+        if (!needsRepair) return bet;
 
         const legSides = bet.legMarketIds.map((marketId, index) => {
           const market = currentById.get(marketId);
