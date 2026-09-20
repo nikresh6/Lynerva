@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
 import {
   ArrowUpRight,
+  Award,
   BarChart3,
+  BrainCircuit,
   CheckCircle2,
   Database,
   Gauge,
   LineChart,
   ShieldCheck,
+  TrendingUp,
 } from "lucide-react";
 import { PageHeading } from "@/components/page-heading";
 import {
@@ -67,6 +70,22 @@ function biasLabel(value: number, stat: string) {
   if (Math.abs(value) < 0.005) return "0";
   const digits = stat.includes("yards") ? 1 : 2;
   return `${value > 0 ? "+" : ""}${value.toFixed(digits)}${unit(stat)}`;
+}
+
+function weightDelta(value: number | null) {
+  if (value === null || Math.abs(value) < 0.00005) return "No prior week";
+  const points = value * 100;
+  return `${points > 0 ? "+" : ""}${points.toFixed(1)}pp`;
+}
+
+function accuracyTone(score: number) {
+  if (score >= 70) {
+    return "border-positive/30 bg-positive-bg/45 text-positive";
+  }
+  if (score >= 45) {
+    return "border-warning/30 bg-warning-bg/45 text-warning";
+  }
+  return "border-negative/20 bg-negative-bg/35 text-negative";
 }
 
 function PerformanceTable({
@@ -258,6 +277,278 @@ export default async function SourcesPage() {
       />
 
       <div className="space-y-6">
+        {(() => {
+          const leaderboard = performance.sources
+            .map((source) => {
+              const sourceRows = performance.rows.filter(
+                (row) => row.source === source.id,
+              );
+              const statScores = sourceRows.map((row) => {
+                const peers = performance.rows
+                  .filter((peer) => peer.statistic === row.statistic)
+                  .toSorted(
+                    (a, b) =>
+                      a.robustError - b.robustError ||
+                      b.sampleSize - a.sampleSize,
+                  );
+                const rank = peers.findIndex(
+                  (peer) => peer.source === row.source,
+                );
+                const accuracyIndex =
+                  rank < 0
+                    ? 50
+                    : peers.length <= 1
+                      ? 50
+                      : 100 * (1 - rank / (peers.length - 1));
+                return { row, accuracyIndex };
+              });
+              const accuracyIndex = statScores.length
+                ? statScores.reduce((sum, item) => sum + item.accuracyIndex, 0) /
+                  statScores.length
+                : 0;
+              const weightedRows = sourceRows.filter(
+                (row) => row.weight !== null,
+              );
+              const averageWeight = weightedRows.length
+                ? weightedRows.reduce(
+                    (sum, row) => sum + (row.weight ?? 0),
+                    0,
+                  ) / weightedRows.length
+                : null;
+              const trendRows = sourceRows.filter(
+                (row) => row.weightChange !== null,
+              );
+              const averageWeightChange = trendRows.length
+                ? trendRows.reduce(
+                    (sum, row) => sum + (row.weightChange ?? 0),
+                    0,
+                  ) / trendRows.length
+                : null;
+
+              return {
+                ...source,
+                sourceRows,
+                accuracyIndex,
+                averageWeight,
+                averageWeightChange,
+                samples: sourceRows.reduce(
+                  (sum, row) => sum + row.sampleSize,
+                  0,
+                ),
+              };
+            })
+            .toSorted(
+              (a, b) =>
+                b.accuracyIndex - a.accuracyIndex ||
+                b.samples - a.samples,
+            );
+          const leader = leaderboard.find((row) => row.samples > 0) ?? null;
+
+          return (
+            <section className="premium-panel overflow-hidden rounded-2xl">
+              <div className="border-b bg-[radial-gradient(circle_at_12%_0%,var(--accent-bg),transparent_45%),linear-gradient(135deg,var(--surface-raised),var(--surface))] p-5 sm:p-6">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">
+                      <BrainCircuit className="size-3.5" />
+                      Learning leaderboard
+                    </div>
+                    <h2 className="mt-2 text-xl font-semibold tracking-[-0.03em]">
+                      The model is learning which sources deserve more influence.
+                    </h2>
+                    <p className="mt-2 max-w-3xl text-xs leading-5 text-muted">
+                      Sources are compared within each stat so yardage and touchdown
+                      errors are never mixed together. Accuracy index is the
+                      source&apos;s average rank percentile across the stats it has
+                      graded. The actual model weights below come from the learning
+                      loop, not from this display index.
+                    </p>
+                  </div>
+                  {leader ? (
+                    <div className="rounded-2xl border border-positive/25 bg-positive-bg/65 px-4 py-3">
+                      <div className="flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.1em] text-positive">
+                        <Award className="size-3.5" />
+                        Overall leader
+                      </div>
+                      <div className="mt-1 text-lg font-semibold">
+                        {leader.name}
+                      </div>
+                      <div className="mt-0.5 text-[10px] text-muted">
+                        {leader.accuracyIndex.toFixed(0)} accuracy index across{" "}
+                        {leader.sourceRows.length} tracked stats
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="grid gap-3 p-3 sm:p-4 lg:grid-cols-2 xl:grid-cols-3">
+                {leaderboard.map((source, index) => (
+                  <details
+                    key={source.id}
+                    className="group overflow-hidden rounded-2xl border bg-surface"
+                  >
+                    <summary className="cursor-pointer list-none p-4 sm:p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="grid size-10 shrink-0 place-items-center rounded-xl border bg-surface-raised text-xs font-bold tracking-[-0.02em]">
+                            {source.name
+                              .split(/\s+/)
+                              .map((part) => part[0])
+                              .join("")
+                              .slice(0, 2)
+                              .toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="truncate text-sm font-semibold">
+                                {source.name}
+                              </p>
+                              {index === 0 && source.samples > 0 ? (
+                                <span className="rounded-full bg-positive-bg px-2 py-0.5 text-[8px] font-semibold text-positive">
+                                  #1
+                                </span>
+                              ) : null}
+                            </div>
+                            <p className="mt-0.5 text-[9px] text-faint">
+                              {source.samples.toLocaleString()} graded samples
+                            </p>
+                          </div>
+                        </div>
+                        <span
+                          className={cn(
+                            "rounded-xl border px-2.5 py-1.5 text-right",
+                            accuracyTone(source.accuracyIndex),
+                          )}
+                        >
+                          <span className="block text-sm font-bold tabular">
+                            {source.samples ? source.accuracyIndex.toFixed(0) : "—"}
+                          </span>
+                          <span className="block text-[8px] font-semibold uppercase tracking-[0.07em]">
+                            accuracy
+                          </span>
+                        </span>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-3 gap-2">
+                        <div className="rounded-xl border bg-background p-2.5">
+                          <p className="text-[8px] uppercase tracking-[0.08em] text-faint">
+                            Model weight
+                          </p>
+                          <p className="mt-1 text-xs font-semibold tabular">
+                            {source.averageWeight === null
+                              ? "Equal prior"
+                              : `${(source.averageWeight * 100).toFixed(1)}%`}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border bg-background p-2.5">
+                          <p className="text-[8px] uppercase tracking-[0.08em] text-faint">
+                            Weight move
+                          </p>
+                          <p
+                            className={cn(
+                              "mt-1 text-xs font-semibold tabular",
+                              (source.averageWeightChange ?? 0) > 0
+                                ? "text-positive"
+                                : (source.averageWeightChange ?? 0) < 0
+                                  ? "text-negative"
+                                  : "",
+                            )}
+                          >
+                            {weightDelta(source.averageWeightChange)}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border bg-background p-2.5">
+                          <p className="text-[8px] uppercase tracking-[0.08em] text-faint">
+                            Coverage
+                          </p>
+                          <p className="mt-1 text-xs font-semibold tabular">
+                            {source.coverageCount.toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between text-[9px] font-medium text-muted">
+                        <span>Click for the learning breakdown</span>
+                        <TrendingUp className="size-3.5 transition-transform group-open:rotate-180" />
+                      </div>
+                    </summary>
+
+                    <div className="border-t bg-background/45 p-4">
+                      <p className="text-[10px] leading-5 text-muted">
+                        Per-stat robust error = 50% median miss + 30% recent
+                        median miss + 20% 90th-percentile miss. With small
+                        samples, the learned weight stays close to an equal
+                        prior. As settled samples grow, better robust error earns
+                        more influence.
+                      </p>
+
+                      <div className="mt-3 space-y-2">
+                        {source.sourceRows.length ? (
+                          source.sourceRows
+                            .toSorted((a, b) => a.statistic.localeCompare(b.statistic))
+                            .map((row) => (
+                              <div
+                                key={row.statistic}
+                                className="rounded-xl border bg-surface p-3"
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="text-[10px] font-semibold">
+                                    {STAT_LABELS[row.statistic] ?? row.statistic}
+                                  </span>
+                                  <span className="text-[10px] font-semibold tabular">
+                                    {row.weight === null
+                                      ? "Equal prior"
+                                      : `${(row.weight * 100).toFixed(1)}%`}
+                                  </span>
+                                </div>
+                                <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[9px] text-muted">
+                                  <span>
+                                    Typical {metric(row.medianAbsoluteError, row.statistic)}
+                                  </span>
+                                  <span>
+                                    Recent {metric(row.recentMedianAbsoluteError, row.statistic)}
+                                  </span>
+                                  <span>
+                                    Bad miss {metric(row.p90AbsoluteError, row.statistic)}
+                                  </span>
+                                  <span>
+                                    Robust {metric(row.robustError, row.statistic)}
+                                  </span>
+                                </div>
+                                <div className="mt-2 flex items-center justify-between text-[9px]">
+                                  <span className="text-faint">
+                                    {row.sampleSize} samples
+                                  </span>
+                                  <span
+                                    className={cn(
+                                      "font-semibold tabular",
+                                      (row.weightChange ?? 0) > 0
+                                        ? "text-positive"
+                                        : (row.weightChange ?? 0) < 0
+                                          ? "text-negative"
+                                          : "text-muted",
+                                    )}
+                                  >
+                                    {weightDelta(row.weightChange)}
+                                  </span>
+                                </div>
+                              </div>
+                            ))
+                        ) : (
+                          <p className="text-[10px] text-muted">
+                            No settled samples yet. This source remains near the
+                            equal prior until the learning loop has evidence.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </details>
+                ))}
+              </div>
+            </section>
+          );
+        })()}
         <section className="premium-panel overflow-hidden rounded-2xl">
           <div className="grid gap-0 md:grid-cols-[1.35fr_1fr]">
             <div className="border-b bg-[linear-gradient(135deg,var(--surface-raised),var(--surface))] p-5 md:border-b-0 md:border-r sm:p-6">
@@ -502,8 +793,8 @@ export default async function SourcesPage() {
                 and feed Lynerva&apos;s source-weight learning loop. Current roster
                 metadata and player headshot URLs also come from nflverse so the
                 interface can show real player identity without a paid media API.
-                Kalshi and Polymarket prices are pulled separately and are never
-                treated as outside player projections.
+                Kalshi prices are pulled separately and are never treated as an
+                outside player projection.
               </p>
             </div>
             <div className="border-t p-4 md:border-l md:border-t-0 sm:p-5">

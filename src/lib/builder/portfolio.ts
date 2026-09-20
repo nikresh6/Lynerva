@@ -201,7 +201,7 @@ function straightCandidates(
         second.score - first.score ||
         second.expectedValueMultiplier - first.expectedValueMultiplier,
     )
-    .slice(0, 36);
+    .slice(0, 72);
 }
 
 function parlayRole(grossReturn: number): PortfolioRole {
@@ -262,14 +262,14 @@ function parlayCandidates(
       opportunities,
       {
         minReturn: 1.3,
-        maxReturn: 150,
+        maxReturn: 400,
         maxLegs: options.maxLegs,
         platform: options.platform,
         live: options.live,
         mode,
         objective,
       },
-      30,
+      60,
     );
 
     for (const combination of built) {
@@ -375,89 +375,74 @@ function selectPortfolioCandidates(
 ) {
   const selected: Candidate[] = [];
 
-  addCandidate(
-    selected,
-    bestCandidate(straights, selected, {
-      probabilityMin: 0.72,
-      probabilityMax: 0.98,
-      probabilityTarget: risk === "lower" ? 0.86 : 0.82,
-      role: "core_straight",
-    }),
-  );
+  const addBest = (
+    pool: Candidate[],
+    count: number,
+    options: Parameters<typeof bestCandidate>[2],
+  ) => {
+    for (let index = 0; index < count; index += 1) {
+      addCandidate(selected, bestCandidate(pool, selected, options));
+    }
+  };
 
-  addCandidate(
-    selected,
-    bestCandidate(straights, selected, {
-      probabilityMin: risk === "lower" ? 0.56 : 0.5,
-      probabilityMax: 0.76,
-      probabilityTarget: risk === "lower" ? 0.66 : 0.63,
-      role: "value_straight",
-    }),
-  );
+  addBest(straights, 2, {
+    probabilityMin: 0.7,
+    probabilityMax: 0.98,
+    probabilityTarget: risk === "lower" ? 0.84 : 0.8,
+    role: "core_straight",
+  });
 
-  if (
-    risk === "higher" ||
-    targetReturn >= (risk === "lower" ? 3.5 : 2.5)
-  ) {
-    addCandidate(
-      selected,
-      bestCandidate(straights, selected, {
-        probabilityMin: risk === "lower" ? 0.44 : 0.28,
-        probabilityMax: risk === "higher" ? 0.58 : 0.62,
-        probabilityTarget:
-          risk === "higher" ? 0.4 : risk === "lower" ? 0.54 : 0.47,
-        role: "aggressive_straight",
-      }),
-    );
-  }
+  addBest(straights, 2, {
+    probabilityMin: risk === "lower" ? 0.54 : 0.46,
+    probabilityMax: 0.76,
+    probabilityTarget: risk === "lower" ? 0.64 : 0.6,
+    role: "value_straight",
+  });
 
-  const preferredCoreParlay =
-    bestCandidate(parlays, selected, {
-      probabilityMin: 0.55,
-      probabilityMax: 0.74,
-      probabilityTarget: 0.64,
-      returnMin: 1.3,
-      returnMax: 3.5,
-      returnTarget: 1.8,
-      role: "core_parlay",
-    }) ??
-    bestCandidate(parlays, selected, {
-      probabilityMin: 0.45,
-      returnMin: 1.3,
-      returnMax: 4,
-      returnTarget: 2.1,
-      role: "core_parlay",
+  if (risk === "higher" || targetReturn >= (risk === "lower" ? 3.5 : 2.35)) {
+    addBest(straights, 1, {
+      probabilityMin: risk === "lower" ? 0.42 : 0.25,
+      probabilityMax: risk === "higher" ? 0.58 : 0.64,
+      probabilityTarget:
+        risk === "higher" ? 0.38 : risk === "lower" ? 0.52 : 0.46,
+      role: "aggressive_straight",
     });
-
-  addCandidate(selected, preferredCoreParlay);
-
-  if (targetReturn >= 2.2 || risk === "higher") {
-    const upsideTarget = clamp(targetReturn * 2.2, 7, 22);
-    addCandidate(
-      selected,
-      bestCandidate(parlays, selected, {
-        returnMin: 6,
-        returnMax: 25,
-        returnTarget: upsideTarget,
-        role: "upside_parlay",
-      }),
-    );
   }
 
-  if (
-    targetReturn >= (risk === "lower" ? 4.5 : 2.8) ||
-    risk === "higher"
-  ) {
-    const hailTarget = clamp(targetReturn * 20, 35, 150);
-    addCandidate(
-      selected,
-      bestCandidate(parlays, selected, {
-        returnMin: 25,
-        returnMax: 150,
-        returnTarget: hailTarget,
-        role: "hail_mary",
-      }),
-    );
+  // A normal parlay should not require a pile of 85% to 95% legs. Combined
+  // hit rates around 25% to 50% are perfectly normal for useful 2x to 5x
+  // builds, so target that shape directly.
+  addBest(parlays, 2, {
+    probabilityMin: 0.22,
+    probabilityMax: 0.62,
+    probabilityTarget: risk === "lower" ? 0.46 : 0.38,
+    returnMin: 1.5,
+    returnMax: 5,
+    returnTarget: risk === "lower" ? 2.2 : 2.8,
+    role: "core_parlay",
+  });
+
+  if (targetReturn >= 1.8 || risk === "higher") {
+    const upsideTarget = clamp(targetReturn * 2.1, 5, 24);
+    addBest(parlays, risk === "higher" ? 2 : 1, {
+      probabilityMin: 0.06,
+      probabilityMax: 0.4,
+      returnMin: 4,
+      returnMax: 25,
+      returnTarget: upsideTarget,
+      role: "upside_parlay",
+    });
+  }
+
+  if (targetReturn >= (risk === "lower" ? 4.5 : 2.8) || risk === "higher") {
+    const hailTarget = clamp(targetReturn * 18, 28, 400);
+    addBest(parlays, 1, {
+      probabilityMax: 0.2,
+      returnMin: 25,
+      returnMax: 400,
+      returnTarget: hailTarget,
+      role: "hail_mary",
+    });
   }
 
   return selected;
@@ -550,9 +535,19 @@ function targetShares(
 ) {
   if (!candidates.length) return null;
 
-  let bounds = candidates.map((candidate) =>
-    shareBounds(candidate.role, risk, targetReturn),
-  );
+  const roleCounts = new Map<PortfolioRole, number>();
+  for (const candidate of candidates) {
+    roleCounts.set(candidate.role, (roleCounts.get(candidate.role) ?? 0) + 1);
+  }
+
+  let bounds = candidates.map((candidate) => {
+    const base = shareBounds(candidate.role, risk, targetReturn);
+    const count = roleCounts.get(candidate.role) ?? 1;
+    return {
+      min: base.min / count,
+      max: Math.max(base.min / count, base.max / count),
+    };
+  });
   const minTotal = bounds.reduce((sum, row) => sum + row.min, 0);
   let maxTotal = bounds.reduce((sum, row) => sum + row.max, 0);
 
@@ -623,7 +618,7 @@ export function buildPortfolioPlan(
     return null;
   }
 
-  const targetReturn = clamp(options.targetPayout / options.amount, 1.05, 100);
+  const targetReturn = clamp(options.targetPayout / options.amount, 1.05, 250);
   const straights = straightCandidates(opportunities, options);
   const parlays = parlayCandidates(opportunities, options);
 

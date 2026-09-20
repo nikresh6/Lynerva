@@ -135,6 +135,8 @@ const RETURN_PRESETS = [
   { label: "3x to 5x", min: 3, max: 5 },
   { label: "5x to 10x", min: 5, max: 10 },
   { label: "10x to 20x", min: 10, max: 20 },
+  { label: "20x to 50x", min: 20, max: 50 },
+  { label: "50x to 100x", min: 50, max: 100 },
 ] as const;
 
 function legOddsContribution(
@@ -228,9 +230,7 @@ export function BuilderWorkbench() {
   const [minReturnInput, setMinReturnInput] = useState("3");
   const [maxReturnInput, setMaxReturnInput] = useState("6");
   const [maxLegs, setMaxLegs] = useState(6);
-  const [platform, setPlatform] = useState<
-    "either" | "kalshi" | "polymarket"
-  >("either");
+  const platform = "kalshi" as const;
   const [live, setLive] = useState<"all" | "pregame" | "live">("pregame");
   const [mode, setMode] = useState<BuilderMode>("multi_game");
   const [objective, setObjective] = useState<BuilderObjective>("balanced");
@@ -248,6 +248,9 @@ export function BuilderWorkbench() {
     useState<MarketOpportunity | null>(null);
   const [rankingMode, setRankingMode] = useState(false);
   const [activeParlayIndex, setActiveParlayIndex] = useState(0);
+  const [processing, setProcessing] = useState<
+    "parlay" | "portfolio" | "weekly" | null
+  >(null);
 
   const minReturnNumber = Number(minReturnInput);
   const maxReturnNumber = Number(maxReturnInput);
@@ -261,7 +264,7 @@ export function BuilderWorkbench() {
     Number.isFinite(stakeNumber) &&
     minReturnNumber > 1 &&
     maxReturnNumber >= minReturnNumber &&
-    maxReturnNumber <= 100 &&
+    maxReturnNumber <= 500 &&
     stakeNumber > 0;
 
   const canBuildPortfolio =
@@ -334,57 +337,91 @@ export function BuilderWorkbench() {
       ? (combination.expectedProfitOn100 * parlayRequest.stake) / 100
       : 0;
 
+  function runWithProgress(
+    kind: "parlay" | "portfolio" | "weekly",
+    work: () => void,
+  ) {
+    setProcessing(kind);
+    window.setTimeout(() => {
+      work();
+      setProcessing(null);
+    }, 90);
+  }
+
   function buildParlay() {
-    if (!canBuildParlay) return;
-    setRankingMode(false);
-    setActiveParlayIndex(0);
-    setParlayRequest({
-      markets: currentMarkets,
-      minReturn: minReturnNumber,
-      maxReturn: maxReturnNumber,
-      maxLegs,
-      platform,
-      live,
-      mode,
-      objective,
-      stake: stakeNumber,
+    if (!canBuildParlay || processing) return;
+    runWithProgress("parlay", () => {
+      setRankingMode(false);
+      setActiveParlayIndex(0);
+      setParlayRequest({
+        markets: currentMarkets,
+        minReturn: minReturnNumber,
+        maxReturn: maxReturnNumber,
+        maxLegs,
+        platform,
+        live,
+        mode,
+        objective,
+        stake: stakeNumber,
+      });
     });
   }
 
   function showBestParlaysThisWeek() {
-    if (currentMarkets.length === 0) return;
-    setRankingMode(true);
-    setActiveParlayIndex(0);
-    setParlayRequest({
-      markets: currentMarkets,
-      minReturn: 1.3,
-      maxReturn: 150,
-      maxLegs: 8,
-      platform: "either",
-      live: "pregame",
-      mode: "any",
-      objective: "balanced",
-      stake:
-        Number.isFinite(stakeNumber) && stakeNumber > 0 ? stakeNumber : 100,
+    if (currentMarkets.length === 0 || processing) return;
+    runWithProgress("weekly", () => {
+      setRankingMode(true);
+      setActiveParlayIndex(0);
+      setParlayRequest({
+        markets: currentMarkets,
+        minReturn: 1.3,
+        maxReturn: 500,
+        maxLegs: 10,
+        platform: "kalshi",
+        live: "pregame",
+        mode: "any",
+        objective: "balanced",
+        stake:
+          Number.isFinite(stakeNumber) && stakeNumber > 0 ? stakeNumber : 100,
+      });
     });
   }
 
   function buildPortfolio() {
-    if (!canBuildPortfolio) return;
-    setPortfolioRequest({
-      markets: currentMarkets,
-      amount: planAmountNumber,
-      targetPayout: targetPayoutNumber,
-      risk: portfolioRisk,
-      platform,
-      live,
-      mode,
-      maxLegs,
+    if (!canBuildPortfolio || processing) return;
+    runWithProgress("portfolio", () => {
+      setPortfolioRequest({
+        markets: currentMarkets,
+        amount: planAmountNumber,
+        targetPayout: targetPayoutNumber,
+        risk: portfolioRisk,
+        platform,
+        live,
+        mode,
+        maxLegs,
+      });
     });
   }
 
   return (
-    <div className="space-y-5">
+    <div className="relative space-y-5">
+      {processing ? (
+        <div className="builder-processing pointer-events-none sticky top-[58px] z-40 -mb-2 overflow-hidden rounded-xl border border-accent/25 bg-accent-bg/95 px-4 py-2.5 shadow-[0_10px_30px_var(--accent-glow)] backdrop-blur-xl sm:top-14">
+          <div className="flex items-center justify-between gap-3 text-[10px] font-semibold text-accent">
+            <span>
+              {processing === "portfolio"
+                ? "Optimizing bankroll plan"
+                : processing === "weekly"
+                  ? "Scanning the full Kalshi board"
+                  : "Building ranked parlays"}
+            </span>
+            <span className="tabular">LYNERVA</span>
+          </div>
+          <div className="mt-2 h-1 overflow-hidden rounded-full bg-surface">
+            <div className="builder-progress h-full rounded-full bg-accent" />
+          </div>
+        </div>
+      ) : null}
       <section className="grid grid-cols-2 gap-2 rounded-2xl border bg-surface p-2 shadow-[0_8px_30px_rgb(0_0_0/0.025)]">
         <button
           type="button"
@@ -456,7 +493,7 @@ export function BuilderWorkbench() {
           <button
             type="button"
             onClick={showBestParlaysThisWeek}
-            disabled={currentMarkets.length === 0}
+            disabled={currentMarkets.length === 0 || Boolean(processing)}
             className="group flex w-full items-center gap-3 rounded-2xl border border-accent/30 bg-surface px-4 py-3.5 text-left transition-all hover:border-accent/50 hover:shadow-[0_12px_32px_var(--accent-glow)] disabled:cursor-not-allowed disabled:opacity-40 sm:px-5"
           >
             <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-accent-bg text-accent">
@@ -464,7 +501,9 @@ export function BuilderWorkbench() {
             </span>
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-semibold">
-                Show me the best parlays of the week
+                {processing === "weekly"
+                  ? "Searching the full board..."
+                  : "Show me the best parlays of the week"}
               </span>
               <span className="mt-0.5 block text-[10px] leading-4 text-muted">
                 No filters. Lynerva searches every eligible pregame market and
@@ -549,7 +588,7 @@ export function BuilderWorkbench() {
               </div>
             </div>
 
-            <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
               {RETURN_PRESETS.map((preset) => {
                 const active =
                   Number(minReturnInput) === preset.min &&
@@ -630,23 +669,20 @@ export function BuilderWorkbench() {
               <option value="6">6 legs</option>
               <option value="7">7 legs</option>
               <option value="8">8 legs</option>
+              <option value="9">9 legs</option>
+              <option value="10">10 legs</option>
             </select>
           </label>
 
-          <label>
-            <FieldLabel>Platform</FieldLabel>
-            <select
-              value={platform}
-              onChange={(event) =>
-                setPlatform(event.target.value as typeof platform)
-              }
-              className="control-surface h-10 w-full rounded-lg px-3 text-xs outline-none focus:border-accent"
-            >
-              <option value="either">Either platform</option>
-              <option value="kalshi">Kalshi only</option>
-              <option value="polymarket">Polymarket only</option>
-            </select>
-          </label>
+          <div>
+            <FieldLabel>Market</FieldLabel>
+            <div className="control-surface flex h-10 items-center justify-between rounded-lg px-3 text-xs">
+              <span className="font-medium">Kalshi</span>
+              <span className="rounded-full bg-positive-bg px-2 py-0.5 text-[9px] font-semibold text-positive">
+                Live feed
+              </span>
+            </div>
+          </div>
 
           <label>
             <FieldLabel>Market state</FieldLabel>
@@ -688,11 +724,15 @@ export function BuilderWorkbench() {
           <button
             type="button"
             onClick={buildParlay}
-            disabled={!canBuildParlay || currentMarkets.length === 0}
+            disabled={!canBuildParlay || currentMarkets.length === 0 || Boolean(processing)}
             className="primary-action inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl px-5 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
           >
             <Sparkles className="size-3.5" />
-            {parlayRequest && !rankingMode ? "Update parlays" : "Build parlays"}
+            {processing === "parlay"
+              ? "Building..."
+              : parlayRequest && !rankingMode
+                ? "Update parlays"
+                : "Build parlays"}
           </button>
         </div>
       </section>
@@ -1137,20 +1177,15 @@ export function BuilderWorkbench() {
               </div>
 
               <div className="mt-5 grid grid-cols-2 gap-3">
-                <label>
-                  <FieldLabel>Platform</FieldLabel>
-                  <select
-                    value={platform}
-                    onChange={(event) =>
-                      setPlatform(event.target.value as typeof platform)
-                    }
-                    className="control-surface h-11 w-full rounded-xl px-3 text-xs outline-none focus:border-accent"
-                  >
-                    <option value="either">Either platform</option>
-                    <option value="kalshi">Kalshi only</option>
-                    <option value="polymarket">Polymarket only</option>
-                  </select>
-                </label>
+                <div>
+                  <FieldLabel>Market</FieldLabel>
+                  <div className="control-surface flex h-11 items-center justify-between rounded-xl px-3 text-xs">
+                    <span className="font-medium">Kalshi</span>
+                    <span className="rounded-full bg-positive-bg px-2 py-0.5 text-[9px] font-semibold text-positive">
+                      Live feed
+                    </span>
+                  </div>
+                </div>
 
                 <label>
                   <FieldLabel>Market state</FieldLabel>
@@ -1180,6 +1215,8 @@ export function BuilderWorkbench() {
                     <option value="6">6 legs</option>
                     <option value="7">7 legs</option>
                     <option value="8">8 legs</option>
+                    <option value="9">9 legs</option>
+                    <option value="10">10 legs</option>
                   </select>
                 </label>
               </div>
@@ -1194,11 +1231,15 @@ export function BuilderWorkbench() {
             <button
               type="button"
               onClick={buildPortfolio}
-              disabled={!canBuildPortfolio || currentMarkets.length === 0}
+              disabled={!canBuildPortfolio || currentMarkets.length === 0 || Boolean(processing)}
               className="primary-action inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl px-5 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
             >
               <WalletCards className="size-3.5" />
-              {portfolioRequest ? "Update plan" : "Build plan"}
+              {processing === "portfolio"
+                ? "Building..."
+                : portfolioRequest
+                  ? "Update plan"
+                  : "Build plan"}
             </button>
           </div>
         </section>

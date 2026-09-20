@@ -1,7 +1,6 @@
 import "server-only";
 
 import { fetchKalshiNflMarkets } from "@/lib/kalshi";
-import { fetchPolymarketNflMarkets } from "@/lib/polymarket";
 import { estimateMarket } from "@/lib/model";
 import { getLiveNflGames, type LiveNflGame } from "@/lib/nfl/live";
 import { findCurrentRegularSeasonGame } from "@/lib/nfl/current-game";
@@ -152,19 +151,8 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
           fetchedAt: new Date().toISOString(),
           error: null,
         },
-        {
-          provider: "polymarket" as const,
-          markets: marketFixtures.filter(
-            (market) => market.platform === "polymarket",
-          ),
-          fetchedAt: new Date().toISOString(),
-          error: null,
-        },
       ])
-    : Promise.all([
-        fetchKalshiNflMarkets(),
-        liveGamesPromise.then((games) => fetchPolymarketNflMarkets(games)),
-      ]);
+    : Promise.all([fetchKalshiNflMarkets()]);
 
   const [providers, liveGames] = await Promise.all([
     providerPromise,

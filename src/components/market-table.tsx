@@ -447,7 +447,10 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
         JSON.stringify({
           description: `${displayPickSide(market)} · ${title}`,
           platform: market.platform,
+          platformMarketId: market.platformMarketId,
+          recommendedSide: market.recommendedSide,
           entryPriceBps: market.executablePriceBps,
+          isLive: market.isLive,
         }),
       );
     } catch {}
@@ -457,8 +460,8 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
   return (
     <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true" aria-label={`Bet Lab for ${title}`}>
       <button type="button" className="absolute inset-0 bg-[var(--overlay)]" onClick={onClose} aria-label="Close details" />
-      <aside className="sheet-enter scrollbar-subtle absolute inset-x-2 bottom-2 top-[6vh] overflow-y-auto rounded-[24px] border bg-surface shadow-[0_20px_80px_rgb(0_0_0/0.36)] sm:inset-y-0 sm:left-auto sm:right-0 sm:w-full sm:max-w-[620px] sm:rounded-none sm:border-y-0 sm:border-r-0">
-        <div className="sticky top-0 z-10 border-b bg-[var(--header)] px-5 py-4 backdrop-blur-xl sm:px-7">
+      <aside className="bet-lab-sheet sheet-enter scrollbar-subtle absolute inset-x-2 bottom-2 top-[6vh] overflow-y-auto rounded-[24px] border bg-surface shadow-[0_20px_80px_rgb(0_0_0/0.36)] sm:inset-y-0 sm:left-auto sm:right-0 sm:w-full sm:max-w-[620px] sm:rounded-none sm:border-y-0 sm:border-r-0">
+        <div className="bet-lab-hero sticky top-0 z-10 border-b bg-[var(--header)] px-5 py-4 backdrop-blur-xl sm:px-7">
           <div className="flex items-start gap-4">
             <SubjectVisual market={market} visual={visuals[subject]} />
             <div className="min-w-0 flex-1">
@@ -594,18 +597,10 @@ export function MarketTable({
 
     if (allGroups.length <= 30) return allGroups;
 
-    // Keep the page genuinely useful across the weekly prop board. Pure score
-    // sorting can let one deep market family, usually receiving yards, consume
-    // every visible slot even when strong reception, QB, or TD opportunities
-    // exist. Preserve the top 24 outright, then reserve the remaining space
-    // for the best solid setup from any missing family before filling by score.
-    const selected = allGroups.slice(0, 24);
-    const selectedKeys = new Set(selected.map((group) => group.key));
-    const representedFamilies = new Set(
-      selected
-        .map((group) => group.best.canonical?.family)
-        .filter((family): family is NonNullable<typeof family> => Boolean(family)),
-    );
+    // Keep the visible board balanced without changing any underlying score.
+    // Reserve up to two solid slots per prop family, then fill the rest by
+    // pure score. That stops a deep receiving-yard board from hiding good
+    // receptions, TDs, interceptions, rushing and passing opportunities.
     const familyOrder = [
       "passing_yards",
       "passing_touchdowns",
@@ -615,20 +610,23 @@ export function MarketTable({
       "receptions",
       "touchdowns",
     ] as const;
+    const selected: typeof allGroups = [];
+    const selectedKeys = new Set<string>();
 
     for (const family of familyOrder) {
-      if (selected.length >= 30) break;
-      if (representedFamilies.has(family)) continue;
-      const candidate = allGroups.find(
-        (group) =>
-          !selectedKeys.has(group.key) &&
-          group.best.canonical?.family === family &&
-          (group.best.lynervaScore ?? 0) >= 52,
-      );
-      if (!candidate) continue;
-      selected.push(candidate);
-      selectedKeys.add(candidate.key);
-      representedFamilies.add(family);
+      const familyPicks = allGroups
+        .filter(
+          (group) =>
+            group.best.canonical?.family === family &&
+            (group.best.lynervaScore ?? 0) >= 45,
+        )
+        .slice(0, 2);
+
+      for (const group of familyPicks) {
+        if (selectedKeys.has(group.key)) continue;
+        selected.push(group);
+        selectedKeys.add(group.key);
+      }
     }
 
     for (const group of allGroups) {
@@ -638,9 +636,11 @@ export function MarketTable({
       selectedKeys.add(group.key);
     }
 
-    return selected.toSorted(
-      (a, b) => (b.best.lynervaScore ?? -1) - (a.best.lynervaScore ?? -1),
-    );
+    return selected
+      .toSorted(
+        (a, b) => (b.best.lynervaScore ?? -1) - (a.best.lynervaScore ?? -1),
+      )
+      .slice(0, 30);
   }, [markets]);
 
   const playerNames = useMemo(

@@ -25,24 +25,43 @@ function normalizeOrigin(value: string | undefined) {
 
 const LYNERVA_PRODUCTION_ORIGIN = "https://lynerva-production.up.railway.app";
 
-function resolveAuthOrigin() {
+function hostFromOrigin(origin: string | null) {
+  if (!origin) return null;
+  try {
+    return new URL(origin).host;
+  } catch {
+    return null;
+  }
+}
+
+function resolveAuthBaseURL() {
   const railwayOrigin = normalizeOrigin(process.env.RAILWAY_PUBLIC_DOMAIN);
   const configuredOrigin = normalizeOrigin(process.env.BETTER_AUTH_URL);
 
-  if (process.env.NODE_ENV === "production") {
-    return railwayOrigin ?? LYNERVA_PRODUCTION_ORIGIN;
+  if (process.env.NODE_ENV !== "production") {
+    return configuredOrigin ?? railwayOrigin ?? "http://localhost:3000";
   }
 
-  return configuredOrigin ?? railwayOrigin ?? undefined;
+  const allowedHosts = [
+    hostFromOrigin(railwayOrigin),
+    hostFromOrigin(configuredOrigin),
+    hostFromOrigin(LYNERVA_PRODUCTION_ORIGIN),
+  ].filter((value): value is string => Boolean(value));
+
+  return {
+    allowedHosts: [...new Set(allowedHosts)],
+    protocol: "https" as const,
+    fallback:
+      configuredOrigin ?? railwayOrigin ?? LYNERVA_PRODUCTION_ORIGIN,
+  };
 }
 
 function createAuth() {
   const resend = process.env.RESEND_API_KEY
     ? new Resend(process.env.RESEND_API_KEY)
     : null;
-  const baseURL = resolveAuthOrigin();
+  const baseURL = resolveAuthBaseURL();
   const trustedOrigins = [
-    baseURL,
     normalizeOrigin(process.env.BETTER_AUTH_URL),
     normalizeOrigin(process.env.RAILWAY_PUBLIC_DOMAIN),
     LYNERVA_PRODUCTION_ORIGIN,
@@ -95,6 +114,7 @@ function createAuth() {
       database: { joins: false },
       cookiePrefix: "lynerva",
       useSecureCookies: process.env.NODE_ENV === "production",
+      trustedProxyHeaders: process.env.NODE_ENV === "production",
     },
     rateLimit: {
       enabled: true,

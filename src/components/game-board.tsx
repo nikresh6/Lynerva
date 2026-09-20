@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Sparkles, Target, Zap } from "lucide-react";
 import type { LiveNflGame } from "@/lib/nfl/live";
 import type { MarketOpportunity } from "@/lib/markets/types";
+import { buildRankedCombinations } from "@/lib/builder";
+import { cn, formatPercent } from "@/lib/utils";
 import { MarketTable } from "./market-table";
 import { useMarketData } from "./market-data-provider";
 import { teamLogo } from "./subject-visual";
@@ -62,6 +64,22 @@ function Team({
       </span>
       <span className="text-base font-semibold">{code}</span>
       {showScore ? <span className="text-xl font-bold tabular">{score}</span> : null}
+    </div>
+  );
+}
+
+function SgpScore({ score }: { score: number }) {
+  const value = Math.max(0, Math.min(100, score));
+  return (
+    <div
+      className="score-ring grid size-12 shrink-0 place-items-center rounded-full"
+      style={{
+        background: `conic-gradient(from -90deg, var(--accent) 0deg ${value * 3.6}deg, var(--border) ${value * 3.6}deg 360deg)`,
+      }}
+    >
+      <div className="grid size-[82%] place-items-center rounded-full bg-surface text-sm font-bold tabular">
+        {score}
+      </div>
     </div>
   );
 }
@@ -132,6 +150,61 @@ export function GameBoard() {
     );
   }, [game, opportunities]);
 
+  const sgps = useMemo(() => {
+    if (!markets.length) return [];
+
+    const configs = [
+      {
+        key: "best",
+        label: "BEST",
+        detail: "Best overall setup",
+        icon: Sparkles,
+        objective: "balanced" as const,
+        minReturn: 1.5,
+        maxReturn: 4.5,
+        maxLegs: 4,
+      },
+      {
+        key: "value",
+        label: "VALUE",
+        detail: "More payout, still model-backed",
+        icon: Target,
+        objective: "max_ev" as const,
+        minReturn: 3,
+        maxReturn: 10,
+        maxLegs: 5,
+      },
+      {
+        key: "hail",
+        label: "HAIL MARY",
+        detail: "Small stake, high upside",
+        icon: Zap,
+        objective: "max_ev" as const,
+        minReturn: 10,
+        maxReturn: 60,
+        maxLegs: 7,
+      },
+    ];
+
+    return configs.map((config) => {
+      const build = buildRankedCombinations(
+        markets,
+        {
+          minReturn: config.minReturn,
+          maxReturn: config.maxReturn,
+          maxLegs: config.maxLegs,
+          platform: "kalshi",
+          live: game?.state === "in" ? "live" : "pregame",
+          mode: "sgp",
+          objective: config.objective,
+        },
+        1,
+      )[0] ?? null;
+
+      return { ...config, build };
+    });
+  }, [game?.state, markets]);
+
   const choose = (next: LiveNflGame) =>
     router.replace(`/games?game=${encodeURIComponent(keyFor(next))}`);
 
@@ -145,7 +218,7 @@ export function GameBoard() {
 
   return (
     <div className="space-y-5">
-      <section className="premium-panel overflow-hidden rounded-2xl">
+      <section className="premium-panel game-hero overflow-hidden rounded-2xl">
         <div className="flex items-center justify-between gap-3 border-b px-3 py-2.5 sm:px-5">
           <button
             type="button"
@@ -209,6 +282,134 @@ export function GameBoard() {
             score={game.home.score}
             showScore={game.state !== "pre"}
           />
+        </div>
+      </section>
+
+      <section>
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-accent">
+              <Sparkles className="size-3.5" />
+              Same-game parlays
+            </div>
+            <h2 className="mt-1 text-lg font-semibold tracking-tight">
+              Three ways to play this game
+            </h2>
+          </div>
+          <span className="hidden text-[10px] text-faint sm:block">
+            Kalshi markets only
+          </span>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-3">
+          {sgps.map((row) => {
+            const Icon = row.icon;
+            const build = row.build;
+            return (
+              <details
+                key={row.key}
+                className={cn(
+                  "sgp-card group overflow-hidden rounded-2xl border bg-surface",
+                  row.key === "best"
+                    ? "sgp-card-best"
+                    : row.key === "value"
+                      ? "sgp-card-value"
+                      : "sgp-card-hail",
+                )}
+              >
+                <summary className="cursor-pointer list-none p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="grid size-8 place-items-center rounded-xl border bg-background">
+                          <Icon className="size-3.5" />
+                        </span>
+                        <div>
+                          <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-accent">
+                            {row.label}
+                          </p>
+                          <p className="mt-0.5 text-xs font-semibold">
+                            {row.detail}
+                          </p>
+                        </div>
+                      </div>
+                      {build ? (
+                        <div className="mt-4 flex flex-wrap items-end gap-x-5 gap-y-2">
+                          <div>
+                            <p className="text-[8px] uppercase tracking-[0.08em] text-faint">
+                              Return
+                            </p>
+                            <p className="mt-1 text-xl font-bold tabular">
+                              {build.grossReturn.toFixed(2)}x
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[8px] uppercase tracking-[0.08em] text-faint">
+                              Est. chance
+                            </p>
+                            <p className="mt-1 text-sm font-semibold tabular">
+                              {formatPercent(
+                                Math.round(build.estimatedProbability * 10_000),
+                                1,
+                              )}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[8px] uppercase tracking-[0.08em] text-faint">
+                              Legs
+                            </p>
+                            <p className="mt-1 text-sm font-semibold tabular">
+                              {build.legs.length}
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="mt-4 text-[11px] leading-5 text-muted">
+                          No model-backed SGP currently fits this payout band.
+                        </p>
+                      )}
+                    </div>
+                    {build ? <SgpScore score={build.lynervaScore} /> : null}
+                  </div>
+
+                  {build ? (
+                    <div className="mt-3 flex items-center justify-between border-t pt-3 text-[9px] font-medium text-muted">
+                      <span>Open legs</span>
+                      <ChevronRight className="size-3.5 transition-transform group-open:rotate-90" />
+                    </div>
+                  ) : null}
+                </summary>
+
+                {build ? (
+                  <div className="border-t bg-background/45 p-3">
+                    <ol className="space-y-2">
+                      {build.legs.map((leg, index) => (
+                        <li
+                          key={`${leg.platformMarketId}:${index}`}
+                          className="rounded-xl border bg-surface px-3 py-2.5"
+                        >
+                          <div className="flex items-start gap-2">
+                            <span className="grid size-5 shrink-0 place-items-center rounded-full bg-foreground text-[8px] font-bold text-background">
+                              {index + 1}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-[10px] font-semibold leading-4">
+                                {leg.marketTitle}
+                              </p>
+                              <p className="mt-1 text-[9px] text-muted">
+                                Market {formatPercent(leg.executablePriceBps)} ·
+                                Lynerva {formatPercent(leg.recommendedProbabilityBps)}
+                              </p>
+                            </div>
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                ) : null}
+              </details>
+            );
+          })}
         </div>
       </section>
 

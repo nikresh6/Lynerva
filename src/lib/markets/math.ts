@@ -94,18 +94,31 @@ export function lynervaScore(input: {
     Math.floor(input.probabilityBps / SCORE_BUCKET_BPS) * SCORE_BUCKET_BPS;
   const stablePriceBps =
     Math.floor(input.priceBps / SCORE_BUCKET_BPS) * SCORE_BUCKET_BPS;
-  const stableEdgeBps = stableProbabilityBps - stablePriceBps;
-  const stableRoi =
-    stablePriceBps > 0 ? stableEdgeBps / stablePriceBps : 0;
-
-  const probability = clamp(stableProbabilityBps / 100, 0, 100);
-  const value = clamp(
-    (1 - Math.exp(-Math.max(stableRoi, 0) * 1.35)) * 100,
-    0,
-    100,
+  const stableReliabilityBps =
+    Math.floor(input.reliabilityBps / 500) * 500;
+  const reliabilityRatio = clamp(
+    stableReliabilityBps / 10_000,
+    0.3,
+    0.9,
   );
-  const edge = clamp((Math.max(stableEdgeBps, 0) / 2_000) * 100, 0, 100);
-  const reliability = clamp(input.reliabilityBps / 100, 0, 100);
+
+  // Score the edge after shrinking it toward the live market according to how
+  // much independent evidence supports Lynerva's estimate. This prevents a
+  // cheap, thinly supported prop from winning the board only because a small
+  // probability disagreement creates a huge percentage ROI.
+  const scoredProbabilityBps = Math.round(
+    stablePriceBps +
+      reliabilityRatio * (stableProbabilityBps - stablePriceBps),
+  );
+  const scoredEdgeBps = scoredProbabilityBps - stablePriceBps;
+  const scoredRoi =
+    stablePriceBps > 0 ? scoredEdgeBps / stablePriceBps : 0;
+
+  const probability = clamp(scoredProbabilityBps / 100, 0, 100);
+  const edge = clamp((Math.max(scoredEdgeBps, 0) / 1_500) * 100, 0, 100);
+  const roiQuality = clamp((Math.max(scoredRoi, 0) / 0.45) * 100, 0, 100);
+  const value = clamp(edge * 0.8 + roiQuality * 0.2, 0, 100);
+  const reliability = clamp(stableReliabilityBps / 100, 0, 100);
 
   let hitRate = probability;
   if (input.seasonHits !== null && input.seasonGames && input.seasonGames >= 5) {
@@ -142,14 +155,17 @@ export function lynervaScore(input: {
     spread * 0.35 +
     freshness * 0.25;
 
-  // Current-season hit rate, reliability, and market quality remain visible
-  // diagnostics and eligibility gates. They do not move the published score.
-  // This keeps a pregame score identical when the model and meaningful market
-  // price have not changed.
+  // Hit rate and short-lived market microstructure stay out of the public
+  // score. Reliability now matters only through coarse buckets and the
+  // reliability shrink above, so source quality can matter without making the
+  // number twitch on ordinary quote refreshes.
+  // Raw win probability is diagnostic, not a reason to reward an
+  // expensive near-certain contract. Ranking should answer "how good is this
+  // opportunity?" rather than "how safe is this leg?" Reliability still
+  // matters through the shrink above.
   const score =
-    value * 0.54 +
-    probability * 0.27 +
-    edge * 0.19;
+    value * 0.58 +
+    edge * 0.42;
 
   return {
     score: Math.round(clamp(score, 0, 100)),

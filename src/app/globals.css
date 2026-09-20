@@ -601,3 +601,158 @@ button, a, input, select, textarea { outline-offset: 3px; }
     );
   }
 }
+
+
+/* Builder processing and richer product motion */
+.builder-processing {
+  animation: processing-card-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.builder-progress {
+  width: 42%;
+  transform-origin: left center;
+}
+
+.game-hero {
+  background:
+    radial-gradient(circle at 50% -20%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 52%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 88%, transparent), var(--surface));
+}
+
+.sgp-card {
+  position: relative;
+  transition:
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.sgp-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  border-radius: inherit;
+}
+
+.sgp-card-best::before {
+  background: linear-gradient(180deg, var(--positive), var(--accent));
+}
+
+.sgp-card-value::before {
+  background: linear-gradient(180deg, var(--accent), var(--warning));
+}
+
+.sgp-card-hail::before {
+  background: linear-gradient(180deg, var(--warning), var(--negative));
+}
+
+.sgp-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  box-shadow: 0 16px 36px rgb(0 0 0 / 0.07);
+}
+
+.tracker-card {
+  position: relative;
+  overflow: hidden;
+  transition:
+    border-color 220ms ease,
+    box-shadow 220ms ease,
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.tracker-card:hover {
+  transform: translateY(-1px);
+}
+
+.tracker-live-good {
+  border-color: color-mix(in srgb, var(--positive) 48%, var(--border));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--positive) 9%, transparent),
+    0 14px 34px color-mix(in srgb, var(--positive) 10%, transparent);
+}
+
+.tracker-live-watch {
+  border-color: color-mix(in srgb, var(--warning) 46%, var(--border));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--warning) 8%, transparent),
+    0 14px 34px color-mix(in srgb, var(--warning) 8%, transparent);
+}
+
+.tracker-live-bad {
+  border-color: color-mix(in srgb, var(--negative) 46%, var(--border));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--negative) 8%, transparent),
+    0 14px 34px color-mix(in srgb, var(--negative) 8%, transparent);
+}
+
+.bet-lab-hero {
+  background:
+    radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 42%),
+    var(--header);
+}
+
+.bet-lab-sheet > .space-y-4 > section {
+  transition:
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.bet-lab-sheet > .space-y-4 > section:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-strong);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.045);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .builder-progress {
+    animation: builder-progress-scan 1.15s ease-in-out infinite;
+  }
+
+  .tracker-live-good,
+  .tracker-live-watch,
+  .tracker-live-bad {
+    animation: tracker-border-breathe 2.1s ease-in-out infinite;
+  }
+
+  .bet-lab-sheet > .space-y-4 > section {
+    animation: lab-section-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .bet-lab-sheet > .space-y-4 > section:nth-child(2) { animation-delay: 35ms; }
+  .bet-lab-sheet > .space-y-4 > section:nth-child(3) { animation-delay: 70ms; }
+  .bet-lab-sheet > .space-y-4 > section:nth-child(4) { animation-delay: 105ms; }
+  .bet-lab-sheet > .space-y-4 > section:nth-child(5) { animation-delay: 140ms; }
+  .bet-lab-sheet > .space-y-4 > section:nth-child(6) { animation-delay: 175ms; }
+
+  @keyframes builder-progress-scan {
+    0% { transform: translateX(-115%) scaleX(0.55); }
+    50% { transform: translateX(90%) scaleX(1); }
+    100% { transform: translateX(245%) scaleX(0.6); }
+  }
+
+  @keyframes processing-card-in {
+    from { opacity: 0; transform: translateY(-7px) scale(0.995); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  @keyframes tracker-border-breathe {
+    0%, 100% { filter: saturate(0.92); }
+    50% { filter: saturate(1.16); }
+  }
+
+  @keyframes lab-section-in {
+    from { opacity: 0; transform: translateY(7px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+@media (max-width: 639px) {
+  .sgp-card:hover,
+  .tracker-card:hover,
+  .bet-lab-sheet > .space-y-4 > section:hover {
+    transform: none;
+  }
+}
