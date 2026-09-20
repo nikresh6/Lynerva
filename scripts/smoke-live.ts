@@ -226,6 +226,15 @@ async function main() {
         })),
         opportunities: payload.opportunities.length,
         moneylineMarkets: gameMarkets.length,
+        moneylines: gameMarkets.map((market) => ({
+          matchup: market.canonical?.matchup,
+          team: market.canonical?.subject,
+          ticker: market.platformMarketId,
+          side: market.recommendedSide,
+          price: market.executablePriceBps,
+          model: market.recommendedProbabilityBps,
+          sources: market.model.components?.gameProjectionSources ?? [],
+        })),
         unwantedGameMarkets: unwantedGameMarkets.length,
         playerPropMarkets: playerPropMarkets.length,
         familyCounts: Object.fromEntries(
