@@ -12,7 +12,8 @@ import {
   XCircle,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { MarketOpportunity } from "@/lib/markets/types";
+import { expectedRoi, lynervaScore, riskReturn } from "@/lib/markets/math";
+import type { MarketOpportunity, MarketSide } from "@/lib/markets/types";
 import { cn, formatPercent } from "@/lib/utils";
 import { useMarketData } from "./market-data-provider";
 import { SubjectVisual } from "./subject-visual";
@@ -126,6 +127,77 @@ function marketPickLabel(market: MarketOpportunity) {
   return `${canonical.subject}: ${side}${threshold} ${label}`;
 }
 
+const TEAM_SEARCH_NAMES: Record<string, string> = {
+  ARI: "arizona cardinals", ATL: "atlanta falcons", BAL: "baltimore ravens",
+  BUF: "buffalo bills", CAR: "carolina panthers", CHI: "chicago bears",
+  CIN: "cincinnati bengals", CLE: "cleveland browns", DAL: "dallas cowboys",
+  DEN: "denver broncos", DET: "detroit lions", GB: "green bay packers",
+  HOU: "houston texans", IND: "indianapolis colts", JAX: "jacksonville jaguars",
+  KC: "kansas city chiefs", LV: "las vegas raiders", LAC: "los angeles chargers",
+  LAR: "los angeles rams", MIA: "miami dolphins", MIN: "minnesota vikings",
+  NE: "new england patriots pats", NO: "new orleans saints", NYG: "new york giants",
+  NYJ: "new york jets", PHI: "philadelphia eagles", PIT: "pittsburgh steelers",
+  SF: "san francisco 49ers niners", SEA: "seattle seahawks",
+  TB: "tampa bay buccaneers bucs", TEN: "tennessee titans",
+  WAS: "washington commanders",
+};
+
+function trackerSideVariant(
+  market: MarketOpportunity,
+  side: MarketSide,
+  keepOriginalId: boolean,
+): MarketOpportunity | null {
+  if (market.model.probabilityBps === null) return null;
+  const priceBps = side === "yes" ? market.yesAskBps : market.noAskBps;
+  if (priceBps === null || priceBps <= 0 || priceBps >= 10_000) return null;
+
+  const probabilityBps =
+    side === "yes" ? market.model.probabilityBps : 10_000 - market.model.probabilityBps;
+  const edgeBps = probabilityBps - priceBps;
+  const roi = expectedRoi(probabilityBps, priceBps);
+  const scored = lynervaScore({
+    probabilityBps,
+    edgeBps,
+    priceBps,
+    expectedRoi: roi,
+    reliabilityBps: market.model.reliabilityBps,
+    seasonHits: market.model.evidence.seasonHits,
+    seasonGames: market.model.evidence.seasonGames,
+    last10Hits: market.model.evidence.last10Hits,
+    sampleSize: market.model.evidence.sampleSize,
+    recommendedSide: side,
+    liquidityCents: market.liquidityCents,
+    volumeCents: market.volumeCents,
+    spreadBps: market.spreadBps,
+    ageSeconds: Math.max(0, (Date.now() - new Date(market.updatedAt).getTime()) / 1000),
+  });
+
+  return {
+    ...market,
+    platformMarketId: keepOriginalId
+      ? market.platformMarketId
+      : `${market.platformMarketId}::${side}`,
+    recommendedSide: side,
+    recommendedProbabilityBps: probabilityBps,
+    executablePriceBps: priceBps,
+    edgeBps,
+    expectedRoi: roi,
+    riskReturn: riskReturn(priceBps),
+    lynervaScore: scored?.score ?? null,
+    scoreBreakdown: scored?.breakdown ?? null,
+  };
+}
+
+function trackerMarketSides(market: MarketOpportunity) {
+  if (!market.recommendedSide) return [];
+  const primary = trackerSideVariant(market, market.recommendedSide, true);
+  const opposite: MarketSide = market.recommendedSide === "yes" ? "no" : "yes";
+  const alternate = trackerSideVariant(market, opposite, false);
+  return [primary, alternate].filter(
+    (row): row is MarketOpportunity => row !== null,
+  );
+}
+
 const TEAM_ACCENTS: Record<string, string> = {
   ARI: "#97233F", ATL: "#A71930", BAL: "#241773", BUF: "#00338D",
   CAR: "#0085CA", CHI: "#C83803", CIN: "#FB4F14", CLE: "#FF3C00",
@@ -184,6 +256,8 @@ function marketSearchText(market: MarketOpportunity) {
       marketPickLabel(market),
       canonical?.matchup ?? "",
       canonical?.subject ?? "",
+      canonical?.subject ? TEAM_SEARCH_NAMES[canonical.subject] ?? "" : "",
+      ...(canonical?.matchup?.split("-").map((team) => TEAM_SEARCH_NAMES[team] ?? "") ?? []),
       canonical?.statistic ?? "",
       aliases,
       market.eventTitle,
@@ -222,15 +296,25 @@ function MarketPicker({
         if (!matches) return null;
 
         // Search should feel like intent matching, not a browser find box.
-        // Player-name matches come first, then an explicitly requested line,
-        // then Lynerva score.
+        // Exact player/team intent comes first. If somebody types "Patriots",
+        // the NE moneyline should beat every player prop from the same matchup.
         const subjectHits = tokens.filter((token) => subject.includes(token)).length;
+        const subjectTeamName = normalizeMarketSearch(
+          TEAM_SEARCH_NAMES[market.canonical?.subject ?? ""] ?? "",
+        );
+        const teamNameHits = tokens.filter((token) =>
+          subjectTeamName.includes(token),
+        ).length;
         const thresholdHit =
           threshold !== null &&
           threshold !== undefined &&
           tokens.includes(String(threshold));
+        const moneylineTeamIntent =
+          market.canonical?.family === "moneyline" && teamNameHits > 0;
         const relevance =
           subjectHits * 100 +
+          teamNameHits * 110 +
+          (moneylineTeamIntent ? 120 : 0) +
           (thresholdHit ? 40 : 0) +
           (market.lynervaScore ?? 0) / 100;
         return { market, relevance };
@@ -288,7 +372,7 @@ function MarketPicker({
                 autoFocus
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Try “Chase 40 yards” or “Chase TD”"
+                placeholder="Try “Tuten 50”, “Patriots”, or “Chase TD”"
                 className="w-full bg-transparent text-xs outline-none placeholder:text-faint"
               />
               {query ? (
@@ -575,9 +659,9 @@ export function ManualTracker() {
           market.platform === "kalshi" &&
           market.canonical &&
           market.canonical.family !== "spread" &&
-          market.executablePriceBps !== null &&
           market.recommendedSide !== null,
       )
+      .flatMap(trackerMarketSides)
       .toSorted(
         (a, b) =>
           Number(b.isLive) - Number(a.isLive) ||
@@ -591,13 +675,8 @@ export function ManualTracker() {
   }, [opportunities]);
 
   const currentById = useMemo(
-    () =>
-      new Map(
-        opportunities
-          .filter((market) => market.platform === "kalshi")
-          .map((market) => [market.platformMarketId, market]),
-      ),
-    [opportunities],
+    () => new Map(realMarkets.map((market) => [market.platformMarketId, market])),
+    [realMarkets],
   );
 
   const selectedMarket = useMemo(
