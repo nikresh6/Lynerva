@@ -283,10 +283,15 @@ export function MarketExplorer({
       );
     } else if (resolvedTeam && teamRosterNames) {
       eligible = eligible.filter((market) => {
-        const subject = market.canonical?.subject;
-        return subject
-          ? teamRosterNames.has(normalizePlayerName(subject))
-          : false;
+        const canonical = market.canonical;
+        if (!canonical) return false;
+        if (canonical.family === "moneyline") {
+          return (
+            canonical.subject === resolvedTeam.code ||
+            canonical.matchup?.split("-").includes(resolvedTeam.code) === true
+          );
+        }
+        return teamRosterNames.has(normalizePlayerName(canonical.subject));
       });
     }
 
@@ -363,7 +368,8 @@ export function MarketExplorer({
             }
             label="Market type"
           >
-            <option value="all">All player props</option>
+            <option value="all">All markets</option>
+            <option value="moneyline">Moneyline</option>
             <option value="passing_yards">Passing yards</option>
             <option value="passing_touchdowns">Passing TDs</option>
             <option value="passing_interceptions">Interceptions</option>
