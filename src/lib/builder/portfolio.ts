@@ -720,12 +720,6 @@ export function buildPortfolioPlan(
     (sum, position) => sum + position.payoutIfWin,
     0,
   );
-  const targetDistance =
-    Math.abs(allWinPayout - options.targetPayout) /
-    Math.max(options.targetPayout, 1);
-
-  if (targetDistance > 0.15) return null;
-
   const expectedPayout = nonZeroPositions.reduce(
     (sum, position) =>
       sum +
