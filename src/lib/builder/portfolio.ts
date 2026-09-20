@@ -181,7 +181,8 @@ function portfolioCandidateIsDistinct(
 
     const left = exposureSets(candidate, subjectTeams);
     const right = exposureSets(row, subjectTeams);
-    return setOverlap(left.subjects, right.subjects) <= 0.67;
+    const subjectLimit = smallerLegCount <= 2 ? 0.75 : 0.67;
+    return setOverlap(left.subjects, right.subjects) <= subjectLimit;
   });
 }
 
