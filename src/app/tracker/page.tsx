@@ -9,7 +9,7 @@ export default function TrackerPage() {
     <>
       <PageHeading
         title="Tracker"
-        description="Manual P/L tracking for your own bets. No betting account connection required."
+        description="Track entries, live position movement, wins, losses, and cash outs without connecting a betting account."
       />
       <ManualTracker />
     </>
