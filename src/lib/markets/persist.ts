@@ -22,7 +22,7 @@ function stableId(prefix: string, value: string) {
   return `${prefix}_${createHash("sha256").update(value).digest("hex").slice(0, 24)}`;
 }
 
-const MODEL_ID = "model_hybrid_consensus_learning_v3";
+const MODEL_ID = "model_hybrid_consensus_learning_v4";
 
 export async function persistMarkets(payload: MarketsPayload) {
   const db = getDb();
@@ -37,7 +37,7 @@ export async function persistMarkets(payload: MarketsPayload) {
     .values({
       id: MODEL_ID,
       name: "Lynerva hybrid player prop model",
-      version: "hybrid-consensus-learning-v3",
+      version: "hybrid-consensus-learning-v4",
       family: "player_props",
       coefficients: {
         consensusWeightEarly: 1,
@@ -48,7 +48,7 @@ export async function persistMarkets(payload: MarketsPayload) {
         sourceLearningMaxWeight: 0.75,
       },
       calibrationNotes:
-        "Independent projection ensemble with stat-specific source weights learned from settled player outcomes, plus game/weather context. Current-season statistical history activates at four games. Settled outcomes calibrate future probabilities by prediction bucket.",
+        "Robust independent projection ensemble with stat-specific learned source weights, explicit source disagreement, player-specific volatility after enough current-season games, plus game/weather context. Settled outcomes calibrate future probabilities by prediction bucket.",
       active: true,
     })
     .onConflictDoNothing({ target: modelVersions.id });
