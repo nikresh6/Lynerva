@@ -99,11 +99,25 @@ async function main() {
         (a.lynervaScore ?? -Infinity),
     );
 
-  const gameMarkets = payload.opportunities.filter((market) =>
-    ["moneyline", "spread", "game_total"].includes(
-      market.canonical?.family ?? "",
-    ),
+  const gameMarkets = payload.opportunities.filter(
+    (market) => market.canonical?.family === "moneyline",
   );
+  const unwantedGameMarkets = payload.opportunities.filter((market) =>
+    ["spread", "game_total"].includes(market.canonical?.family ?? ""),
+  );
+  const invalidMoneylineSides = gameMarkets.filter(
+    (market) => market.recommendedSide !== "yes",
+  );
+  const duplicateMoneylines = (() => {
+    const seen = new Set<string>();
+    const duplicates: string[] = [];
+    for (const market of gameMarkets) {
+      const key = `${market.canonical?.matchup ?? "unknown"}:${market.canonical?.subject ?? "unknown"}`;
+      if (seen.has(key)) duplicates.push(key);
+      seen.add(key);
+    }
+    return duplicates;
+  })();
   const playerPropMarkets = payload.opportunities.filter((market) =>
     [
       "passing_yards",
@@ -208,7 +222,8 @@ async function main() {
           error: provider.error,
         })),
         opportunities: payload.opportunities.length,
-        gameMarkets: gameMarkets.length,
+        moneylineMarkets: gameMarkets.length,
+        unwantedGameMarkets: unwantedGameMarkets.length,
         playerPropMarkets: playerPropMarkets.length,
         familyCounts: Object.fromEntries(
           [...new Set(playerPropMarkets.map((market) => market.canonical?.family ?? "unknown"))]
@@ -378,6 +393,26 @@ async function main() {
   }
   if (!pregameBuild) {
     console.warn("Live smoke note: no qualified current-season pregame combination is available yet.");
+  }
+  if (unwantedGameMarkets.length > 0) {
+    throw new Error(
+      `Live smoke failed: ${unwantedGameMarkets.length} spread/total game markets leaked into the moneyline-only game feed.`,
+    );
+  }
+  if (invalidMoneylineSides.length > 0) {
+    throw new Error(
+      "Live smoke failed: moneylines must use the explicit Kalshi team YES contract, not duplicate NO/opponent outcomes.",
+    );
+  }
+  if (duplicateMoneylines.length > 0) {
+    throw new Error(
+      `Live smoke failed: duplicate team moneylines found: ${duplicateMoneylines.slice(0, 5).join(", ")}`,
+    );
+  }
+  if (gameMarkets.length > 0 && gameMarkets.length > 40) {
+    throw new Error(
+      `Live smoke failed: implausible weekly moneyline count ${gameMarkets.length}; expected roughly two team outcomes per game.`,
+    );
   }
   if (unsupportedPeriodMarkets.length > 0) {
     throw new Error("Live smoke failed: unsupported quarter/half markets leaked into the feed.");
