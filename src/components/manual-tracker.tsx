@@ -6,13 +6,17 @@ import {
   ChevronDown,
   CircleDollarSign,
   Plus,
+  Search,
   Trash2,
+  X,
   XCircle,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { MarketOpportunity } from "@/lib/markets/types";
 import { cn, formatPercent } from "@/lib/utils";
 import { useMarketData } from "./market-data-provider";
+import { SubjectVisual } from "./subject-visual";
+import { usePlayerVisuals } from "./player-visuals";
 
 type TrackerStatus = "open" | "win" | "loss" | "push" | "cashed";
 
@@ -109,6 +113,223 @@ function marketPickLabel(market: MarketOpportunity) {
           : "No";
 
   return `${canonical.subject}: ${side}${threshold} ${label}`;
+}
+
+const TEAM_ACCENTS: Record<string, string> = {
+  ARI: "#97233F", ATL: "#A71930", BAL: "#241773", BUF: "#00338D",
+  CAR: "#0085CA", CHI: "#C83803", CIN: "#FB4F14", CLE: "#FF3C00",
+  DAL: "#003594", DEN: "#FB4F14", DET: "#0076B6", GB: "#203731",
+  HOU: "#03202F", IND: "#002C5F", JAX: "#006778", KC: "#E31837",
+  LV: "#A5ACAF", LAC: "#0080C6", LAR: "#003594", MIA: "#008E97",
+  MIN: "#4F2683", NE: "#002244", NO: "#D3BC8D", NYG: "#0B2265",
+  NYJ: "#125740", PHI: "#004C54", PIT: "#FFB612", SF: "#AA0000",
+  SEA: "#69BE28", TB: "#D50A0A", TEN: "#4B92DB", WAS: "#5A1414",
+};
+
+function marketAccentStyle(
+  market: MarketOpportunity | null | undefined,
+  team: string | null | undefined,
+) {
+  const matchupTeam = market?.canonical?.matchup?.split("-")[0] ?? null;
+  const accent = TEAM_ACCENTS[team ?? ""] ?? TEAM_ACCENTS[matchupTeam ?? ""] ?? "#7C83FF";
+  return {
+    borderColor: `${accent}55`,
+    background: `linear-gradient(135deg, ${accent}22 0%, var(--surface) 42%, var(--surface) 100%)`,
+  };
+}
+
+function MarketPicker({
+  markets,
+  selectedMarketId,
+  excludedIds,
+  mode,
+  onPick,
+}: {
+  markets: MarketOpportunity[];
+  selectedMarketId: string;
+  excludedIds: string[];
+  mode: "straight" | "parlay";
+  onPick: (marketId: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const selected =
+    markets.find((market) => market.platformMarketId === selectedMarketId) ??
+    null;
+  const clean = query.trim().toLowerCase();
+  const results = useMemo(
+    () =>
+      markets
+        .filter((market) => !excludedIds.includes(market.platformMarketId))
+        .filter((market) => {
+          if (!clean) return true;
+          const haystack = [
+            marketPickLabel(market),
+            market.canonical?.matchup ?? "",
+            market.canonical?.subject ?? "",
+            market.eventTitle,
+          ]
+            .join(" ")
+            .toLowerCase();
+          return clean.split(/\s+/).every((token) => haystack.includes(token));
+        })
+        .slice(0, 36),
+    [clean, excludedIds, markets],
+  );
+  const visibleNames = useMemo(
+    () =>
+      results
+        .map((market) => market.canonical?.subject ?? "")
+        .filter(Boolean),
+    [results],
+  );
+  const visuals = usePlayerVisuals(visibleNames);
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className={cn(
+          "control-surface flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left transition-colors",
+          open ? "border-accent" : "",
+        )}
+      >
+        <Search className="size-4 shrink-0 text-muted" />
+        <span className="min-w-0 flex-1 truncate text-xs">
+          {mode === "straight" && selected
+            ? marketPickLabel(selected)
+            : mode === "parlay"
+              ? "Search a player, team, game, or prop to add a leg"
+              : "Search a player, team, game, or prop"}
+        </span>
+        <ChevronDown
+          className={cn("size-4 shrink-0 text-muted transition-transform", open && "rotate-180")}
+        />
+      </button>
+
+      {open ? (
+        <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-50 overflow-hidden rounded-2xl border bg-surface shadow-[0_24px_80px_rgb(0_0_0/0.52)]">
+          <div className="border-b p-2.5">
+            <div className="control-surface flex h-10 items-center gap-2 rounded-xl px-3">
+              <Search className="size-3.5 text-muted" />
+              <input
+                autoFocus
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search current Kalshi markets"
+                className="w-full bg-transparent text-xs outline-none placeholder:text-faint"
+              />
+              {query ? (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  className="text-muted hover:text-foreground"
+                  aria-label="Clear search"
+                >
+                  <X className="size-3.5" />
+                </button>
+              ) : null}
+            </div>
+          </div>
+          <div className="scrollbar-subtle max-h-[390px] overflow-y-auto p-1.5">
+            {mode === "straight" ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onPick("");
+                  setQuery("");
+                  setOpen(false);
+                }}
+                className="mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs text-muted hover:bg-surface-raised"
+              >
+                Manual entry
+              </button>
+            ) : null}
+            {results.length ? (
+              results.map((market) => {
+                const subject = market.canonical?.subject ?? "";
+                const visual = visuals[subject];
+                return (
+                  <button
+                    type="button"
+                    key={market.platformMarketId}
+                    onClick={() => {
+                      onPick(market.platformMarketId);
+                      setQuery("");
+                      setOpen(false);
+                    }}
+                    className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-surface-raised"
+                  >
+                    <SubjectVisual market={market} visual={visual} size="sm" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-semibold">
+                        {marketPickLabel(market)}
+                      </span>
+                      <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] text-faint">
+                        <span>{market.canonical?.matchup?.replace("-", " vs ") ?? "NFL"}</span>
+                        <span>Kalshi {formatPercent(market.executablePriceBps)}</span>
+                        <span className="text-positive">
+                          Lynerva {formatPercent(market.recommendedProbabilityBps)}
+                        </span>
+                      </span>
+                    </span>
+                    <span className="shrink-0 rounded-lg border bg-background px-2 py-1 text-[10px] font-bold tabular">
+                      {market.lynervaScore ?? "—"}
+                    </span>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="px-4 py-8 text-center text-xs text-muted">
+                No current Kalshi markets match that search.
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SelectedMarketCard({
+  market,
+  onRemove,
+}: {
+  market: MarketOpportunity;
+  onRemove?: () => void;
+}) {
+  const subject = market.canonical?.subject ?? "";
+  const visuals = usePlayerVisuals(subject ? [subject] : []);
+  const visual = visuals[subject];
+
+  return (
+    <div
+      className="mt-2 flex items-center gap-3 rounded-2xl border p-3"
+      style={marketAccentStyle(market, visual?.team)}
+    >
+      <SubjectVisual market={market} visual={visual} size="sm" />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-xs font-semibold">{marketPickLabel(market)}</p>
+        <p className="mt-1 text-[9px] text-muted">
+          {market.canonical?.matchup?.replace("-", " vs ") ?? "NFL"} · Market{" "}
+          {formatPercent(market.executablePriceBps)} · Lynerva{" "}
+          {formatPercent(market.recommendedProbabilityBps)} · Score{" "}
+          {market.lynervaScore ?? "—"}
+        </p>
+      </div>
+      {onRemove ? (
+        <button
+          type="button"
+          onClick={onRemove}
+          className="grid size-7 shrink-0 place-items-center rounded-lg text-muted hover:bg-background hover:text-foreground"
+          aria-label="Remove leg"
+        >
+          <X className="size-3.5" />
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 function statusTone(status: TrackerStatus) {
@@ -210,6 +431,42 @@ export function ManualTracker() {
       ) ?? null,
     [realMarkets, selectedMarketId],
   );
+
+  function pickMarket(nextId: string) {
+    if (betType === "parlay") {
+      const market = realMarkets.find(
+        (candidate) => candidate.platformMarketId === nextId,
+      );
+      if (market && !parlayLegMarketIds.includes(nextId)) {
+        const label = marketPickLabel(market);
+        setParlayLegs((current) =>
+          current.trim() ? `${current.trimEnd()}\n${label}` : label,
+        );
+        setParlayLegMarketIds((current) => [...current, nextId]);
+      }
+      setSelectedMarketId("");
+      return;
+    }
+    setSelectedMarketId(nextId);
+  }
+
+  function removeParlayMarket(marketId: string) {
+    const market = realMarkets.find(
+      (candidate) => candidate.platformMarketId === marketId,
+    );
+    const label = market ? marketPickLabel(market) : null;
+    setParlayLegMarketIds((current) =>
+      current.filter((id) => id !== marketId),
+    );
+    if (label) {
+      setParlayLegs((current) =>
+        current
+          .split("\n")
+          .filter((line) => line.trim() !== label)
+          .join("\n"),
+      );
+    }
+  }
 
   useEffect(() => {
     try {
@@ -494,51 +751,39 @@ export function ManualTracker() {
             onSubmit={add}
             className="grid gap-3 border-b bg-background/45 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-6"
           >
-            <label className="sm:col-span-2 lg:col-span-3">
+            <div className="sm:col-span-2 lg:col-span-3">
               <span className="mb-1.5 block text-[10px] font-medium text-muted">
                 {betType === "parlay"
                   ? "Add a leg from current Kalshi markets"
                   : "Autofill from current Kalshi markets"}
               </span>
-              <select
-                value={selectedMarketId}
-                onChange={(event) => {
-                  const nextId = event.target.value;
-                  if (betType === "parlay") {
+              <MarketPicker
+                markets={realMarkets}
+                selectedMarketId={selectedMarketId}
+                excludedIds={betType === "parlay" ? parlayLegMarketIds : []}
+                mode={betType}
+                onPick={pickMarket}
+              />
+              {betType === "straight" && selectedMarket ? (
+                <SelectedMarketCard market={selectedMarket} />
+              ) : null}
+              {betType === "parlay" && parlayLegMarketIds.length ? (
+                <div className="mt-2 space-y-2">
+                  {parlayLegMarketIds.map((marketId) => {
                     const market = realMarkets.find(
-                      (candidate) => candidate.platformMarketId === nextId,
+                      (candidate) => candidate.platformMarketId === marketId,
                     );
-                    if (market && !parlayLegMarketIds.includes(nextId)) {
-                      const label = marketPickLabel(market);
-                      setParlayLegs((current) =>
-                        current.trim()
-                          ? `${current.trimEnd()}\n${label}`
-                          : label,
-                      );
-                      setParlayLegMarketIds((current) => [...current, nextId]);
-                    }
-                    setSelectedMarketId("");
-                    return;
-                  }
-                  setSelectedMarketId(nextId);
-                }}
-                className={inputClass}
-              >
-                <option value="">
-                  {betType === "parlay" ? "Choose a leg to add" : "Manual entry"}
-                </option>
-                {realMarkets.map((market) => (
-                  <option
-                    key={market.platformMarketId}
-                    value={market.platformMarketId}
-                  >
-                    {market.isLive ? "LIVE | " : ""}
-                    {marketPickLabel(market)} |{" "}
-                    {formatPercent(market.executablePriceBps)}
-                  </option>
-                ))}
-              </select>
-            </label>
+                    return market ? (
+                      <SelectedMarketCard
+                        key={marketId}
+                        market={market}
+                        onRemove={() => removeParlayMarket(marketId)}
+                      />
+                    ) : null;
+                  })}
+                </div>
+              ) : null}
+            </div>
 
             <label>
               <span className="mb-1.5 block text-[10px] font-medium text-muted">
