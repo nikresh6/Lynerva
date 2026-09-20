@@ -115,8 +115,11 @@ const STAT_PATTERNS: Array<{
   { family: "passing_yards", statistic: "passing_yards", regex: /pass(?:ing)?\s+yards?/i },
   { family: "passing_touchdowns", statistic: "passing_touchdowns", regex: /pass(?:ing)?\s+(?:tds?|touchdowns?)/i },
   { family: "passing_interceptions", statistic: "passing_interceptions", regex: /(?:pass(?:ing)?\s+)?\b(?:interceptions?|ints?)\b/i },
-  { family: "rushing_touchdowns", statistic: "rushing_touchdowns", regex: /rush(?:ing)?\s+(?:tds?|touchdowns?)/i },
-  { family: "receiving_touchdowns", statistic: "receiving_touchdowns", regex: /receiv(?:ing)?\s+(?:tds?|touchdowns?)/i },
+  // Player rushing/receiving TD contracts are intentionally treated as the
+  // single anytime-TD family in Lynerva. The distinction is not useful enough
+  // to justify separate market categories.
+  { family: "touchdowns", statistic: "touchdowns", regex: /rush(?:ing)?\s+(?:tds?|touchdowns?)/i },
+  { family: "touchdowns", statistic: "touchdowns", regex: /receiv(?:ing)?\s+(?:tds?|touchdowns?)/i },
   { family: "rushing_yards", statistic: "rushing_yards", regex: /rush(?:ing)?\s+yards?/i },
   { family: "receiving_yards", statistic: "receiving_yards", regex: /receiv(?:ing)?\s+yards?/i },
   { family: "longest_reception", statistic: "longest_reception", regex: /longest\s+(?:reception|catch)|(?:reception|catch)\s+length/i },

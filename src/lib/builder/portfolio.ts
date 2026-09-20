@@ -153,6 +153,43 @@ function exposureSets(
   };
 }
 
+function sharedExactLegs(first: Candidate, second: Candidate) {
+  const left = new Set(first.legs.map((leg) => marketKey(leg)));
+  const right = new Set(second.legs.map((leg) => marketKey(leg)));
+  let shared = 0;
+  for (const key of left) if (right.has(key)) shared += 1;
+  return shared;
+}
+
+function portfolioCandidateIsDistinct(
+  candidate: Candidate,
+  selected: Candidate[],
+  role: PortfolioRole,
+  subjectTeams?: PortfolioPlanOptions["subjectTeams"],
+) {
+  if (candidate.kind !== "parlay") return true;
+
+  return selected.every((row) => {
+    if (row.kind !== "parlay") return true;
+
+    // Diversity is enforced between alternatives serving the same portfolio
+    // job. A core parlay and a Hail Mary are intentionally different risk
+    // sleeves, so the longshot should not disappear merely because it shares a
+    // strong leg with the safer sleeve.
+    if (row.role !== role) return true;
+
+    const smallerLegCount = Math.min(candidate.legs.length, row.legs.length);
+    if (smallerLegCount <= 2) return true;
+    const maxSharedExact =
+      smallerLegCount === 3 ? 1 : Math.floor(smallerLegCount / 2);
+    if (sharedExactLegs(candidate, row) > maxSharedExact) return false;
+
+    const left = exposureSets(candidate, subjectTeams);
+    const right = exposureSets(row, subjectTeams);
+    return setOverlap(left.subjects, right.subjects) <= 0.67;
+  });
+}
+
 function overlapShare(
   first: Candidate,
   second: Candidate,
@@ -388,6 +425,9 @@ function bestCandidate(
   let bestScore = -Infinity;
 
   for (const candidate of candidates) {
+    if (!portfolioCandidateIsDistinct(candidate, avoid, options.role, options.subjectTeams)) {
+      continue;
+    }
     if (
       options.probabilityMin !== undefined &&
       candidate.probability < options.probabilityMin

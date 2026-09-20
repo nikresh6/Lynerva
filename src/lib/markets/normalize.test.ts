@@ -214,12 +214,12 @@ describe("additional weekly player prop normalization", () => {
     );
 
     expect(rushing).toMatchObject({
-      family: "rushing_touchdowns",
-      statistic: "rushing_touchdowns",
+      family: "touchdowns",
+      statistic: "touchdowns",
     });
     expect(receiving).toMatchObject({
-      family: "receiving_touchdowns",
-      statistic: "receiving_touchdowns",
+      family: "touchdowns",
+      statistic: "touchdowns",
     });
     expect(anytime).toMatchObject({
       family: "touchdowns",

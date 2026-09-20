@@ -368,9 +368,7 @@ export function MarketExplorer({
             <option value="passing_touchdowns">Passing TDs</option>
             <option value="passing_interceptions">Interceptions</option>
             <option value="rushing_yards">Rushing yards</option>
-            <option value="rushing_touchdowns">Rushing TDs</option>
             <option value="receiving_yards">Receiving yards</option>
-            <option value="receiving_touchdowns">Receiving TDs</option>
             <option value="receptions">Receptions</option>
             <option value="touchdowns">Anytime TDs</option>
           </Select>
