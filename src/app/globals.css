@@ -577,11 +577,21 @@ button, a, input, select, textarea { outline-offset: 3px; }
 
 @media (max-width: 639px) {
   .score-ticker-mobile {
-    min-height: 38px;
+    min-height: 31px;
+    margin-inline: -16px;
+    padding-inline: 10px;
+    background: color-mix(in srgb, var(--surface) 28%, transparent);
+  }
+
+  .score-ticker-item-mobile {
+    min-height: 30px;
+    border-radius: 0;
+    background: transparent;
+    padding: 5px 9px;
   }
 
   .score-ticker-track-moving {
-    animation-duration: 60s;
+    animation-duration: 72s;
   }
 
   .score-ticker-window {
