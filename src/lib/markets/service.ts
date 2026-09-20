@@ -282,6 +282,75 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
 
   let normalized = normalizeWithSchedule(null);
 
+  const completeMoneylinePairs = (items: NormalizedItem[]) => {
+    const byMatchup = new Map<string, NormalizedItem[]>();
+    for (const item of items) {
+      if (item.canonical.family !== "moneyline" || !item.canonical.matchup) {
+        continue;
+      }
+      byMatchup.set(item.canonical.matchup, [
+        ...(byMatchup.get(item.canonical.matchup) ?? []),
+        item,
+      ]);
+    }
+
+    const synthetic: NormalizedItem[] = [];
+    for (const [matchup, rows] of byMatchup) {
+      const teams = matchup.split("-").filter(Boolean);
+      if (teams.length !== 2) continue;
+
+      const represented = new Set(rows.map((row) => row.canonical.subject));
+      const missing = teams.filter((team) => !represented.has(team));
+      if (missing.length !== 1) continue;
+
+      // Kalshi usually exposes one YES contract per team, but some binary game
+      // events expose only one team contract and represent the opponent as NO.
+      // In that case create an internal second outcome from the real executable
+      // NO book. The source URL still opens the original Kalshi game contract.
+      const source = rows.find(
+        (row) =>
+          row.market.noAskBps !== null &&
+          row.market.noAskBps > 0 &&
+          row.market.noAskBps < 10_000,
+      );
+      if (!source) continue;
+
+      const opponent = missing[0]!;
+      const original = source.market;
+      const syntheticId = `${original.platformMarketId}::NO::${opponent}`;
+      const syntheticMarket: ProviderMarket = {
+        ...original,
+        platformMarketId: syntheticId,
+        platformOutcomeId: syntheticId,
+        marketTitle: `${opponent} moneyline`,
+        outcomeLabel: opponent,
+        yesBidBps: original.noBidBps,
+        yesAskBps: original.noAskBps,
+        noBidBps: original.yesBidBps,
+        noAskBps: original.yesAskBps,
+        lastPriceBps:
+          original.lastPriceBps === null
+            ? null
+            : 10_000 - original.lastPriceBps,
+      };
+      const syntheticCanonical = {
+        ...source.canonical,
+        key: `${source.canonical.key}:opponent:${opponent.toLowerCase()}`,
+        subject: opponent,
+        direction: "yes" as const,
+      };
+
+      synthetic.push({
+        market: syntheticMarket,
+        canonical: syntheticCanonical,
+        scheduleGame: source.scheduleGame,
+        liveGame: source.liveGame,
+      });
+    }
+
+    return synthetic.length ? [...items, ...synthetic] : items;
+  };
+
   // Some serverless hosts intermittently fail to reach ESPN even while the
   // market providers are healthy. Do not turn that transient scoreboard
   // outage into an empty Lynerva feed. Fall back to the public nflverse
@@ -294,6 +363,8 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
       normalized = normalizeWithSchedule(null, true);
     }
   }
+
+  normalized = completeMoneylinePairs(normalized);
 
   const modeled = normalized.filter(
     (item) =>
