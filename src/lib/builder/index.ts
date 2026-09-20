@@ -440,7 +440,19 @@ function searchCombinations(
   const eligible = candidatePool(opportunities, options);
   if (eligible.length === 0) return [];
 
-  const targetReturn = Math.sqrt(options.minReturn * options.maxReturn);
+  // A requested return below the cheapest possible two-leg parlay is
+  // mathematically unreachable. In that case, search the nearest executable
+  // band instead of returning nothing. The UI can still show the actual return.
+  const twoSafest = eligible
+    .map((candidate) => candidate.price)
+    .toSorted((a, b) => b - a)
+    .slice(0, 2);
+  const minimumExecutableReturn =
+    twoSafest.length === 2 ? 1 / (twoSafest[0]! * twoSafest[1]!) : options.minReturn;
+  const effectiveMinReturn = Math.max(options.minReturn, minimumExecutableReturn);
+  const effectiveMaxReturn = Math.max(options.maxReturn, effectiveMinReturn * 1.12);
+
+  const targetReturn = Math.sqrt(effectiveMinReturn * effectiveMaxReturn);
   const beamWidth = resultLimit > 1 ? 4_000 : 4_500;
   let frontier: SearchState[] = [
     {
@@ -491,7 +503,7 @@ function searchCombinations(
         if (priceProduct <= 0) continue;
 
         const grossReturn = 1 / priceProduct;
-        if (grossReturn > options.maxReturn) {
+        if (grossReturn > effectiveMaxReturn) {
           continue;
         }
 
@@ -507,8 +519,8 @@ function searchCombinations(
 
         if (
           nextState.legs.length >= 2 &&
-          grossReturn >= options.minReturn &&
-          grossReturn <= options.maxReturn &&
+          grossReturn >= effectiveMinReturn &&
+          grossReturn <= effectiveMaxReturn &&
           isAcceptablePayoutShape(nextState.legs)
         ) {
           const built = buildFromState(nextState);
@@ -571,7 +583,7 @@ function searchCombinations(
         }
 
         const searchCeiling =
-          resultLimit > 1 ? options.maxReturn : options.minReturn;
+          resultLimit > 1 ? effectiveMaxReturn : effectiveMinReturn;
         if (depth < options.maxLegs && grossReturn < searchCeiling) {
           next.push(nextState);
         }
