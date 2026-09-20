@@ -164,6 +164,7 @@ function sharedExactLegs(first: Candidate, second: Candidate) {
 function portfolioCandidateIsDistinct(
   candidate: Candidate,
   selected: Candidate[],
+  role: PortfolioRole,
   subjectTeams?: PortfolioPlanOptions["subjectTeams"],
 ) {
   if (candidate.kind !== "parlay") return true;
@@ -175,7 +176,7 @@ function portfolioCandidateIsDistinct(
     // job. A core parlay and a Hail Mary are intentionally different risk
     // sleeves, so the longshot should not disappear merely because it shares a
     // strong leg with the safer sleeve.
-    if (row.role !== candidate.role) return true;
+    if (row.role !== role) return true;
 
     const smallerLegCount = Math.min(candidate.legs.length, row.legs.length);
     if (smallerLegCount <= 2) return true;
@@ -424,7 +425,7 @@ function bestCandidate(
   let bestScore = -Infinity;
 
   for (const candidate of candidates) {
-    if (!portfolioCandidateIsDistinct(candidate, avoid, options.subjectTeams)) {
+    if (!portfolioCandidateIsDistinct(candidate, avoid, options.role, options.subjectTeams)) {
       continue;
     }
     if (
