@@ -7,6 +7,7 @@ import {
   ChevronRight,
   FlaskConical,
   Layers3,
+  LoaderCircle,
   ShieldCheck,
   Sparkles,
   Target,
@@ -242,9 +243,7 @@ export function BuilderWorkbench() {
   const [minReturnInput, setMinReturnInput] = useState("3");
   const [maxReturnInput, setMaxReturnInput] = useState("6");
   const [maxLegs, setMaxLegs] = useState(6);
-  const [platform, setPlatform] = useState<
-    "either" | "kalshi" | "polymarket"
-  >("either");
+  const platform = "kalshi" as const;
   const [live, setLive] = useState<"all" | "pregame" | "live">("pregame");
   const [mode, setMode] = useState<BuilderMode>("multi_game");
   const [objective, setObjective] = useState<BuilderObjective>("balanced");
@@ -262,6 +261,7 @@ export function BuilderWorkbench() {
     useState<MarketOpportunity | null>(null);
   const [rankingMode, setRankingMode] = useState(false);
   const [activeParlayIndex, setActiveParlayIndex] = useState(0);
+  const [building, setBuilding] = useState<"parlay" | "portfolio" | null>(null);
 
   const minReturnNumber = Number(minReturnInput);
   const maxReturnNumber = Number(maxReturnInput);
@@ -349,52 +349,64 @@ export function BuilderWorkbench() {
       : 0;
 
   function buildParlay() {
-    if (!canBuildParlay) return;
+    if (!canBuildParlay || building) return;
+    setBuilding("parlay");
     setRankingMode(false);
     setActiveParlayIndex(0);
-    setParlayRequest({
-      markets: currentMarkets,
-      minReturn: minReturnNumber,
-      maxReturn: maxReturnNumber,
-      maxLegs,
-      platform,
-      live,
-      mode,
-      objective,
-      stake: stakeNumber,
-    });
+    window.setTimeout(() => {
+      setParlayRequest({
+        markets: currentMarkets,
+        minReturn: minReturnNumber,
+        maxReturn: maxReturnNumber,
+        maxLegs,
+        platform,
+        live,
+        mode,
+        objective,
+        stake: stakeNumber,
+      });
+      window.setTimeout(() => setBuilding(null), 140);
+    }, 70);
   }
 
   function showBestParlaysThisWeek() {
-    if (currentMarkets.length === 0) return;
+    if (currentMarkets.length === 0 || building) return;
+    setBuilding("parlay");
     setRankingMode(true);
     setActiveParlayIndex(0);
-    setParlayRequest({
-      markets: currentMarkets,
-      minReturn: 1.3,
-      maxReturn: 300,
-      maxLegs: 10,
-      platform: "either",
-      live: "pregame",
-      mode: "any",
-      objective: "balanced",
-      stake:
-        Number.isFinite(stakeNumber) && stakeNumber > 0 ? stakeNumber : 100,
-    });
+    window.setTimeout(() => {
+      setParlayRequest({
+        markets: currentMarkets,
+        minReturn: 1.3,
+        maxReturn: 300,
+        maxLegs: 12,
+        platform: "kalshi",
+        live: "pregame",
+        mode: "any",
+        objective: "balanced",
+        stake:
+          Number.isFinite(stakeNumber) && stakeNumber > 0 ? stakeNumber : 100,
+      });
+      window.setTimeout(() => setBuilding(null), 140);
+    }, 70);
   }
 
   function buildPortfolio() {
-    if (!canBuildPortfolio) return;
-    setPortfolioRequest({
-      markets: currentMarkets,
-      amount: planAmountNumber,
-      targetPayout: targetPayoutNumber,
-      risk: portfolioRisk,
-      platform,
-      live,
-      mode,
-      maxLegs,
-    });
+    if (!canBuildPortfolio || building) return;
+    setBuilding("portfolio");
+    window.setTimeout(() => {
+      setPortfolioRequest({
+        markets: currentMarkets,
+        amount: planAmountNumber,
+        targetPayout: targetPayoutNumber,
+        risk: portfolioRisk,
+        platform,
+        live,
+        mode,
+        maxLegs,
+      });
+      window.setTimeout(() => setBuilding(null), 140);
+    }, 70);
   }
 
   return (
@@ -630,7 +642,7 @@ export function BuilderWorkbench() {
           </div>
         </div>
 
-        <div className="grid gap-3 border-t bg-surface-raised/50 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
+        <div className="grid gap-3 border-t bg-surface-raised/50 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-3">
           <label>
             <FieldLabel>Max legs</FieldLabel>
             <select
@@ -649,21 +661,6 @@ export function BuilderWorkbench() {
               <option value="10">10 legs</option>
               <option value="11">11 legs</option>
               <option value="12">12 legs</option>
-            </select>
-          </label>
-
-          <label>
-            <FieldLabel>Platform</FieldLabel>
-            <select
-              value={platform}
-              onChange={(event) =>
-                setPlatform(event.target.value as typeof platform)
-              }
-              className="control-surface h-10 w-full rounded-lg px-3 text-xs outline-none focus:border-accent"
-            >
-              <option value="either">Either platform</option>
-              <option value="kalshi">Kalshi only</option>
-              <option value="polymarket">Polymarket only</option>
             </select>
           </label>
 
@@ -707,11 +704,19 @@ export function BuilderWorkbench() {
           <button
             type="button"
             onClick={buildParlay}
-            disabled={!canBuildParlay || currentMarkets.length === 0}
+            disabled={!canBuildParlay || currentMarkets.length === 0 || building !== null}
             className="primary-action inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl px-5 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
           >
-            <Sparkles className="size-3.5" />
-            {parlayRequest && !rankingMode ? "Update parlays" : "Build parlays"}
+            {building === "parlay" ? (
+              <LoaderCircle className="size-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="size-3.5" />
+            )}
+            {building === "parlay"
+              ? "Building..."
+              : parlayRequest && !rankingMode
+                ? "Update parlays"
+                : "Build parlays"}
           </button>
         </div>
       </section>
@@ -1157,21 +1162,6 @@ export function BuilderWorkbench() {
 
               <div className="mt-5 grid grid-cols-2 gap-3">
                 <label>
-                  <FieldLabel>Platform</FieldLabel>
-                  <select
-                    value={platform}
-                    onChange={(event) =>
-                      setPlatform(event.target.value as typeof platform)
-                    }
-                    className="control-surface h-11 w-full rounded-xl px-3 text-xs outline-none focus:border-accent"
-                  >
-                    <option value="either">Either platform</option>
-                    <option value="kalshi">Kalshi only</option>
-                    <option value="polymarket">Polymarket only</option>
-                  </select>
-                </label>
-
-                <label>
                   <FieldLabel>Market state</FieldLabel>
                   <select
                     value={live}
@@ -1186,7 +1176,7 @@ export function BuilderWorkbench() {
                   </select>
                 </label>
 
-                <label className="col-span-2">
+                <label>
                   <FieldLabel>Maximum parlay legs</FieldLabel>
                   <select
                     value={maxLegs}
@@ -1213,11 +1203,19 @@ export function BuilderWorkbench() {
             <button
               type="button"
               onClick={buildPortfolio}
-              disabled={!canBuildPortfolio || currentMarkets.length === 0}
+              disabled={!canBuildPortfolio || currentMarkets.length === 0 || building !== null}
               className="primary-action inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl px-5 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
             >
-              <WalletCards className="size-3.5" />
-              {portfolioRequest ? "Update plan" : "Build plan"}
+              {building === "portfolio" ? (
+                <LoaderCircle className="size-3.5 animate-spin" />
+              ) : (
+                <WalletCards className="size-3.5" />
+              )}
+              {building === "portfolio"
+                ? "Building..."
+                : portfolioRequest
+                  ? "Update plan"
+                  : "Build plan"}
             </button>
           </div>
         </section>
