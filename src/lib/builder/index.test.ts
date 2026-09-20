@@ -320,7 +320,7 @@ describe("combination builder", () => {
     ).toBe(false);
   });
 
-  it("returns multiple custom parlays sorted by Lynerva score", () => {
+  it("returns multiple genuinely different custom parlays", () => {
     const markets = Array.from({ length: 8 }, (_, index) => ({
       ...opportunity(
         `RANK${index}`,
@@ -339,17 +339,23 @@ describe("combination builder", () => {
       mode: "any",
     }, 5);
 
-    expect(results.length).toBeGreaterThan(1);
-    expect(
-      results.every(
-        (result, index) =>
-          index === 0 ||
-          (results[index - 1]?.lynervaScore ?? 0) >= result.lynervaScore,
-      ),
-    ).toBe(true);
+    expect(results.length).toBeGreaterThan(3);
+    for (let left = 0; left < results.length; left += 1) {
+      for (let right = left + 1; right < results.length; right += 1) {
+        const first = new Set(
+          results[left]!.legs.map((leg) => leg.platformMarketId),
+        );
+        const shared = results[right]!.legs.filter((leg) =>
+          first.has(leg.platformMarketId),
+        ).length;
+        expect(shared).toBeLessThanOrEqual(
+          Math.ceil(Math.min(results[left]!.legs.length, results[right]!.legs.length) / 2),
+        );
+      }
+    }
   });
 
-  it("builds a no-filter weekly leaderboard sorted by score", () => {
+  it("builds a diverse no-filter weekly leaderboard", () => {
     const markets = Array.from({ length: 10 }, (_, index) => ({
       ...opportunity(
         `WEEK${index}`,
@@ -362,14 +368,84 @@ describe("combination builder", () => {
 
     const results = buildTopScoredCombinations(markets, 6);
 
-    expect(results.length).toBeGreaterThan(1);
-    expect(
-      results.every(
-        (result, index) =>
-          index === 0 ||
-          (results[index - 1]?.lynervaScore ?? 0) >= result.lynervaScore,
+    expect(results.length).toBeGreaterThan(3);
+    expect(new Set(results.map((result) => result.legs.map((leg) => leg.platformMarketId).join("|"))).size)
+      .toBe(results.length);
+  });
+
+  it("builds parlays above 20x when enough independent legs exist", () => {
+    const markets = Array.from({ length: 12 }, (_, index) => ({
+      ...opportunity(
+        `HIGH${index}`,
+        `H${index}-A${index}`,
+        7_000,
+        8_050,
       ),
-    ).toBe(true);
+      lynervaScore: 68 + (index % 5),
+    }));
+
+    const results = buildRankedCombinations(
+      markets,
+      {
+        ...baseOptions,
+        minReturn: 20,
+        maxReturn: 45,
+        maxLegs: 10,
+        mode: "multi_game",
+      },
+      6,
+    );
+
+    expect(results.length).toBeGreaterThan(0);
+    expect(results.some((result) => result.grossReturn >= 20)).toBe(true);
+    expect(results.every((result) => result.legs.length >= 8)).toBe(true);
+  });
+
+  it("does not manufacture diversity by swapping alternate yardage for the same player prop", () => {
+    const markets = Array.from({ length: 9 }, (_, index) => {
+      const market = opportunity(
+        `PROP${index}`,
+        `G${index}-R${index}`,
+        5_500,
+        6_800,
+      );
+      market.canonical = {
+        ...market.canonical!,
+        family: "receiving_yards",
+        statistic: "receiving_yards",
+        subject: `Player ${index}`,
+        threshold: 49.5,
+        direction: "over",
+      };
+      return market;
+    });
+    const alternate = {
+      ...markets[0]!,
+      platformMarketId: "PROP0ALT",
+      platformOutcomeId: "PROP0ALT",
+      canonical: {
+        ...markets[0]!.canonical!,
+        key: "PROP0ALT",
+        threshold: 59.5,
+      },
+    };
+
+    const results = buildRankedCombinations(
+      [...markets, alternate],
+      {
+        ...baseOptions,
+        minReturn: 3,
+        maxReturn: 12,
+        maxLegs: 4,
+        mode: "any",
+      },
+      5,
+    );
+
+    const signatures = results.map((result) =>
+      result.legs.map((leg) => leg.canonical?.subject).toSorted().join("|"),
+    );
+    expect(new Set(signatures).size).toBe(signatures.length);
   });
 
   it("never returns a single leg as a parlay", () => {
