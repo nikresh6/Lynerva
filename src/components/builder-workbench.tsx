@@ -135,6 +135,9 @@ const RETURN_PRESETS = [
   { label: "3x to 5x", min: 3, max: 5 },
   { label: "5x to 10x", min: 5, max: 10 },
   { label: "10x to 20x", min: 10, max: 20 },
+  { label: "20x to 50x", min: 20, max: 50 },
+  { label: "50x to 100x", min: 50, max: 100 },
+  { label: "100x to 250x", min: 100, max: 250 },
 ] as const;
 
 function legOddsContribution(
@@ -261,7 +264,7 @@ export function BuilderWorkbench() {
     Number.isFinite(stakeNumber) &&
     minReturnNumber > 1 &&
     maxReturnNumber >= minReturnNumber &&
-    maxReturnNumber <= 100 &&
+    maxReturnNumber <= 300 &&
     stakeNumber > 0;
 
   const canBuildPortfolio =
@@ -358,8 +361,8 @@ export function BuilderWorkbench() {
     setParlayRequest({
       markets: currentMarkets,
       minReturn: 1.3,
-      maxReturn: 150,
-      maxLegs: 8,
+      maxReturn: 300,
+      maxLegs: 10,
       platform: "either",
       live: "pregame",
       mode: "any",
@@ -467,8 +470,9 @@ export function BuilderWorkbench() {
                 Show me the best parlays of the week
               </span>
               <span className="mt-0.5 block text-[10px] leading-4 text-muted">
-                No filters. Lynerva searches every eligible pregame market and
-                ranks the strongest combinations by parlay score.
+                No filters. Lynerva searches the full pregame board, including
+                modeled game lines, then deliberately diversifies the results so
+                the same few legs do not dominate every parlay.
               </span>
             </span>
             <ChevronRight className="size-4 shrink-0 text-muted transition-transform group-hover:translate-x-0.5" />
@@ -549,7 +553,7 @@ export function BuilderWorkbench() {
               </div>
             </div>
 
-            <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
               {RETURN_PRESETS.map((preset) => {
                 const active =
                   Number(minReturnInput) === preset.min &&
@@ -630,6 +634,10 @@ export function BuilderWorkbench() {
               <option value="6">6 legs</option>
               <option value="7">7 legs</option>
               <option value="8">8 legs</option>
+              <option value="9">9 legs</option>
+              <option value="10">10 legs</option>
+              <option value="11">11 legs</option>
+              <option value="12">12 legs</option>
             </select>
           </label>
 
@@ -740,7 +748,7 @@ export function BuilderWorkbench() {
                       {rankingMode ? "Best parlays this week" : "Top matching parlays"}
                     </p>
                     <p className="mt-0.5 text-[9px] text-muted">
-                      Ranked by Lynerva parlay score. Tap one to inspect every leg.
+                      Ranked for quality and diversity. Lynerva penalizes overlap so each option is a genuinely different build.
                     </p>
                   </div>
                   <span className="rounded-full border bg-surface px-2.5 py-1 text-[9px] font-semibold text-muted">
