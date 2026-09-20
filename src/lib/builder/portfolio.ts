@@ -574,14 +574,14 @@ function shareBounds(
   }
 
   if (role === "core_straight") {
-    return targetReturn < 3 ? { min: 0.18, max: 0.52 } : { min: 0.12, max: 0.3 };
+    return targetReturn < 3 ? { min: 0.18, max: 0.34 } : { min: 0.12, max: 0.3 };
   }
   if (role === "value_straight") {
-    return targetReturn < 3 ? { min: 0.16, max: 0.46 } : { min: 0.12, max: 0.26 };
+    return targetReturn < 3 ? { min: 0.16, max: 0.32 } : { min: 0.12, max: 0.26 };
   }
   if (role === "aggressive_straight") return { min: 0.06, max: 0.18 };
   if (role === "core_parlay") {
-    return targetReturn < 3 ? { min: 0.08, max: 0.42 } : { min: 0.08, max: 0.24 };
+    return targetReturn < 3 ? { min: 0.08, max: 0.34 } : { min: 0.08, max: 0.24 };
   }
   if (role === "upside_parlay") return { min: 0.04, max: 0.18 };
   return {
@@ -659,12 +659,32 @@ function targetShares(
   if (minTotal > 1.0001) return null;
 
   if (maxTotal < 0.9999) {
-    const fallbackCap =
+    // If the role-level caps do not add to a full bankroll, add room to
+    // straight bets first. The old fallback raised every position to the same
+    // cap, which could accidentally put most of a lower-risk bankroll into
+    // parlays.
+    const straightFallbackCap =
       risk === "lower" ? 0.4 : risk === "balanced" ? 0.34 : 0.4;
-    bounds = bounds.map((row) => ({
-      ...row,
-      max: Math.max(row.max, fallbackCap),
-    }));
+    bounds = bounds.map((row, index) =>
+      candidates[index]?.kind === "straight"
+        ? { ...row, max: Math.max(row.max, straightFallbackCap) }
+        : row,
+    );
+    maxTotal = bounds.reduce((sum, row) => sum + row.max, 0);
+  }
+
+  if (maxTotal < 0.9999) {
+    // Only if straights still cannot absorb the bankroll, widen ordinary
+    // parlays modestly. Hail Mary positions never receive fallback capacity.
+    const parlayFallbackCap =
+      risk === "lower" ? 0.22 : risk === "balanced" ? 0.3 : 0.4;
+    bounds = bounds.map((row, index) => {
+      const candidate = candidates[index];
+      if (!candidate || candidate.kind !== "parlay" || candidate.role === "hail_mary") {
+        return row;
+      }
+      return { ...row, max: Math.max(row.max, parlayFallbackCap) };
+    });
     maxTotal = bounds.reduce((sum, row) => sum + row.max, 0);
   }
 
