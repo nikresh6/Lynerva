@@ -1,10 +1,10 @@
 # Lynerva
 
-Lynerva is an NFL prediction-market research app. It normalizes live contracts from Kalshi and Polymarket, adds public NFL and weather context, estimates fair probabilities without copying market prices, and includes a private position tracker.
+Lynerva is an NFL prediction-market research app. It normalizes live contracts from Kalshi, adds public NFL and weather context, estimates fair probabilities without copying market prices, and includes a private position tracker.
 
 ## Features
 
-- Live Kalshi and Polymarket NFL markets in one comparable table
+- Live Kalshi NFL markets with model-backed player prop rankings
 - Uncached executable market pricing with automatic page refresh
 - Server-rendered filters with shareable URL parameters
 - Contract detail drawer with implied odds, spread, model edge, and freshness
@@ -48,7 +48,7 @@ Do not commit `.env.local`; it is ignored by Git.
 
 ## Live data
 
-The Markets page fetches current Kalshi and Polymarket data directly on the server and refreshes every 10 seconds while visible. The Live page refreshes every 5 seconds. Kalshi market reads, Polymarket Gamma/CLOB reads, and ESPN live-game reads bypass the Next.js data cache.
+The Markets page fetches current Kalshi data directly on the server and refreshes while visible. The Live page refreshes more frequently during active games. Kalshi market reads and ESPN live-game reads bypass the Next.js data cache.
 
 The database is not used as the source of truth for current prices. It stores history, model inputs, predictions, and tracker data. The long-lived Railway process runs Lynerva's background scheduler for market snapshots, nflverse refreshes, projection capture, grading, and source-weight learning.
 
