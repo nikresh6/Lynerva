@@ -595,52 +595,9 @@ export function MarketTable({
         (a, b) => (b.best.lynervaScore ?? -1) - (a.best.lynervaScore ?? -1),
       );
 
-    if (allGroups.length <= 30) return allGroups;
-
-    // Keep the visible board balanced without changing any underlying score.
-    // Reserve up to two solid slots per prop family, then fill the rest by
-    // pure score. That stops a deep receiving-yard board from hiding good
-    // receptions, TDs, interceptions, rushing and passing opportunities.
-    const familyOrder = [
-      "passing_yards",
-      "passing_touchdowns",
-      "passing_interceptions",
-      "rushing_yards",
-      "receiving_yards",
-      "receptions",
-      "touchdowns",
-    ] as const;
-    const selected: typeof allGroups = [];
-    const selectedKeys = new Set<string>();
-
-    for (const family of familyOrder) {
-      const familyPicks = allGroups
-        .filter(
-          (group) =>
-            group.best.canonical?.family === family &&
-            (group.best.lynervaScore ?? 0) >= 45,
-        )
-        .slice(0, 2);
-
-      for (const group of familyPicks) {
-        if (selectedKeys.has(group.key)) continue;
-        selected.push(group);
-        selectedKeys.add(group.key);
-      }
-    }
-
-    for (const group of allGroups) {
-      if (selected.length >= 30) break;
-      if (selectedKeys.has(group.key)) continue;
-      selected.push(group);
-      selectedKeys.add(group.key);
-    }
-
-    return selected
-      .toSorted(
-        (a, b) => (b.best.lynervaScore ?? -1) - (a.best.lynervaScore ?? -1),
-      )
-      .slice(0, 30);
+    // The board is a pure score ranking. Stat-family differences belong in
+    // probability calibration, never in forced leaderboard slots.
+    return allGroups.slice(0, 30);
   }, [markets]);
 
   const playerNames = useMemo(
