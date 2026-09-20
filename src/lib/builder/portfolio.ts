@@ -485,6 +485,21 @@ function selectPortfolioCandidates(
     );
   }
 
+  // Preserve a small true longshot sleeve when a high payout target asks
+  // for it. Diversity penalties should change which longshot we use, not erase
+  // the role entirely.
+  if (
+    (targetReturn >= (risk === "lower" ? 4.5 : 2.8) || risk === "higher") &&
+    !selected.some((candidate) => candidate.role === "hail_mary")
+  ) {
+    const fallbackHail = parlays
+      .filter((candidate) => candidate.grossReturn >= 25)
+      .toSorted((a, b) => b.score - a.score)[0];
+    if (fallbackHail) {
+      addCandidate(selected, { ...fallbackHail, role: "hail_mary" });
+    }
+  }
+
   return selected;
 }
 
