@@ -1,7 +1,7 @@
 import type { MarketOpportunity, Platform } from "@/lib/markets/types";
 import { clamp } from "@/lib/utils";
 import {
-  buildCombinationCandidates,
+  buildRankedCombinations,
   type BuilderMode,
   type BuilderObjective,
   type BuiltCombination,
@@ -258,12 +258,12 @@ function parlayCandidates(
   const seen = new Set<string>();
 
   for (const mode of modes) {
-    const built = buildCombinationCandidates(
+    const built = buildRankedCombinations(
       opportunities,
       {
         minReturn: 1.3,
-        maxReturn: 150,
-        maxLegs: options.maxLegs,
+        maxReturn: 300,
+        maxLegs: Math.min(12, options.maxLegs),
         platform: options.platform,
         live: options.live,
         mode,
@@ -448,12 +448,12 @@ function selectPortfolioCandidates(
     targetReturn >= (risk === "lower" ? 4.5 : 2.8) ||
     risk === "higher"
   ) {
-    const hailTarget = clamp(targetReturn * 20, 35, 150);
+    const hailTarget = clamp(targetReturn * 20, 35, 300);
     addCandidate(
       selected,
       bestCandidate(parlays, selected, {
         returnMin: 25,
-        returnMax: 150,
+        returnMax: 300,
         returnTarget: hailTarget,
         role: "hail_mary",
       }),
@@ -623,7 +623,7 @@ export function buildPortfolioPlan(
     return null;
   }
 
-  const targetReturn = clamp(options.targetPayout / options.amount, 1.05, 100);
+  const targetReturn = clamp(options.targetPayout / options.amount, 1.05, 250);
   const straights = straightCandidates(opportunities, options);
   const parlays = parlayCandidates(opportunities, options);
 
