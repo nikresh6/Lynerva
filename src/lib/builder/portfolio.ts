@@ -241,7 +241,6 @@ function parlayCandidate(
 function parlayCandidates(
   opportunities: MarketOpportunity[],
   options: PortfolioPlanOptions,
-  targetReturn: number,
 ) {
   const modes: Array<"multi_game" | "sgp"> =
     options.mode === "any"
@@ -258,27 +257,13 @@ function parlayCandidates(
   const candidates: Candidate[] = [];
   const seen = new Set<string>();
 
-  const returnBands: Array<{
-    minReturn: number;
-    maxReturn: number;
-    limit: number;
-  }> = [{ minReturn: 1.3, maxReturn: 4, limit: 14 }];
-
-  if (targetReturn >= 2.2 || options.risk === "higher") {
-    returnBands.push({ minReturn: 5, maxReturn: 24.9, limit: 12 });
-  }
-
-  if (targetReturn >= 2.8 || options.risk === "higher") {
-    returnBands.push({ minReturn: 25, maxReturn: 500, limit: 12 });
-  }
-
-  if (targetReturn >= 6) {
-    returnBands.push({
-      minReturn: Math.max(4, targetReturn * 0.65),
-      maxReturn: Math.min(500, targetReturn * 1.6),
-      limit: 12,
-    });
-  }
+  const returnBands = [
+    { minReturn: 1.3, maxReturn: 4, limit: 14 },
+    { minReturn: 3.5, maxReturn: 10, limit: 12 },
+    { minReturn: 8, maxReturn: 25, limit: 12 },
+    { minReturn: 20, maxReturn: 80, limit: 10 },
+    { minReturn: 60, maxReturn: 300, limit: 10 },
+  ] as const;
 
   for (const mode of modes) {
     for (const band of returnBands) {
@@ -323,29 +308,12 @@ function bestCandidate(
     returnMax?: number;
     returnTarget?: number;
     role: PortfolioRole;
-    avoidStraightExposure?: boolean;
   },
 ) {
   let best: Candidate | null = null;
   let bestScore = -Infinity;
 
-  const straightExposure = new Set(
-    avoid
-      .filter((row) => row.kind === "straight")
-      .flatMap((row) => row.legs.map(marketKey)),
-  );
-
   for (const candidate of candidates) {
-    if (avoid.some((row) => row.id === candidate.id)) continue;
-
-    if (
-      options.avoidStraightExposure &&
-      candidate.kind === "parlay" &&
-      candidate.legs.some((leg) => straightExposure.has(marketKey(leg)))
-    ) {
-      continue;
-    }
-
     if (
       options.probabilityMin !== undefined &&
       candidate.probability < options.probabilityMin
@@ -407,28 +375,6 @@ function bestCandidate(
   return best;
 }
 
-function bestParlayCandidate(
-  candidates: Candidate[],
-  avoid: Candidate[],
-  options: {
-    probabilityMin?: number;
-    probabilityMax?: number;
-    probabilityTarget?: number;
-    returnMin?: number;
-    returnMax?: number;
-    returnTarget?: number;
-    role: PortfolioRole;
-  },
-) {
-  return (
-    bestCandidate(candidates, avoid, {
-      ...options,
-      avoidStraightExposure: true,
-    }) ??
-    bestCandidate(candidates, avoid, options)
-  );
-}
-
 function addCandidate(selected: Candidate[], candidate: Candidate | null) {
   if (!candidate) return;
   if (selected.some((row) => row.id === candidate.id)) return;
@@ -480,7 +426,7 @@ function selectPortfolioCandidates(
   }
 
   const preferredCoreParlay =
-    bestParlayCandidate(parlays, selected, {
+    bestCandidate(parlays, selected, {
       probabilityMin: 0.55,
       probabilityMax: 0.74,
       probabilityTarget: 0.64,
@@ -489,7 +435,7 @@ function selectPortfolioCandidates(
       returnTarget: 1.8,
       role: "core_parlay",
     }) ??
-    bestParlayCandidate(parlays, selected, {
+    bestCandidate(parlays, selected, {
       probabilityMin: 0.45,
       returnMin: 1.3,
       returnMax: 4,
@@ -503,7 +449,7 @@ function selectPortfolioCandidates(
     const upsideTarget = clamp(targetReturn * 2.2, 7, 22);
     addCandidate(
       selected,
-      bestParlayCandidate(parlays, selected, {
+      bestCandidate(parlays, selected, {
         returnMin: 6,
         returnMax: 25,
         returnTarget: upsideTarget,
@@ -516,12 +462,12 @@ function selectPortfolioCandidates(
     targetReturn >= (risk === "lower" ? 4.5 : 2.8) ||
     risk === "higher"
   ) {
-    const hailTarget = clamp(targetReturn * 20, 35, 500);
+    const hailTarget = clamp(targetReturn * 20, 35, 300);
     addCandidate(
       selected,
-      bestParlayCandidate(parlays, selected, {
+      bestCandidate(parlays, selected, {
         returnMin: 25,
-        returnMax: 500,
+        returnMax: 300,
         returnTarget: hailTarget,
         role: "hail_mary",
       }),
@@ -691,9 +637,9 @@ export function buildPortfolioPlan(
     return null;
   }
 
-  const targetReturn = clamp(options.targetPayout / options.amount, 1.05, 500);
+  const targetReturn = clamp(options.targetPayout / options.amount, 1.05, 250);
   const straights = straightCandidates(opportunities, options);
-  const parlays = parlayCandidates(opportunities, options, targetReturn);
+  const parlays = parlayCandidates(opportunities, options);
 
   if (!straights.length || !parlays.length) return null;
 
@@ -759,6 +705,12 @@ export function buildPortfolioPlan(
     (sum, position) => sum + position.payoutIfWin,
     0,
   );
+  const targetDistance =
+    Math.abs(allWinPayout - options.targetPayout) /
+    Math.max(options.targetPayout, 1);
+
+  if (targetDistance > 0.15) return null;
+
   const expectedPayout = nonZeroPositions.reduce(
     (sum, position) =>
       sum +
