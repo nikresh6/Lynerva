@@ -34,7 +34,9 @@ function projectionIsPlausible(
   if (family === "passing_touchdowns") return value <= 6;
   if (family === "passing_interceptions") return value <= 5;
   if (family === "rushing_yards") return value <= 300;
+  if (family === "rushing_touchdowns") return value <= 3;
   if (family === "receiving_yards") return value <= 300;
+  if (family === "receiving_touchdowns") return value <= 3;
   if (family === "receptions") return value <= 20;
   if (family === "touchdowns") return value <= 3;
   return true;
@@ -110,7 +112,9 @@ async function main() {
       "passing_touchdowns",
       "passing_interceptions",
       "rushing_yards",
+      "rushing_touchdowns",
       "receiving_yards",
+      "receiving_touchdowns",
       "receptions",
       "longest_reception",
       "touchdowns",

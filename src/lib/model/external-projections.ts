@@ -187,8 +187,10 @@ function sourceValue(
   if (family === "passing_touchdowns") return stats.passingTouchdowns ?? null;
   if (family === "passing_interceptions") return stats.passingInterceptions ?? null;
   if (family === "rushing_yards") return stats.rushingYards ?? null;
+  if (family === "rushing_touchdowns") return stats.rushingTouchdowns ?? null;
   if (family === "receptions") return stats.receptions ?? null;
   if (family === "receiving_yards") return stats.receivingYards ?? null;
+  if (family === "receiving_touchdowns") return stats.receivingTouchdowns ?? null;
   if (family === "touchdowns") {
     if (stats.totalTouchdowns !== undefined) return stats.totalTouchdowns;
     const rushing = stats.rushingTouchdowns ?? 0;
@@ -935,9 +937,15 @@ function likelyPositions(family: CanonicalMarket["family"]) {
   ) {
     return ["QB"] as const;
   }
-  if (family === "rushing_yards") return ["RB", "QB", "WR"] as const;
+  if (
+    family === "rushing_yards" ||
+    family === "rushing_touchdowns"
+  ) {
+    return ["RB", "QB", "WR"] as const;
+  }
   if (
     family === "receiving_yards" ||
+    family === "receiving_touchdowns" ||
     family === "receptions" ||
     family === "touchdowns"
   ) {

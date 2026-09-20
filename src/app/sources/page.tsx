@@ -391,13 +391,12 @@ export default async function SourcesPage() {
                     <summary className="cursor-pointer list-none p-4 sm:p-5">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex min-w-0 items-center gap-3">
-                          <div className="grid size-10 shrink-0 place-items-center rounded-xl border bg-surface-raised text-xs font-bold tracking-[-0.02em]">
-                            {source.name
-                              .split(/\s+/)
-                              .map((part) => part[0])
-                              .join("")
-                              .slice(0, 2)
-                              .toUpperCase()}
+                          <div className="grid size-11 shrink-0 place-items-center overflow-hidden rounded-xl border bg-white p-1.5 shadow-[0_6px_20px_rgb(0_0_0/0.16)]">
+                            <img
+                              src={source.logo}
+                              alt=""
+                              className="max-h-full max-w-full object-contain"
+                            />
                           </div>
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
@@ -612,7 +611,7 @@ export default async function SourcesPage() {
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {performance.sources.map((source, index) => {
+            {performance.sources.map((source) => {
               const coverageShare = source.coverageCount / maxCoverage;
               const sourceRows = performance.rows.filter(
                 (row) => row.source === source.id,
@@ -633,17 +632,17 @@ export default async function SourcesPage() {
                   rel="noreferrer"
                   className="premium-panel group relative overflow-hidden rounded-2xl p-4 transition-all hover:-translate-y-0.5 hover:border-accent/35 hover:shadow-[0_16px_42px_var(--accent-glow)] sm:p-5"
                 >
-                  <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--border-strong)] to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+                  <div className="absolute inset-x-0 top-0 h-20 bg-[radial-gradient(circle_at_18%_0%,var(--accent-bg),transparent_72%)] opacity-75" />
+                  <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--border-strong)] to-transparent opacity-70" />
 
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-3">
-                      <div
-                        className={cn(
-                          "grid size-10 shrink-0 place-items-center rounded-xl border bg-surface-raised text-sm font-semibold",
-                          index % 2 === 0 ? "text-foreground" : "text-muted",
-                        )}
-                      >
-                        {source.name.slice(0, 1)}
+                      <div className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-xl border bg-white p-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.16)]">
+                        <img
+                          src={source.logo}
+                          alt=""
+                          className="max-h-full max-w-full object-contain"
+                        />
                       </div>
                       <div className="min-w-0">
                         <h3 className="truncate text-sm font-semibold">

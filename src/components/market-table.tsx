@@ -12,7 +12,9 @@ const FAMILY_LABEL: Record<string, string> = {
   passing_yards: "Passing Yards",
   passing_touchdowns: "Passing TDs",
   rushing_yards: "Rushing Yards",
+  rushing_touchdowns: "Rushing TDs",
   receiving_yards: "Receiving Yards",
+  receiving_touchdowns: "Receiving TDs",
   receptions: "Receptions",
   longest_reception: "Longest Reception",
   touchdowns: "Touchdowns",
@@ -28,10 +30,12 @@ function displayMarketTitle(market: MarketOpportunity) {
 
   if (
     canonical.threshold !== null &&
-    ["passing_yards","passing_touchdowns","rushing_yards","receiving_yards","receptions","longest_reception","touchdowns"].includes(canonical.family)
+    ["passing_yards","passing_touchdowns","rushing_yards","rushing_touchdowns","receiving_yards","receiving_touchdowns","receptions","longest_reception","touchdowns"].includes(canonical.family)
   ) {
     if (
-      canonical.family === "touchdowns" &&
+      ["touchdowns", "rushing_touchdowns", "receiving_touchdowns"].includes(
+        canonical.family,
+      ) &&
       canonical.direction === "over" &&
       Number.isInteger(canonical.threshold)
     ) {
@@ -377,11 +381,25 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
             <>
               <div className="mt-1.5 text-[15px] font-semibold">
                 {components.consensusProjection.toFixed(2)} projected
+                {market.canonical?.threshold !== null &&
+                market.canonical?.threshold !== undefined
+                  ? ` vs ${market.canonical.threshold} line`
+                  : ""}
               </div>
               <p className="mt-1 text-[11px] leading-5 text-muted">
+                {market.canonical?.threshold !== null &&
+                market.canonical?.threshold !== undefined &&
+                market.canonical.threshold !== 0
+                  ? `The source consensus is ${Math.abs(
+                      ((components.consensusProjection -
+                        market.canonical.threshold) /
+                        market.canonical.threshold) *
+                        100,
+                    ).toFixed(0)}% ${components.consensusProjection >= market.canonical.threshold ? "above" : "below"} the listed line. `
+                  : ""}
                 {consensusChance === null
                   ? "No usable probability was available from the projection sites."
-                  : `That works out to about ${formatPercent(consensusChance)} for this bet.`}
+                  : `After applying the stat distribution, that maps to about a ${formatPercent(consensusChance)} chance for this side.`}
               </p>
               {sources.length ? (
                 <p className="mt-1 text-[10px] leading-5 text-faint">
@@ -429,6 +447,17 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
   const visuals = usePlayerVisuals(subject ? [subject] : []);
   const count = hitCount(market);
   const profit = profitOn100(market);
+  const edgeBps =
+    market.recommendedProbabilityBps !== null &&
+    market.executablePriceBps !== null
+      ? market.recommendedProbabilityBps - market.executablePriceBps
+      : null;
+  const relativeEdge =
+    edgeBps !== null &&
+    market.executablePriceBps !== null &&
+    market.executablePriceBps > 0
+      ? edgeBps / market.executablePriceBps
+      : null;
 
   useEffect(() => {
     const close = (event: KeyboardEvent) => event.key === "Escape" && onClose();
@@ -515,9 +544,14 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
 
           <section className="rounded-2xl border bg-background p-4">
             <h3 className="text-sm font-semibold">At a glance</h3>
-            <div className="mt-4 grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-4 sm:gap-x-6">
-              <Metric label="Market" value={formatPercent(market.executablePriceBps)} />
-              <Metric label="Lynerva" value={formatPercent(market.recommendedProbabilityBps)} emphasis />
+            <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-5">
+              <Metric label="Market chance" value={formatPercent(market.executablePriceBps)} />
+              <Metric label="Lynerva chance" value={formatPercent(market.recommendedProbabilityBps)} emphasis />
+              <Metric
+                label="Edge"
+                value={edgeBps === null ? "—" : `${edgeBps >= 0 ? "+" : ""}${(edgeBps / 100).toFixed(1)}pp`}
+                emphasis
+              />
               <Metric label="Hit rate" value={count ? `${Math.round((count.hits / count.games) * 100)}%` : "—"} />
               <Metric label="$100 profit" value={profit === null ? "—" : `${profit.toFixed(0)}`} />
             </div>
@@ -526,14 +560,56 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
             </div>
           </section>
 
-          <section className="rounded-2xl border bg-background p-4">
-            <h3 className="text-sm font-semibold">Why Lynerva likes it</h3>
-            <div className="mt-3 space-y-2 text-xs leading-5 text-muted">
+          <section className="overflow-hidden rounded-2xl border bg-background">
+            <div className="border-b bg-[linear-gradient(135deg,var(--accent-bg),transparent_70%)] p-4">
+              <h3 className="text-sm font-semibold">Why Lynerva likes it</h3>
+              {edgeBps !== null ? (
+                <div className="mt-3 flex flex-wrap items-end gap-x-3 gap-y-1">
+                  <span className="text-2xl font-bold tabular text-positive">
+                    {edgeBps >= 0 ? "+" : ""}{(edgeBps / 100).toFixed(1)}pp
+                  </span>
+                  <span className="pb-0.5 text-[10px] font-medium text-muted">
+                    model-versus-market edge
+                  </span>
+                </div>
+              ) : null}
+            </div>
+            <div className="space-y-2 p-4 text-xs leading-5 text-muted">
               <p>
-                The market is pricing this at about <strong className="text-foreground">{formatPercent(market.executablePriceBps)}</strong>, while Lynerva estimates <strong className="text-foreground">{formatPercent(market.recommendedProbabilityBps)}</strong>.
+                <strong className="text-foreground">Market chance</strong> is the
+                probability implied by the current price:{" "}
+                <strong className="text-foreground">{formatPercent(market.executablePriceBps)}</strong>.
+                Lynerva estimates this side at{" "}
+                <strong className="text-foreground">{formatPercent(market.recommendedProbabilityBps)}</strong>.
               </p>
-              {count ? <p>In <strong className="text-foreground">2026 only</strong>, it hit in <strong className="text-foreground">{count.hits} of {count.games}</strong> game{count.games === 1 ? "" : "s"}.</p> : null}
-              {profit !== null ? <p>At the current price, risking $100 would profit about <strong className="text-foreground">${profit.toFixed(0)}</strong> if it wins.</p> : null}
+              {edgeBps !== null ? (
+                <p>
+                  The difference is{" "}
+                  <strong className="text-foreground">
+                    {Math.abs(edgeBps / 100).toFixed(1)} percentage points
+                  </strong>
+                  . "pp" means percentage points, not percent.{" "}
+                  {relativeEdge !== null && relativeEdge > 0
+                    ? `Relative to the market-implied chance, Lynerva's estimate is about ${(relativeEdge * 100).toFixed(0)}% higher.`
+                    : "A negative edge means the current price is richer than Lynerva's estimate."}
+                </p>
+              ) : null}
+              {count ? (
+                <p>
+                  In <strong className="text-foreground">2026 only</strong>, this
+                  side hit in{" "}
+                  <strong className="text-foreground">{count.hits} of {count.games}</strong>{" "}
+                  game{count.games === 1 ? "" : "s"}.
+                </p>
+              ) : null}
+              {profit !== null ? (
+                <p>
+                  At the current price, risking $100 would profit about{" "}
+                  <strong className="text-foreground">${profit.toFixed(0)}</strong>{" "}
+                  if it wins. That payout is considered together with hit chance,
+                  not treated as upside by itself.
+                </p>
+              ) : null}
             </div>
           </section>
 

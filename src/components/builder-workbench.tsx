@@ -62,9 +62,13 @@ function builderPickLabel(market: MarketOpportunity) {
               ? "interceptions"
               : canonical.family === "passing_touchdowns"
                 ? "passing TDs"
-              : canonical.family === "touchdowns"
-                ? "TDs"
-                : canonical.family.replaceAll("_", " ");
+                : canonical.family === "rushing_touchdowns"
+                  ? "rushing TDs"
+                  : canonical.family === "receiving_touchdowns"
+                    ? "receiving TDs"
+                    : canonical.family === "touchdowns"
+                      ? "anytime TDs"
+                      : canonical.family.replaceAll("_", " ");
 
   return `${canonical.subject}: ${pickDirection === "over" ? "Over" : "Under"} ${threshold} ${label}`;
 }
@@ -203,6 +207,30 @@ export function BuilderWorkbench() {
     () => opportunities.filter(isBuilderEligibleOpportunity),
     [opportunities],
   );
+  const optimizerPlayerNames = useMemo(
+    () =>
+      [...new Set(
+        currentMarkets
+          .toSorted(
+            (first, second) =>
+              (second.lynervaScore ?? 0) - (first.lynervaScore ?? 0),
+          )
+          .map((market) => market.canonical?.subject ?? "")
+          .filter(Boolean),
+      )].slice(0, 100),
+    [currentMarkets],
+  );
+  const optimizerVisuals = usePlayerVisuals(optimizerPlayerNames);
+  const optimizerSubjectTeams = useMemo(
+    () =>
+      Object.fromEntries(
+        optimizerPlayerNames.map((name) => [
+          name,
+          optimizerVisuals[name]?.team ?? null,
+        ]),
+      ),
+    [optimizerPlayerNames, optimizerVisuals],
+  );
 
   type ParlayRequest = {
     markets: MarketOpportunity[];
@@ -225,6 +253,7 @@ export function BuilderWorkbench() {
     live: "all" | "pregame" | "live";
     mode: BuilderMode;
     maxLegs: number;
+    subjectTeams: Record<string, string | null>;
   };
 
   const [minReturnInput, setMinReturnInput] = useState("3");
@@ -310,6 +339,7 @@ export function BuilderWorkbench() {
       live: portfolioRequest.live,
       mode: portfolioRequest.mode,
       maxLegs: portfolioRequest.maxLegs,
+      subjectTeams: portfolioRequest.subjectTeams,
     });
   }, [portfolioRequest]);
 
@@ -399,6 +429,7 @@ export function BuilderWorkbench() {
         live,
         mode,
         maxLegs,
+        subjectTeams: optimizerSubjectTeams,
       });
     });
   }

@@ -270,7 +270,12 @@ export function MarketExplorer({
       status: forceStatus ?? filters.status,
     };
 
-    let eligible = opportunities.filter(isPricedOpportunity);
+    // Public pick boards only show bets where Lynerva actually has a positive
+    // model-versus-market edge. A high raw hit probability cannot rescue a
+    // poorly priced contract.
+    let eligible = opportunities.filter(
+      (market) => isPricedOpportunity(market) && (market.edgeBps ?? 0) > 0,
+    );
 
     if (activeGame) {
       eligible = eligible.filter(
@@ -363,9 +368,11 @@ export function MarketExplorer({
             <option value="passing_touchdowns">Passing TDs</option>
             <option value="passing_interceptions">Interceptions</option>
             <option value="rushing_yards">Rushing yards</option>
+            <option value="rushing_touchdowns">Rushing TDs</option>
             <option value="receiving_yards">Receiving yards</option>
+            <option value="receiving_touchdowns">Receiving TDs</option>
             <option value="receptions">Receptions</option>
-                        <option value="touchdowns">Touchdowns</option>
+            <option value="touchdowns">Anytime TDs</option>
           </Select>
 
           <button

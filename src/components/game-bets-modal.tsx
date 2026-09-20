@@ -49,7 +49,9 @@ function marketTitle(market: MarketOpportunity) {
     passing_touchdowns: "passing TDs",
     passing_interceptions: "interceptions",
     rushing_yards: "rushing yards",
+    rushing_touchdowns: "rushing TDs",
     receiving_yards: "receiving yards",
+    receiving_touchdowns: "receiving TDs",
     receptions: "receptions",
     longest_reception: "longest reception",
     touchdowns: "touchdowns",
@@ -58,7 +60,9 @@ function marketTitle(market: MarketOpportunity) {
 
   if (canonical.threshold !== null) {
     if (
-      canonical.family === "touchdowns" &&
+      ["touchdowns", "rushing_touchdowns", "receiving_touchdowns"].includes(
+        canonical.family,
+      ) &&
       canonical.direction === "over" &&
       Number.isInteger(canonical.threshold)
     ) {

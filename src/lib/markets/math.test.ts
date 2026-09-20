@@ -86,10 +86,8 @@ describe("market math", () => {
     expect(first?.score).toBe(noisyRefresh?.score);
   });
 
-  it("shrinks thinly supported cheap props before ranking them", () => {
+  it("lets a genuinely underpriced longshot outrank a safer but weaker value", () => {
     const common = {
-      edgeBps: 2_000,
-      expectedRoi: 1,
       seasonHits: null,
       seasonGames: null,
       last10Hits: null,
@@ -101,25 +99,53 @@ describe("market math", () => {
       ageSeconds: 5,
     };
 
-    const cheapThin = lynervaScore({
+    const underpricedLongshot = lynervaScore({
       ...common,
       probabilityBps: 4_000,
       priceBps: 2_000,
-      reliabilityBps: 5_000,
+      edgeBps: 2_000,
+      expectedRoi: 1,
+      reliabilityBps: 6_000,
     });
-    const credibleMidPrice = lynervaScore({
+    const saferWeakValue = lynervaScore({
       ...common,
       probabilityBps: 6_500,
-      priceBps: 5_000,
-      edgeBps: 1_500,
-      expectedRoi: 0.3,
+      priceBps: 5_800,
+      edgeBps: 700,
+      expectedRoi: 700 / 5_800,
       reliabilityBps: 8_000,
     });
 
-    expect((credibleMidPrice?.score ?? 0)).toBeGreaterThan(
-      cheapThin?.score ?? 0,
+    expect((underpricedLongshot?.score ?? 0)).toBeGreaterThan(
+      saferWeakValue?.score ?? 0,
     );
   });
+
+  it("uses the same score for identical probability and price inputs regardless of market context", () => {
+    const input = {
+      probabilityBps: 7_800,
+      priceBps: 6_200,
+      edgeBps: 1_600,
+      expectedRoi: 1_600 / 6_200,
+      reliabilityBps: 7_000,
+      seasonHits: null,
+      seasonGames: null,
+      last10Hits: null,
+      sampleSize: 0,
+      recommendedSide: "yes" as const,
+      liquidityCents: 25_000,
+      volumeCents: 80_000,
+      spreadBps: 100,
+      ageSeconds: 5,
+    };
+
+    const first = lynervaScore(input);
+    const second = lynervaScore({ ...input });
+
+    expect(first?.score).toBe(second?.score);
+    expect(first?.breakdown.edge).toBe(second?.breakdown.edge);
+  });
+
 
   it("ignores a one-point market tick in the published score", () => {
     const common = {
