@@ -260,7 +260,14 @@ export function MarketExplorer({
       status: forceStatus ?? filters.status,
     };
 
-    let eligible = opportunities.filter(isPricedOpportunity);
+    let eligible = opportunities
+      .filter(isPricedOpportunity)
+      .filter(
+        (market) =>
+          !["moneyline", "spread", "game_total"].includes(
+            market.canonical?.family ?? "",
+          ),
+      );
 
     if (activeGame) {
       eligible = eligible.filter(
