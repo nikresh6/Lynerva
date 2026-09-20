@@ -219,8 +219,17 @@ function annotateMovements(
       const stabilized = earlier
         ? stabilizePublishedScore(earlier, market)
         : market;
+      const priceChanged =
+        !earlier ||
+        earlier.recommendedSide !== stabilized.recommendedSide ||
+        earlier.executablePriceBps !== stabilized.executablePriceBps;
       return {
         ...stabilized,
+        priceChangedAt: priceChanged
+          ? earlier
+            ? next.fetchedAt
+            : stabilized.updatedAt
+          : earlier.priceChangedAt ?? earlier.updatedAt,
         scoreMovement: earlier
           ? movementBetween(earlier, stabilized)
           : null,
