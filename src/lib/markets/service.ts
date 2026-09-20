@@ -73,6 +73,32 @@ function scheduleGameFromEspn(game: LiveNflGame): NflScheduleGame | null {
   };
 }
 
+function moneylineYesSide(input: {
+  probabilityBps: number | null;
+  yesAskBps: number | null;
+}) {
+  if (
+    input.probabilityBps === null ||
+    input.yesAskBps === null ||
+    input.yesAskBps <= 0 ||
+    input.yesAskBps >= 10_000
+  ) {
+    return {
+      side: null as MarketSide | null,
+      probabilityBps: null,
+      priceBps: null,
+      edgeBps: null,
+    };
+  }
+
+  return {
+    side: "yes" as const,
+    probabilityBps: input.probabilityBps,
+    priceBps: input.yesAskBps,
+    edgeBps: input.probabilityBps - input.yesAskBps,
+  };
+}
+
 function bestExecutableSide(input: {
   probabilityBps: number | null;
   yesAskBps: number | null;
@@ -213,7 +239,10 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
     for (const market of providerMarkets) {
       const canonical = normalizeMarket(market);
       if (!canonical) continue;
-      if (["moneyline", "spread", "game_total"].includes(canonical.family)) {
+      // Game-winner contracts are first-class Lynerva markets. Spreads and
+      // totals stay intentionally excluded so the game-market surface remains
+      // a clean two-outcome moneyline board.
+      if (["spread", "game_total"].includes(canonical.family)) {
         continue;
       }
 
@@ -253,6 +282,75 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
 
   let normalized = normalizeWithSchedule(null);
 
+  const completeMoneylinePairs = (items: NormalizedItem[]) => {
+    const byMatchup = new Map<string, NormalizedItem[]>();
+    for (const item of items) {
+      if (item.canonical.family !== "moneyline" || !item.canonical.matchup) {
+        continue;
+      }
+      byMatchup.set(item.canonical.matchup, [
+        ...(byMatchup.get(item.canonical.matchup) ?? []),
+        item,
+      ]);
+    }
+
+    const synthetic: NormalizedItem[] = [];
+    for (const [matchup, rows] of byMatchup) {
+      const teams = matchup.split("-").filter(Boolean);
+      if (teams.length !== 2) continue;
+
+      const represented = new Set(rows.map((row) => row.canonical.subject));
+      const missing = teams.filter((team) => !represented.has(team));
+      if (missing.length !== 1) continue;
+
+      // Kalshi usually exposes one YES contract per team, but some binary game
+      // events expose only one team contract and represent the opponent as NO.
+      // In that case create an internal second outcome from the real executable
+      // NO book. The source URL still opens the original Kalshi game contract.
+      const source = rows.find(
+        (row) =>
+          row.market.noAskBps !== null &&
+          row.market.noAskBps > 0 &&
+          row.market.noAskBps < 10_000,
+      );
+      if (!source) continue;
+
+      const opponent = missing[0]!;
+      const original = source.market;
+      const syntheticId = `${original.platformMarketId}::NO::${opponent}`;
+      const syntheticMarket: ProviderMarket = {
+        ...original,
+        platformMarketId: syntheticId,
+        platformOutcomeId: syntheticId,
+        marketTitle: `${opponent} moneyline`,
+        outcomeLabel: opponent,
+        yesBidBps: original.noBidBps,
+        yesAskBps: original.noAskBps,
+        noBidBps: original.yesBidBps,
+        noAskBps: original.yesAskBps,
+        lastPriceBps:
+          original.lastPriceBps === null
+            ? null
+            : 10_000 - original.lastPriceBps,
+      };
+      const syntheticCanonical = {
+        ...source.canonical,
+        key: `${source.canonical.key}:opponent:${opponent.toLowerCase()}`,
+        subject: opponent,
+        direction: "yes" as const,
+      };
+
+      synthetic.push({
+        market: syntheticMarket,
+        canonical: syntheticCanonical,
+        scheduleGame: source.scheduleGame,
+        liveGame: source.liveGame,
+      });
+    }
+
+    return synthetic.length ? [...items, ...synthetic] : items;
+  };
+
   // Some serverless hosts intermittently fail to reach ESPN even while the
   // market providers are healthy. Do not turn that transient scoreboard
   // outage into an empty Lynerva feed. Fall back to the public nflverse
@@ -266,11 +364,16 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
     }
   }
 
-  const modeled = normalized.filter(
+  const executableNormalized = normalized.filter(
     (item) =>
       (item.market.yesAskBps ?? 0) > 0 ||
       (item.market.noAskBps ?? 0) > 0,
   );
+  // Complete the pair after the executable-price gate. Kalshi can publish a
+  // nominal second team outcome with no book while the opponent's NO side is
+  // fully tradable. Treat that real NO book as the missing team's executable
+  // moneyline rather than silently dropping one side of the game.
+  const modeled = completeMoneylinePairs(executableNormalized);
   const accepted = new Set(
     modeled.map((item) => marketKey(item.market)),
   );
@@ -368,11 +471,20 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
       const model = models[index];
       const market = item.market;
       const live = item.liveGame?.state === "in";
-      const side = bestExecutableSide({
-        probabilityBps: model.probabilityBps,
-        yesAskBps: market.yesAskBps,
-        noAskBps: market.noAskBps,
-      });
+      // KXNFLGAME lists one YES contract per team. For moneylines, price
+      // that explicit team outcome only; the NO side is just the opponent's
+      // duplicated moneyline and would create confusing duplicate picks.
+      const side =
+        item.canonical.family === "moneyline"
+          ? moneylineYesSide({
+              probabilityBps: model.probabilityBps,
+              yesAskBps: market.yesAskBps,
+            })
+          : bestExecutableSide({
+              probabilityBps: model.probabilityBps,
+              yesAskBps: market.yesAskBps,
+              noAskBps: market.noAskBps,
+            });
       const spreadBps =
         market.yesAskBps !== null && market.yesBidBps !== null
           ? market.yesAskBps - market.yesBidBps

@@ -45,7 +45,6 @@ const marketsResponseSchema = z.object({
 
 const CORE_NFL_SERIES = [
   "KXNFLGAME",
-  "KXNFLSPREAD",
   "KXNFLTOTAL",
   "KXNFLPASSYDS",
   "KXNFLPASSTDS",

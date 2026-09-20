@@ -28,6 +28,10 @@ function displayMarketTitle(market: MarketOpportunity) {
   if (!canonical) return market.marketTitle;
   const label = FAMILY_LABEL[canonical.family] ?? titleCase(canonical.family);
 
+  if (canonical.family === "moneyline") {
+    return `${canonical.subject} Moneyline`;
+  }
+
   if (
     canonical.threshold !== null &&
     ["passing_yards","passing_touchdowns","rushing_yards","rushing_touchdowns","receiving_yards","receiving_touchdowns","receptions","longest_reception","touchdowns"].includes(canonical.family)
@@ -53,6 +57,7 @@ function displayContext(market: MarketOpportunity) {
 
 function displayPickSide(market: MarketOpportunity) {
   if (!market.recommendedSide) return "—";
+  if (market.canonical?.family === "moneyline") return "To win";
   const direction = market.canonical?.direction;
   if (market.recommendedSide === "yes") {
     if (direction === "over") return "Over";
@@ -184,6 +189,34 @@ function PastPerformance({ market }: { market: MarketOpportunity }) {
   const values = market.model.evidence.recentValues ?? [];
   const threshold = market.canonical?.threshold ?? null;
   const count = hitCount(market);
+
+  if (market.canonical?.family === "moneyline") {
+    const evidence = market.model.evidence;
+    const games = evidence.seasonGames ?? evidence.sampleSize;
+    const wins = evidence.seasonHits;
+    return (
+      <section className="rounded-2xl border bg-background p-4">
+        <h3 className="text-sm font-semibold">2026 team form</h3>
+        {games > 0 && wins !== null ? (
+          <>
+            <div className="mt-3 flex items-end gap-2">
+              <span className="text-2xl font-bold tabular">{wins} wins</span>
+              <span className="pb-0.5 text-[10px] text-muted">
+                in {games} regular-season game{games === 1 ? "" : "s"}
+              </span>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-muted">
+              Lynerva uses only completed 2026 regular-season games for team form. Older seasons, preseason, and playoffs are excluded.
+            </p>
+          </>
+        ) : (
+          <p className="mt-2 text-xs text-muted">
+            No completed 2026 regular-season team sample is available yet.
+          </p>
+        )}
+      </section>
+    );
+  }
 
   if (!values.length || threshold === null) {
     return (
@@ -327,6 +360,11 @@ function pickFacingBps(
 }
 
 function sourceLabel(source: string) {
+  if (source === "nflverse_current_season_scoring") return "nflverse scoring";
+  if (source === "current_season_league_baseline") return "2026 league baseline";
+  if (source === "nflverse_current_season_record") return "nflverse record";
+  if (source === "espn_fpi") return "ESPN FPI";
+  if (source === "espn_live_win_probability") return "ESPN live win model";
   if (source === "fantasypros") return "FantasyPros";
   if (source === "numberfire") return "numberFire";
   if (source === "espn") return "ESPN";
@@ -348,6 +386,74 @@ function signedPercentFromBps(bps: number) {
 function ModelInputs({ market }: { market: MarketOpportunity }) {
   const components = market.model.components;
   const sources = components?.projectionSources ?? [];
+
+  if (market.canonical?.family === "moneyline") {
+    const gameSources = components?.gameProjectionSources ?? [];
+    const statisticalChance = pickFacingBps(
+      components?.statisticalProbabilityBps,
+      market.recommendedSide,
+    );
+    const teamGames = components?.currentSeasonTeamGames;
+
+    return (
+      <section className="rounded-2xl border bg-background p-4">
+        <h3 className="text-sm font-semibold">How Lynerva priced the moneyline</h3>
+        <div className="mt-4 space-y-3">
+          <div className="rounded-xl border bg-surface p-3.5">
+            <div className="text-xs font-semibold">Independent win models</div>
+            {gameSources.length ? (
+              <div className="mt-2 space-y-2">
+                {gameSources.map((source) => (
+                  <div
+                    key={source.source}
+                    className="flex items-center justify-between gap-3 text-[11px]"
+                  >
+                    <span className="text-muted">{sourceLabel(source.source)}</span>
+                    <span className="font-semibold tabular">
+                      {formatPercent(
+                        pickFacingBps(
+                          source.probabilityBps,
+                          market.recommendedSide,
+                        ),
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-1.5 text-[11px] leading-5 text-muted">
+                Independent game projections are temporarily unavailable.
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-xl border bg-surface p-3.5">
+            <div className="text-xs font-semibold">2026 scoring model</div>
+            <div className="mt-1.5 text-[15px] font-semibold">
+              {statisticalChance === null
+                ? "Unavailable"
+                : formatPercent(statisticalChance)}
+            </div>
+            <p className="mt-1 text-[11px] leading-5 text-muted">
+              {teamGames
+                ? `Built from ${teamGames.subject} completed game${teamGames.subject === 1 ? "" : "s"} for this team and ${teamGames.opponent} for its opponent, with early-season shrinkage toward the 2026 league scoring environment.`
+                : "The current-season sample is still incomplete, so Lynerva falls back to a low-confidence league baseline."}
+            </p>
+          </div>
+
+          <div className="rounded-xl border bg-surface p-3.5">
+            <div className="text-xs font-semibold">Final blended probability</div>
+            <div className="mt-1.5 text-[15px] font-semibold text-positive">
+              {formatPercent(market.recommendedProbabilityBps)}
+            </div>
+            <p className="mt-1 text-[11px] leading-5 text-muted">
+              The blend is independent from Kalshi's price. Kalshi is only used afterward to measure edge and payout value.
+            </p>
+          </div>
+        </div>
+      </section>
+    );
+  }
   const consensusChance = pickFacingBps(
     components?.consensusProbabilityBps,
     market.recommendedSide,

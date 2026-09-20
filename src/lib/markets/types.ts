@@ -92,6 +92,14 @@ export interface ModelEstimate {
       source: string;
       value: number;
     }>;
+    gameProjectionSources?: Array<{
+      source: string;
+      probabilityBps: number;
+    }>;
+    currentSeasonTeamGames?: {
+      subject: number;
+      opponent: number;
+    } | null;
     projectionSeason?: number | null;
     projectionWeek?: number | null;
     learnedSourceWeightWeek?: number | null;

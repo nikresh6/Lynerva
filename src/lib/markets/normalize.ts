@@ -94,7 +94,13 @@ function findTickerTeams(value: string) {
     }
   }
 
-  for (const candidate of datedCandidates) {
+  for (const rawCandidate of datedCandidates) {
+    // Provider tickers occasionally use legacy/alternate abbreviations even
+    // though the rest of Lynerva standardizes on ESPN/nflverse team codes.
+    const candidate = rawCandidate
+      .replaceAll("JAC", "JAX")
+      .replaceAll("WSH", "WAS");
+
     for (const first of TEAM_CODES) {
       for (const second of TEAM_CODES) {
         if (first === second) continue;
@@ -179,7 +185,7 @@ function familyFrom(value: string): { family: MarketFamily; statistic: string | 
   if (/total points|game total|combined score|o\/u/i.test(value)) {
     return { family: "game_total", statistic: "game_points" };
   }
-  if (/moneyline|to win|will .* win|winner/i.test(value)) {
+  if (/\bKXNFLGAME\b|moneyline|to win|will .* win|winner/i.test(value)) {
     return { family: "moneyline", statistic: "game_winner" };
   }
   return { family: "other", statistic: null };

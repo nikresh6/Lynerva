@@ -37,6 +37,73 @@ describe("market normalization", () => {
     });
   });
 
+  it("maps Kalshi JAC tickers to Lynerva's JAX team code", () => {
+    const normalized = normalizeMarket(
+      contract({
+        platformMarketId: "KXNFLGAME-26SEP20JACDEN-JAC",
+        eventTitle: "KXNFLGAME-26SEP20JACDEN",
+        marketTitle: "Jacksonville wins",
+        outcomeLabel: "Jacksonville Jaguars",
+        resolutionRules: "Resolves Yes if Jacksonville wins.",
+        closesAt: "2026-09-21T03:30:00.000Z",
+      }),
+    );
+
+    expect(normalized).toMatchObject({
+      family: "moneyline",
+      subject: "JAX",
+      matchup: "DEN-JAX",
+    });
+  });
+
+  it("recognizes compact KXNFLGAME titles that do not contain the word win", () => {
+    const normalized = normalizeMarket(
+      contract({
+        platformMarketId: "KXNFLGAME-26SEP20CLETB-CLE",
+        eventTitle: "KXNFLGAME-26SEP20CLETB",
+        marketTitle: "Cleveland Browns at Tampa Bay Buccaneers",
+        outcomeLabel: "Cleveland Browns",
+        resolutionRules:
+          "Resolves Yes if Cleveland wins the professional football game.",
+        closesAt: "2026-09-21T03:30:00.000Z",
+      }),
+    );
+
+    expect(normalized).toMatchObject({
+      family: "moneyline",
+      statistic: "game_winner",
+      direction: "yes",
+      threshold: null,
+      subject: "CLE",
+      matchup: "CLE-TB",
+      parseConfidence: "high",
+    });
+  });
+
+  it("normalizes each Kalshi team moneyline as its own game-winner outcome", () => {
+    const normalized = normalizeMarket(
+      contract({
+        platformMarketId: "KXNFLGAME-26SEP20DALCHI-CHI",
+        eventTitle: "KXNFLGAME-26SEP20DALCHI",
+        marketTitle: "Will the Chicago Bears beat the Dallas Cowboys?",
+        outcomeLabel: "Chicago Bears",
+        resolutionRules:
+          "Resolves Yes if the Chicago Bears win the Dallas Cowboys at Chicago Bears NFL game.",
+        closesAt: "2026-09-21T03:30:00.000Z",
+      }),
+    );
+
+    expect(normalized).toMatchObject({
+      family: "moneyline",
+      statistic: "game_winner",
+      direction: "yes",
+      threshold: null,
+      subject: "CHI",
+      matchup: "CHI-DAL",
+      parseConfidence: "high",
+    });
+  });
+
   it("does not treat an NFL season-long receiving-yards future as a game prop", () => {
     const normalized = normalizeMarket(
       contract({

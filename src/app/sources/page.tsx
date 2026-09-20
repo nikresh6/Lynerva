@@ -277,6 +277,70 @@ export default async function SourcesPage() {
       />
 
       <div className="space-y-6">
+        <section className="premium-panel overflow-hidden rounded-2xl">
+          <div className="border-b bg-[radial-gradient(circle_at_12%_0%,var(--accent-bg),transparent_46%),var(--surface-raised)] p-5 sm:p-6">
+            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">
+              <Gauge className="size-3.5" />
+              Moneyline model
+            </div>
+            <h2 className="mt-2 text-xl font-semibold tracking-[-0.03em]">
+              Team win probabilities use a separate current-season data stack.
+            </h2>
+            <p className="mt-2 max-w-3xl text-xs leading-5 text-muted">
+              Moneylines are not treated like player props. Lynerva blends
+              independent game-level probability signals first, then compares
+              that blended probability with the Kalshi team contract. Kalshi
+              never feeds back into the model probability itself.
+            </p>
+          </div>
+
+          <div className="grid gap-3 p-3 sm:p-4 lg:grid-cols-3">
+            <div className="rounded-2xl border bg-surface p-4">
+              <div className="flex items-center gap-2">
+                <LineChart className="size-4 text-accent" />
+                <h3 className="text-sm font-semibold">ESPN game projection</h3>
+              </div>
+              <p className="mt-2 text-[11px] leading-5 text-muted">
+                Pregame ESPN win projection is an independent probability
+                datapoint. During games, Lynerva can use ESPN&apos;s live win
+                probability instead so the estimate reacts to score and clock.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border bg-surface p-4">
+              <div className="flex items-center gap-2">
+                <Database className="size-4 text-accent" />
+                <h3 className="text-sm font-semibold">2026 nflverse scoring</h3>
+              </div>
+              <p className="mt-2 text-[11px] leading-5 text-muted">
+                Completed 2026 regular-season scores build each team&apos;s
+                offense, defense, recent scoring form, projected margin, and
+                game-to-game variance. Early weeks are shrunk toward the 2026
+                league scoring environment rather than older seasons.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border bg-surface p-4">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="size-4 text-accent" />
+                <h3 className="text-sm font-semibold">2026 team record</h3>
+              </div>
+              <p className="mt-2 text-[11px] leading-5 text-muted">
+                Current-season wins, losses, ties, opponent record, and a small
+                home-field adjustment provide a separate form signal. Preseason,
+                postseason, and prior seasons are excluded from this input.
+              </p>
+            </div>
+          </div>
+
+          <div className="border-t bg-background/45 px-5 py-3 text-[10px] leading-5 text-muted">
+            Player-source accuracy tables below remain player-stat specific.
+            Moneyline probability calibration is tracked independently because
+            win probabilities and yardage projection errors are different
+            statistical targets.
+          </div>
+        </section>
+
         {(() => {
           const leaderboard = performance.sources
             .map((source) => {

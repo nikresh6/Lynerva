@@ -177,6 +177,35 @@ describe("combination builder", () => {
     expect(result?.correlationWarning).toBe(true);
   });
 
+  it("never combines both teams' moneylines from the same game", () => {
+    const chiefs = opportunity("KC_ML", "BUF-KC", 5_000, 6_100);
+    chiefs.canonical = {
+      ...chiefs.canonical!,
+      key: "buf-kc-kc-moneyline",
+      subject: "KC",
+      family: "moneyline",
+      statistic: "game_winner",
+    };
+    const bills = opportunity("BUF_ML", "BUF-KC", 5_000, 6_000);
+    bills.canonical = {
+      ...bills.canonical!,
+      key: "buf-kc-buf-moneyline",
+      subject: "BUF",
+      family: "moneyline",
+      statistic: "game_winner",
+    };
+
+    const result = buildCombination([chiefs, bills], {
+      ...baseOptions,
+      minReturn: 3.8,
+      maxReturn: 4.2,
+      maxLegs: 2,
+      mode: "sgp",
+    });
+
+    expect(result).toBeNull();
+  });
+
   it("optimizes the combination instead of blindly taking the highest-score legs", () => {
     const decoys = Array.from({ length: 35 }, (_, index) => ({
       ...opportunity(

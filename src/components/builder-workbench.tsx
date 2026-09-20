@@ -37,7 +37,11 @@ function builderPickLabel(market: MarketOpportunity) {
   const threshold = canonical?.threshold;
   const direction = canonical?.direction;
 
-  if (!canonical || threshold === null || threshold === undefined || !direction) {
+  if (!canonical) return market.marketTitle;
+  if (canonical.family === "moneyline") {
+    return `${canonical.subject} moneyline`;
+  }
+  if (threshold === null || threshold === undefined || !direction) {
     return market.recommendedSide === "no"
       ? `NO: ${market.marketTitle}`
       : market.marketTitle;

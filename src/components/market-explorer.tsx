@@ -87,7 +87,7 @@ function FeedStatus() {
             />
             <span className="font-semibold capitalize text-foreground">{provider.provider}</span>
             <span className="text-faint">
-              {offline ? "feed offline" : `${provider.count} props`}
+              {offline ? "feed offline" : `${provider.count} markets`}
             </span>
           </span>
         );
@@ -96,7 +96,7 @@ function FeedStatus() {
         <span className={refreshing ? "refresh-dot is-refreshing" : "refresh-dot"} />
         {refreshing
           ? "Refreshing live odds"
-          : `${ratedCount} props rated · ${displayedCount} ranked picks`}
+          : `${ratedCount} markets rated · ${displayedCount} ranked picks`}
       </span>
       <span className="feed-pill text-muted">
         Odds refreshed {fetchedAt ? relativeTime(fetchedAt) : "just now"}
@@ -270,11 +270,15 @@ export function MarketExplorer({
       status: forceStatus ?? filters.status,
     };
 
-    // Public pick boards only show bets where Lynerva actually has a positive
-    // model-versus-market edge. A high raw hit probability cannot rescue a
-    // poorly priced contract.
+    // The default board remains recommendation-only, but selecting Moneyline
+    // is also a market browser: show both team outcomes for every priced game
+    // so a normal weekly slate is roughly 32 team moneylines, not only the
+    // subset where Lynerva currently has positive edge.
+    const browseAllMoneylines = activeFilters.family === "moneyline";
     let eligible = opportunities.filter(
-      (market) => isPricedOpportunity(market) && (market.edgeBps ?? 0) > 0,
+      (market) =>
+        isPricedOpportunity(market) &&
+        (browseAllMoneylines || (market.edgeBps ?? 0) > 0),
     );
 
     if (activeGame) {
@@ -283,10 +287,15 @@ export function MarketExplorer({
       );
     } else if (resolvedTeam && teamRosterNames) {
       eligible = eligible.filter((market) => {
-        const subject = market.canonical?.subject;
-        return subject
-          ? teamRosterNames.has(normalizePlayerName(subject))
-          : false;
+        const canonical = market.canonical;
+        if (!canonical) return false;
+        if (canonical.family === "moneyline") {
+          return (
+            canonical.subject === resolvedTeam.code ||
+            canonical.matchup?.split("-").includes(resolvedTeam.code) === true
+          );
+        }
+        return teamRosterNames.has(normalizePlayerName(canonical.subject));
       });
     }
 
@@ -363,7 +372,8 @@ export function MarketExplorer({
             }
             label="Market type"
           >
-            <option value="all">All player props</option>
+            <option value="all">All markets</option>
+            <option value="moneyline">Moneyline</option>
             <option value="passing_yards">Passing yards</option>
             <option value="passing_touchdowns">Passing TDs</option>
             <option value="passing_interceptions">Interceptions</option>

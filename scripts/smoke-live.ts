@@ -99,11 +99,25 @@ async function main() {
         (a.lynervaScore ?? -Infinity),
     );
 
-  const gameMarkets = payload.opportunities.filter((market) =>
-    ["moneyline", "spread", "game_total"].includes(
-      market.canonical?.family ?? "",
-    ),
+  const gameMarkets = payload.opportunities.filter(
+    (market) => market.canonical?.family === "moneyline",
   );
+  const unwantedGameMarkets = payload.opportunities.filter((market) =>
+    ["spread", "game_total"].includes(market.canonical?.family ?? ""),
+  );
+  const invalidMoneylineSides = gameMarkets.filter(
+    (market) => market.recommendedSide !== "yes",
+  );
+  const duplicateMoneylines = (() => {
+    const seen = new Set<string>();
+    const duplicates: string[] = [];
+    for (const market of gameMarkets) {
+      const key = `${market.canonical?.matchup ?? "unknown"}:${market.canonical?.subject ?? "unknown"}`;
+      if (seen.has(key)) duplicates.push(key);
+      seen.add(key);
+    }
+    return duplicates;
+  })();
   const playerPropMarkets = payload.opportunities.filter((market) =>
     [
       "passing_yards",
@@ -182,8 +196,11 @@ async function main() {
       .filter((value): value is string => Boolean(value)),
   );
 
-  const currentEspnGame = livePayload.games
-    .filter((game) => game.state === "in" || game.state === "pre")
+  const currentOpenGames = livePayload.games.filter(
+    (game) => game.state === "in" || game.state === "pre",
+  );
+
+  const currentEspnGame = currentOpenGames
     .toSorted(
       (first, second) =>
         new Date(first.startsAt).getTime() - new Date(second.startsAt).getTime(),
@@ -208,7 +225,17 @@ async function main() {
           error: provider.error,
         })),
         opportunities: payload.opportunities.length,
-        gameMarkets: gameMarkets.length,
+        moneylineMarkets: gameMarkets.length,
+        moneylines: gameMarkets.map((market) => ({
+          matchup: market.canonical?.matchup,
+          team: market.canonical?.subject,
+          ticker: market.platformMarketId,
+          side: market.recommendedSide,
+          price: market.executablePriceBps,
+          model: market.recommendedProbabilityBps,
+          sources: market.model.components?.gameProjectionSources ?? [],
+        })),
+        unwantedGameMarkets: unwantedGameMarkets.length,
         playerPropMarkets: playerPropMarkets.length,
         familyCounts: Object.fromEntries(
           [...new Set(playerPropMarkets.map((market) => market.canonical?.family ?? "unknown"))]
@@ -251,6 +278,7 @@ async function main() {
         completedGameMarkets: completedGameMarkets.length,
         displayedTopPicks: displayedTopPicks.length,
         matchups: [...matchups].slice(0, 20),
+        currentOpenGames: currentOpenGames.length,
         currentEspnGame,
         currentEspnMatchup,
         currentGameMapped:
@@ -378,6 +406,31 @@ async function main() {
   }
   if (!pregameBuild) {
     console.warn("Live smoke note: no qualified current-season pregame combination is available yet.");
+  }
+  if (currentOpenGames.length > 0 && gameMarkets.length === 0) {
+    throw new Error(
+      `Live smoke failed: ESPN shows ${currentOpenGames.length} current NFL games but Lynerva exposed zero Kalshi moneylines.`,
+    );
+  }
+  if (unwantedGameMarkets.length > 0) {
+    throw new Error(
+      `Live smoke failed: ${unwantedGameMarkets.length} spread/total game markets leaked into the moneyline-only game feed.`,
+    );
+  }
+  if (invalidMoneylineSides.length > 0) {
+    throw new Error(
+      "Live smoke failed: moneylines must use the explicit Kalshi team YES contract, not duplicate NO/opponent outcomes.",
+    );
+  }
+  if (duplicateMoneylines.length > 0) {
+    throw new Error(
+      `Live smoke failed: duplicate team moneylines found: ${duplicateMoneylines.slice(0, 5).join(", ")}`,
+    );
+  }
+  if (gameMarkets.length > 0 && gameMarkets.length > 40) {
+    throw new Error(
+      `Live smoke failed: implausible weekly moneyline count ${gameMarkets.length}; expected roughly two team outcomes per game.`,
+    );
   }
   if (unsupportedPeriodMarkets.length > 0) {
     throw new Error("Live smoke failed: unsupported quarter/half markets leaked into the feed.");

@@ -61,6 +61,26 @@ function sameContract(first: MarketOpportunity, second: MarketOpportunity) {
   );
 }
 
+function mutuallyExclusiveMoneylines(
+  first: MarketOpportunity,
+  second: MarketOpportunity,
+) {
+  const left = first.canonical;
+  const right = second.canonical;
+  if (
+    left?.family !== "moneyline" ||
+    right?.family !== "moneyline" ||
+    !left.matchup ||
+    left.matchup !== right.matchup ||
+    left.subject === right.subject
+  ) {
+    return false;
+  }
+
+  const teams = left.matchup.split("-");
+  return teams.includes(left.subject) && teams.includes(right.subject);
+}
+
 function playerStatKey(market: MarketOpportunity) {
   const canonical = market.canonical;
   if (!canonical) return market.platformMarketId;
@@ -570,6 +590,14 @@ function searchCombinations(
         if (
           state.legs.some((leg) =>
             sameContract(leg.market, candidate.market),
+          )
+        ) {
+          continue;
+        }
+
+        if (
+          state.legs.some((leg) =>
+            mutuallyExclusiveMoneylines(leg.market, candidate.market),
           )
         ) {
           continue;
