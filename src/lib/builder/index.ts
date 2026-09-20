@@ -827,22 +827,18 @@ function isMeaningfullyDistinct(
 ) {
   return selected.every((row) => {
     const smallerLegCount = Math.min(candidate.legs.length, row.legs.length);
+    if (smallerLegCount <= 2) return true;
     const sharedExact = maximumSharedExactLegs(candidate, row);
 
     // One swapped leg is not a new option. A four-leg build may share at most
     // two exact legs with another four-leg build; larger builds stay under
     // roughly half exact overlap as well.
     const maxSharedExact =
-      smallerLegCount <= 2
-        ? smallerLegCount - 1
-        : smallerLegCount === 3
-          ? 1
-          : Math.floor(smallerLegCount / 2);
+      smallerLegCount === 3 ? 1 : Math.floor(smallerLegCount / 2);
     if (sharedExact > maxSharedExact) return false;
 
     // Also reject a near-identical player thesis even when the exact lines
     // differ. This prevents alternate thresholds from masquerading as variety.
-    if (smallerLegCount <= 2) return true;
     const subjectOverlap = overlapShare(
       candidate,
       row,
