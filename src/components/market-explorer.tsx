@@ -87,7 +87,7 @@ function FeedStatus() {
             />
             <span className="font-semibold capitalize text-foreground">{provider.provider}</span>
             <span className="text-faint">
-              {offline ? "feed offline" : `${provider.count} props`}
+              {offline ? "feed offline" : `${provider.count} markets`}
             </span>
           </span>
         );
@@ -96,7 +96,7 @@ function FeedStatus() {
         <span className={refreshing ? "refresh-dot is-refreshing" : "refresh-dot"} />
         {refreshing
           ? "Refreshing live odds"
-          : `${ratedCount} props rated · ${displayedCount} ranked picks`}
+          : `${ratedCount} markets rated · ${displayedCount} ranked picks`}
       </span>
       <span className="feed-pill text-muted">
         Odds refreshed {fetchedAt ? relativeTime(fetchedAt) : "just now"}
