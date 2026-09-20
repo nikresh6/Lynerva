@@ -25,6 +25,7 @@ export interface PortfolioPlanOptions {
   live: "all" | "pregame" | "live";
   mode: BuilderMode;
   maxLegs: number;
+  subjectTeams?: Record<string, string | null | undefined>;
 }
 
 export interface PortfolioPosition {
@@ -77,10 +78,11 @@ interface ShareBounds {
 }
 
 function adjustedProbability(market: MarketOpportunity) {
-  const price = (market.executablePriceBps ?? 0) / 10_000;
-  const model = (market.recommendedProbabilityBps ?? 0) / 10_000;
-  const reliability = clamp(market.model.reliabilityBps / 10_000, 0, 1);
-  return clamp(price + reliability * (model - price), 0.001, 0.999);
+  return clamp(
+    (market.recommendedProbabilityBps ?? 0) / 10_000,
+    0.001,
+    0.999,
+  );
 }
 
 function marketKey(market: MarketOpportunity) {
@@ -100,25 +102,110 @@ function playerStatKey(market: MarketOpportunity) {
   ].join("|");
 }
 
-function candidateExposureKeys(candidate: Candidate) {
-  const keys = new Set<string>();
-  for (const leg of candidate.legs) {
-    keys.add(`market:${marketKey(leg)}`);
-    keys.add(`player-stat:${playerStatKey(leg)}`);
-  }
-  return keys;
+function pickDirection(market: MarketOpportunity) {
+  const canonical = market.canonical;
+  if (!canonical) return market.recommendedSide ?? "yes";
+  if (market.recommendedSide !== "no") return canonical.direction;
+  if (canonical.direction === "over") return "under";
+  if (canonical.direction === "under") return "over";
+  if (canonical.direction === "yes") return "no";
+  return "yes";
 }
 
-function overlapShare(first: Candidate, second: Candidate) {
-  const firstKeys = candidateExposureKeys(first);
-  const secondKeys = candidateExposureKeys(second);
-  let overlap = 0;
+function subjectTeam(
+  market: MarketOpportunity,
+  subjectTeams?: PortfolioPlanOptions["subjectTeams"],
+) {
+  const subject = market.canonical?.subject;
+  if (!subject) return null;
+  return subjectTeams?.[subject] ?? null;
+}
 
-  for (const key of firstKeys) {
-    if (secondKeys.has(key)) overlap += 1;
+function setOverlap(first: Set<string>, second: Set<string>) {
+  if (!first.size || !second.size) return 0;
+  let overlap = 0;
+  for (const key of first) if (second.has(key)) overlap += 1;
+  return overlap / Math.max(1, Math.min(first.size, second.size));
+}
+
+function exposureSets(
+  candidate: Candidate,
+  subjectTeams?: PortfolioPlanOptions["subjectTeams"],
+) {
+  return {
+    markets: new Set(candidate.legs.map((leg) => marketKey(leg))),
+    playerStats: new Set(candidate.legs.map((leg) => playerStatKey(leg))),
+    subjects: new Set(
+      candidate.legs.map(
+        (leg) => leg.canonical?.subject.toLowerCase() ?? marketKey(leg),
+      ),
+    ),
+    games: new Set(
+      candidate.legs.map(
+        (leg) => leg.canonical?.matchup ?? leg.eventTitle.toLowerCase(),
+      ),
+    ),
+    teams: new Set(
+      candidate.legs
+        .map((leg) => subjectTeam(leg, subjectTeams))
+        .filter((team): team is string => Boolean(team)),
+    ),
+  };
+}
+
+function overlapShare(
+  first: Candidate,
+  second: Candidate,
+  subjectTeams?: PortfolioPlanOptions["subjectTeams"],
+) {
+  const left = exposureSets(first, subjectTeams);
+  const right = exposureSets(second, subjectTeams);
+  return clamp(
+    setOverlap(left.markets, right.markets) * 0.5 +
+      setOverlap(left.playerStats, right.playerStats) * 0.22 +
+      setOverlap(left.subjects, right.subjects) * 0.13 +
+      setOverlap(left.teams, right.teams) * 0.1 +
+      setOverlap(left.games, right.games) * 0.05,
+    0,
+    1,
+  );
+}
+
+function hedgeBonus(
+  candidate: Candidate,
+  selected: Candidate[],
+  subjectTeams?: PortfolioPlanOptions["subjectTeams"],
+) {
+  let offsets = 0;
+
+  for (const candidateLeg of candidate.legs) {
+    const candidateGame = candidateLeg.canonical?.matchup;
+    const candidateTeam = subjectTeam(candidateLeg, subjectTeams);
+    const candidateDirection = pickDirection(candidateLeg);
+
+    for (const existing of selected) {
+      for (const existingLeg of existing.legs) {
+        if (marketKey(candidateLeg) === marketKey(existingLeg)) continue;
+        const existingGame = existingLeg.canonical?.matchup;
+        if (!candidateGame || candidateGame !== existingGame) continue;
+
+        const existingDirection = pickDirection(existingLeg);
+        const oppositeDirection =
+          (candidateDirection === "over" && existingDirection === "under") ||
+          (candidateDirection === "under" && existingDirection === "over") ||
+          (candidateDirection === "yes" && existingDirection === "no") ||
+          (candidateDirection === "no" && existingDirection === "yes");
+        const existingTeam = subjectTeam(existingLeg, subjectTeams);
+        const differentTeam =
+          Boolean(candidateTeam && existingTeam && candidateTeam !== existingTeam);
+
+        if (oppositeDirection) offsets += candidateTeam === existingTeam ? 1 : 0.7;
+        else if (differentTeam) offsets += 0.25;
+      }
+    }
   }
 
-  return overlap / Math.max(1, Math.min(firstKeys.size, secondKeys.size));
+  return clamp(offsets * 0.045, 0, 0.18);
 }
 
 function straightRole(probability: number): PortfolioRole {
@@ -294,6 +381,7 @@ function bestCandidate(
     returnMax?: number;
     returnTarget?: number;
     role: PortfolioRole;
+    subjectTeams?: PortfolioPlanOptions["subjectTeams"];
   },
 ) {
   let best: Candidate | null = null;
@@ -325,7 +413,9 @@ function bestCandidate(
       continue;
     }
 
-    const overlaps = avoid.map((row) => overlapShare(candidate, row));
+    const overlaps = avoid.map((row) =>
+      overlapShare(candidate, row, options.subjectTeams),
+    );
     const maxOverlap = overlaps.length ? Math.max(...overlaps) : 0;
     const onlyParlays =
       candidate.kind === "parlay" &&
@@ -348,9 +438,10 @@ function bestCandidate(
 
     const score =
       candidate.score -
-      1.2 * maxOverlap -
+      1.45 * maxOverlap -
       0.8 * probabilityDistance -
-      0.4 * returnDistance;
+      0.4 * returnDistance +
+      hedgeBonus(candidate, avoid, options.subjectTeams);
 
     if (score > bestScore) {
       best = { ...candidate, role: options.role };
@@ -372,6 +463,7 @@ function selectPortfolioCandidates(
   parlays: Candidate[],
   risk: PortfolioRisk,
   targetReturn: number,
+  subjectTeams?: PortfolioPlanOptions["subjectTeams"],
 ) {
   const selected: Candidate[] = [];
 
@@ -381,25 +473,28 @@ function selectPortfolioCandidates(
     options: Parameters<typeof bestCandidate>[2],
   ) => {
     for (let index = 0; index < count; index += 1) {
-      addCandidate(selected, bestCandidate(pool, selected, options));
+      addCandidate(
+        selected,
+        bestCandidate(pool, selected, { ...options, subjectTeams }),
+      );
     }
   };
 
-  addBest(straights, 2, {
+  addBest(straights, targetReturn < 3 ? 1 : 2, {
     probabilityMin: 0.7,
     probabilityMax: 0.98,
     probabilityTarget: risk === "lower" ? 0.84 : 0.8,
     role: "core_straight",
   });
 
-  addBest(straights, 2, {
+  addBest(straights, targetReturn < 3 ? 1 : 2, {
     probabilityMin: risk === "lower" ? 0.54 : 0.46,
     probabilityMax: 0.76,
     probabilityTarget: risk === "lower" ? 0.64 : 0.6,
     role: "value_straight",
   });
 
-  if (risk === "higher" || targetReturn >= (risk === "lower" ? 3.5 : 2.35)) {
+  if (risk === "higher" || targetReturn >= (risk === "lower" ? 4 : 3.25)) {
     addBest(straights, 1, {
       probabilityMin: risk === "lower" ? 0.42 : 0.25,
       probabilityMax: risk === "higher" ? 0.58 : 0.64,
@@ -418,11 +513,15 @@ function selectPortfolioCandidates(
     probabilityTarget: risk === "lower" ? 0.46 : 0.38,
     returnMin: 1.5,
     returnMax: 5,
-    returnTarget: risk === "lower" ? 2.2 : 2.8,
+    returnTarget: clamp(
+      targetReturn,
+      risk === "lower" ? 1.7 : 1.8,
+      risk === "lower" ? 2.8 : 3.6,
+    ),
     role: "core_parlay",
   });
 
-  if (targetReturn >= 1.8 || risk === "higher") {
+  if (targetReturn >= 3.25 || risk === "higher") {
     const upsideTarget = clamp(targetReturn * 2.1, 5, 24);
     addBest(parlays, risk === "higher" ? 2 : 1, {
       probabilityMin: 0.06,
@@ -434,7 +533,7 @@ function selectPortfolioCandidates(
     });
   }
 
-  if (targetReturn >= (risk === "lower" ? 4.5 : 2.8) || risk === "higher") {
+  if (targetReturn >= (risk === "lower" ? 5 : 3.8) || risk === "higher") {
     const hailTarget = clamp(targetReturn * 18, 28, 400);
     addBest(parlays, 1, {
       probabilityMax: 0.2,
@@ -474,10 +573,16 @@ function shareBounds(
     return { min: 0.01, max: 0.16 };
   }
 
-  if (role === "core_straight") return { min: 0.12, max: 0.3 };
-  if (role === "value_straight") return { min: 0.12, max: 0.26 };
+  if (role === "core_straight") {
+    return targetReturn < 3 ? { min: 0.18, max: 0.52 } : { min: 0.12, max: 0.3 };
+  }
+  if (role === "value_straight") {
+    return targetReturn < 3 ? { min: 0.16, max: 0.46 } : { min: 0.12, max: 0.26 };
+  }
   if (role === "aggressive_straight") return { min: 0.06, max: 0.18 };
-  if (role === "core_parlay") return { min: 0.08, max: 0.24 };
+  if (role === "core_parlay") {
+    return targetReturn < 3 ? { min: 0.08, max: 0.42 } : { min: 0.08, max: 0.24 };
+  }
   if (role === "upside_parlay") return { min: 0.04, max: 0.18 };
   return {
     min: targetReturn >= 4 ? 0.005 : 0,
@@ -629,6 +734,7 @@ export function buildPortfolioPlan(
     parlays,
     options.risk,
     targetReturn,
+    options.subjectTeams,
   );
 
   const selectedStraights = selected.filter(
@@ -638,7 +744,7 @@ export function buildPortfolioPlan(
     (candidate) => candidate.kind === "parlay",
   );
 
-  if (selectedStraights.length < 2 || selectedParlays.length < 1) return null;
+  if (selectedStraights.length < 1 || selectedParlays.length < 1) return null;
 
   const shares = targetShares(selected, options.risk, targetReturn);
   if (!shares) return null;
@@ -686,11 +792,9 @@ export function buildPortfolioPlan(
     (sum, position) => sum + position.payoutIfWin,
     0,
   );
-  const targetDistance =
-    Math.abs(allWinPayout - options.targetPayout) /
-    Math.max(options.targetPayout, 1);
-
-  if (targetDistance > 0.15) return null;
+  // targetShares already selects the closest feasible mix. Do not throw away a
+  // useful plan merely because the available positive-EV contracts cannot hit
+  // an arbitrary payout target to within a hard 15% window.
 
   const expectedPayout = nonZeroPositions.reduce(
     (sum, position) =>
