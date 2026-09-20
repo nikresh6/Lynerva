@@ -73,6 +73,32 @@ function scheduleGameFromEspn(game: LiveNflGame): NflScheduleGame | null {
   };
 }
 
+function moneylineYesSide(input: {
+  probabilityBps: number | null;
+  yesAskBps: number | null;
+}) {
+  if (
+    input.probabilityBps === null ||
+    input.yesAskBps === null ||
+    input.yesAskBps <= 0 ||
+    input.yesAskBps >= 10_000
+  ) {
+    return {
+      side: null as MarketSide | null,
+      probabilityBps: null,
+      priceBps: null,
+      edgeBps: null,
+    };
+  }
+
+  return {
+    side: "yes" as const,
+    probabilityBps: input.probabilityBps,
+    priceBps: input.yesAskBps,
+    edgeBps: input.probabilityBps - input.yesAskBps,
+  };
+}
+
 function bestExecutableSide(input: {
   probabilityBps: number | null;
   yesAskBps: number | null;
@@ -213,7 +239,10 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
     for (const market of providerMarkets) {
       const canonical = normalizeMarket(market);
       if (!canonical) continue;
-      if (["moneyline", "spread", "game_total"].includes(canonical.family)) {
+      // Game-winner contracts are first-class Lynerva markets. Spreads and
+      // totals stay intentionally excluded so the game-market surface remains
+      // a clean two-outcome moneyline board.
+      if (["spread", "game_total"].includes(canonical.family)) {
         continue;
       }
 
@@ -368,11 +397,20 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
       const model = models[index];
       const market = item.market;
       const live = item.liveGame?.state === "in";
-      const side = bestExecutableSide({
-        probabilityBps: model.probabilityBps,
-        yesAskBps: market.yesAskBps,
-        noAskBps: market.noAskBps,
-      });
+      // KXNFLGAME lists one YES contract per team. For moneylines, price
+      // that explicit team outcome only; the NO side is just the opponent's
+      // duplicated moneyline and would create confusing duplicate picks.
+      const side =
+        item.canonical.family === "moneyline"
+          ? moneylineYesSide({
+              probabilityBps: model.probabilityBps,
+              yesAskBps: market.yesAskBps,
+            })
+          : bestExecutableSide({
+              probabilityBps: model.probabilityBps,
+              yesAskBps: market.yesAskBps,
+              noAskBps: market.noAskBps,
+            });
       const spreadBps =
         market.yesAskBps !== null && market.yesBidBps !== null
           ? market.yesAskBps - market.yesBidBps
