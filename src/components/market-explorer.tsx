@@ -312,9 +312,9 @@ export function MarketExplorer({
 
   return (
     <>
-      <div className="filter-dock premium-panel sticky top-[94px] z-30 mb-3 rounded-2xl p-2.5 backdrop-blur-xl sm:top-14">
-        <div className="grid grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
-          <label className="relative col-span-2 min-w-0 sm:col-span-1 sm:min-w-[220px] sm:flex-1">
+      <div className="filter-dock premium-panel mb-3 rounded-2xl p-2.5 sm:sticky sm:top-14 sm:z-30 sm:backdrop-blur-xl">
+        <div className="grid grid-cols-3 items-center gap-2 sm:flex sm:flex-wrap">
+          <label className="relative col-span-3 min-w-0 sm:col-span-1 sm:min-w-[220px] sm:flex-1">
             <Search
               size={15}
               className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-faint"
@@ -373,7 +373,7 @@ export function MarketExplorer({
           <button
             type="button"
             onClick={() => setAdvancedOpen((value) => !value)}
-            className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-lg border bg-surface px-3 text-xs transition-colors hover:border-border-strong hover:bg-surface-raised sm:w-auto"
+            className="col-span-3 inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-lg border bg-surface px-3 text-xs transition-colors hover:border-border-strong hover:bg-surface-raised sm:col-span-1 sm:w-auto"
           >
             <SlidersHorizontal size={13} />
             More
