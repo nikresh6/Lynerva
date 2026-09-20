@@ -61,6 +61,21 @@ function sameContract(first: MarketOpportunity, second: MarketOpportunity) {
   );
 }
 
+function marketFamilyKey(market: MarketOpportunity) {
+  return market.canonical?.family ?? "other";
+}
+
+function pickDirectionKey(market: MarketOpportunity) {
+  const direction = market.canonical?.direction;
+  if (!direction || !market.recommendedSide) return "other";
+  if (market.recommendedSide === "yes") return direction;
+  return direction === "over" ? "under" : direction === "under" ? "over" : "other";
+}
+
+function playerKey(market: MarketOpportunity) {
+  return market.canonical?.subject.toLowerCase() ?? market.platformMarketId;
+}
+
 function playerStatKey(market: MarketOpportunity) {
   const canonical = market.canonical;
   if (!canonical) return market.platformMarketId;
@@ -426,7 +441,7 @@ function searchCombinations(
   if (eligible.length === 0) return [];
 
   const targetReturn = Math.sqrt(options.minReturn * options.maxReturn);
-  const beamWidth = resultLimit > 1 ? 2_200 : 3_000;
+  const beamWidth = resultLimit > 1 ? 4_000 : 4_500;
   let frontier: SearchState[] = [
     {
       legs: [],
@@ -549,7 +564,7 @@ function searchCombinations(
                     options.objective,
                   ),
               )
-              .slice(0, 3);
+              .slice(0, 8);
 
             bestByReturnBucket.set(bucket, nextRows);
           }
@@ -582,7 +597,7 @@ function searchCombinations(
               stateSearchValue(second, targetReturn, options.objective) -
               stateSearchValue(first, targetReturn, options.objective),
           )
-          .slice(0, resultLimit > 1 ? 72 : 96),
+          .slice(0, resultLimit > 1 ? 120 : 140),
       )
       .toSorted(
         (first, second) =>
@@ -621,7 +636,39 @@ function searchCombinations(
       );
     });
 
-  for (const combination of [best, ...bucketLeaders, ...extras]) {
+  const ordered = [best, ...bucketLeaders, ...extras];
+  const exposureCount = new Map<string, number>();
+  const familyCount = new Map<string, number>();
+  const directionCount = new Map<string, number>();
+
+  const diversityPenalty = (combination: BuiltCombination) => {
+    const playerExposure = combination.legs.reduce(
+      (sum, leg) => sum + (exposureCount.get(playerKey(leg)) ?? 0),
+      0,
+    );
+    const familyExposure = combination.legs.reduce(
+      (sum, leg) => sum + (familyCount.get(marketFamilyKey(leg)) ?? 0),
+      0,
+    );
+    const directionExposure = combination.legs.reduce(
+      (sum, leg) => sum + (directionCount.get(pickDirectionKey(leg)) ?? 0),
+      0,
+    );
+    return playerExposure * 2.2 + familyExposure * 0.45 + directionExposure * 0.18;
+  };
+
+  const remaining = [...ordered];
+  while (remaining.length && unique.size < resultLimit) {
+    remaining.sort((first, second) => {
+      const firstQuality =
+        combinationScore(first, targetReturn, options.objective) -
+        diversityPenalty(first);
+      const secondQuality =
+        combinationScore(second, targetReturn, options.objective) -
+        diversityPenalty(second);
+      return secondQuality - firstQuality;
+    });
+    const combination = remaining.shift()!;
     const key = combination.legs
       .map(
         (leg) =>
@@ -630,8 +677,17 @@ function searchCombinations(
       )
       .toSorted()
       .join("|");
-    if (!unique.has(key)) unique.set(key, combination);
-    if (unique.size >= resultLimit) break;
+    if (unique.has(key)) continue;
+
+    unique.set(key, combination);
+    for (const leg of combination.legs) {
+      const player = playerKey(leg);
+      const family = marketFamilyKey(leg);
+      const direction = pickDirectionKey(leg);
+      exposureCount.set(player, (exposureCount.get(player) ?? 0) + 1);
+      familyCount.set(family, (familyCount.get(family) ?? 0) + 1);
+      directionCount.set(direction, (directionCount.get(direction) ?? 0) + 1);
+    }
   }
 
   return [...unique.values()];
@@ -672,15 +728,8 @@ export function buildRankedCombinations(
   return buildCombinationCandidates(
     opportunities,
     options,
-    Math.max(8, Math.min(limit * 4, 48)),
-  )
-    .toSorted(
-      (first, second) =>
-        second.lynervaScore - first.lynervaScore ||
-        second.expectedValueMultiplier - first.expectedValueMultiplier ||
-        second.estimatedProbability - first.estimatedProbability,
-    )
-    .slice(0, Math.max(1, limit));
+    Math.max(18, Math.min(limit * 8, 72)),
+  ).slice(0, Math.max(1, limit));
 }
 
 export function buildTopScoredCombinations(
