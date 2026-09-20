@@ -286,7 +286,9 @@ async function estimateGameMarket(
       1 - normalCdf(0, subjectMarginMean, marginStdDev);
 
     gameProjectionSources.push({
-      source: "nflverse_current_season_scoring",
+      source: projection
+        ? "nflverse_current_season_scoring"
+        : "current_season_league_baseline",
       probabilityBps: Math.round(statisticalProbability * 10_000),
     });
 
