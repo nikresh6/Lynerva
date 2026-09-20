@@ -329,7 +329,7 @@ export function MarketDataProvider({
   };
 
   useEffect(() => {
-    const intervalMs = pathname === "/live" ? 10_000 : 60_000;
+    const intervalMs = pathname === "/live" ? 10_000 : pathname === "/tracker" ? 15_000 : 30_000;
     const elapsed = Date.now() - lastSuccessfulRefreshAt.current;
 
     // Do not paint a localStorage snapshot and then replace it a few seconds
