@@ -394,62 +394,83 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
       market.recommendedSide,
     );
     const teamGames = components?.currentSeasonTeamGames;
+    const marketChance = market.executablePriceBps;
+    const lynervaChance = market.recommendedProbabilityBps;
+    const maxBar = Math.max(marketChance ?? 0, lynervaChance ?? 0, 1);
 
     return (
-      <section className="rounded-2xl border bg-background p-4">
-        <h3 className="text-sm font-semibold">How Lynerva priced the moneyline</h3>
-        <div className="mt-4 space-y-3">
-          <div className="rounded-xl border bg-surface p-3.5">
-            <div className="text-xs font-semibold">Independent win models</div>
-            {gameSources.length ? (
-              <div className="mt-2 space-y-2">
-                {gameSources.map((source) => (
-                  <div
-                    key={source.source}
-                    className="flex items-center justify-between gap-3 text-[11px]"
-                  >
-                    <span className="text-muted">{sourceLabel(source.source)}</span>
-                    <span className="font-semibold tabular">
-                      {formatPercent(
-                        pickFacingBps(
-                          source.probabilityBps,
-                          market.recommendedSide,
-                        ),
-                      )}
-                    </span>
-                  </div>
-                ))}
+      <section className="overflow-hidden rounded-2xl border bg-background">
+        <div className="border-b bg-[linear-gradient(135deg,var(--accent-bg),transparent_72%)] p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[9px] font-semibold uppercase tracking-[0.1em] text-accent">
+                Win model
               </div>
-            ) : (
-              <p className="mt-1.5 text-[11px] leading-5 text-muted">
-                Independent game projections are temporarily unavailable.
-              </p>
-            )}
+              <h3 className="mt-1 text-sm font-semibold">How Lynerva sees this game</h3>
+            </div>
+            <div className="rounded-full border bg-surface px-2.5 py-1 text-[9px] font-medium text-muted">
+              {gameSources.length} signal{gameSources.length === 1 ? "" : "s"}
+            </div>
           </div>
 
-          <div className="rounded-xl border bg-surface p-3.5">
-            <div className="text-xs font-semibold">2026 scoring model</div>
-            <div className="mt-1.5 text-[15px] font-semibold">
-              {statisticalChance === null
-                ? "Unavailable"
-                : formatPercent(statisticalChance)}
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="rounded-xl border bg-surface/80 p-3">
+              <div className="text-[9px] uppercase tracking-[0.08em] text-faint">Kalshi</div>
+              <div className="mt-1 text-xl font-bold tabular">{formatPercent(marketChance)}</div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-background">
+                <div
+                  className="h-full rounded-full bg-border-strong"
+                  style={{ width: `${Math.max(4, ((marketChance ?? 0) / maxBar) * 100)}%` }}
+                />
+              </div>
             </div>
-            <p className="mt-1 text-[11px] leading-5 text-muted">
+            <div className="rounded-xl border border-positive/25 bg-positive-bg/45 p-3">
+              <div className="text-[9px] uppercase tracking-[0.08em] text-positive">Lynerva</div>
+              <div className="mt-1 text-xl font-bold tabular text-positive">{formatPercent(lynervaChance)}</div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-background">
+                <div
+                  className="h-full rounded-full bg-positive"
+                  style={{ width: `${Math.max(4, ((lynervaChance ?? 0) / maxBar) * 100)}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-4">
+          <div className="grid gap-2 sm:grid-cols-2">
+            {gameSources.map((source) => (
+              <div
+                key={source.source}
+                className="flex items-center justify-between gap-3 rounded-xl border bg-surface px-3 py-2.5"
+              >
+                <span className="text-[10px] text-muted">{sourceLabel(source.source)}</span>
+                <span className="text-xs font-semibold tabular">
+                  {formatPercent(
+                    pickFacingBps(source.probabilityBps, market.recommendedSide),
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-3 rounded-xl border bg-surface-raised/35 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[10px] font-semibold">2026 scoring model</span>
+              <span className="text-xs font-semibold tabular">
+                {statisticalChance === null ? "—" : formatPercent(statisticalChance)}
+              </span>
+            </div>
+            <p className="mt-1.5 text-[10px] leading-4 text-muted">
               {teamGames
-                ? `Built from ${teamGames.subject} completed game${teamGames.subject === 1 ? "" : "s"} for this team and ${teamGames.opponent} for its opponent, with early-season shrinkage toward the 2026 league scoring environment.`
-                : "The current-season sample is still incomplete, so Lynerva falls back to a low-confidence league baseline."}
+                ? `${teamGames.subject} completed game${teamGames.subject === 1 ? "" : "s"} for this team · ${teamGames.opponent} for its opponent · regular season only`
+                : "Early-season sample is incomplete, so this signal stays low-confidence."}
             </p>
           </div>
 
-          <div className="rounded-xl border bg-surface p-3.5">
-            <div className="text-xs font-semibold">Final blended probability</div>
-            <div className="mt-1.5 text-[15px] font-semibold text-positive">
-              {formatPercent(market.recommendedProbabilityBps)}
-            </div>
-            <p className="mt-1 text-[11px] leading-5 text-muted">
-              The blend is independent from Kalshi's price. Kalshi is only used afterward to measure edge and payout value.
-            </p>
-          </div>
+          <p className="mt-3 text-[9px] leading-4 text-faint">
+            ESPN and current-season team data create the probability independently. Kalshi is used only afterward to measure price and edge.
+          </p>
         </div>
       </section>
     );
