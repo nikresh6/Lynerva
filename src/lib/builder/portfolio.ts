@@ -173,7 +173,7 @@ function portfolioCandidateIsDistinct(
     const smallerLegCount = Math.min(candidate.legs.length, row.legs.length);
     const maxSharedExact =
       smallerLegCount <= 2
-        ? 0
+        ? smallerLegCount - 1
         : smallerLegCount === 3
           ? 1
           : Math.floor(smallerLegCount / 2);
