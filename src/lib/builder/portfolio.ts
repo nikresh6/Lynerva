@@ -90,6 +90,14 @@ function marketKey(market: MarketOpportunity) {
   );
 }
 
+function marketFamilyKey(market: MarketOpportunity) {
+  return market.canonical?.family ?? "other";
+}
+
+function playerKey(market: MarketOpportunity) {
+  return market.canonical?.subject.toLowerCase() ?? marketKey(market);
+}
+
 function playerStatKey(market: MarketOpportunity) {
   const canonical = market.canonical;
   if (!canonical) return marketKey(market);
@@ -104,7 +112,9 @@ function candidateExposureKeys(candidate: Candidate) {
   const keys = new Set<string>();
   for (const leg of candidate.legs) {
     keys.add(`market:${marketKey(leg)}`);
+    keys.add(`player:${playerKey(leg)}`);
     keys.add(`player-stat:${playerStatKey(leg)}`);
+    keys.add(`family:${marketFamilyKey(leg)}`);
   }
   return keys;
 }
@@ -346,9 +356,24 @@ function bestCandidate(
             ),
           );
 
+    const usedPlayers = new Set(
+      avoid.flatMap((row) => row.legs.map((leg) => playerKey(leg))),
+    );
+    const usedFamilies = new Set(
+      avoid.flatMap((row) => row.legs.map((leg) => marketFamilyKey(leg))),
+    );
+    const repeatedPlayers = candidate.legs.filter((leg) =>
+      usedPlayers.has(playerKey(leg)),
+    ).length;
+    const repeatedFamilies = candidate.legs.filter((leg) =>
+      usedFamilies.has(marketFamilyKey(leg)),
+    ).length;
+
     const score =
       candidate.score -
-      1.2 * maxOverlap -
+      2.4 * maxOverlap -
+      1.35 * repeatedPlayers -
+      0.22 * repeatedFamilies -
       0.8 * probabilityDistance -
       0.4 * returnDistance;
 
@@ -627,7 +652,7 @@ export function buildPortfolioPlan(
   const straights = straightCandidates(opportunities, options);
   const parlays = parlayCandidates(opportunities, options);
 
-  if (!straights.length || !parlays.length) return null;
+  if (!straights.length && !parlays.length) return null;
 
   const selected = selectPortfolioCandidates(
     straights,
@@ -636,6 +661,20 @@ export function buildPortfolioPlan(
     targetReturn,
   );
 
+  // Do not make the whole planner fail because one rigid role bucket is empty.
+  // Fill missing slots with the strongest low-overlap candidates available.
+  const allCandidates = [...straights, ...parlays];
+  while (selected.length < Math.min(5, allCandidates.length)) {
+    const fallback = bestCandidate(allCandidates, selected, {
+      role:
+        selected.filter((row) => row.kind === "straight").length < 2
+          ? "value_straight"
+          : "core_parlay",
+    });
+    if (!fallback) break;
+    addCandidate(selected, fallback);
+  }
+
   const selectedStraights = selected.filter(
     (candidate) => candidate.kind === "straight",
   );
@@ -643,10 +682,16 @@ export function buildPortfolioPlan(
     (candidate) => candidate.kind === "parlay",
   );
 
-  if (selectedStraights.length < 2 || selectedParlays.length < 1) return null;
+  if (!selected.length) return null;
 
-  const shares = targetShares(selected, options.risk, targetReturn);
-  if (!shares) return null;
+  let shares = targetShares(selected, options.risk, targetReturn);
+  if (!shares) {
+    const weights = selected.map((candidate) =>
+      Math.max(0.05, candidate.expectedValueMultiplier * candidate.probability),
+    );
+    const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+    shares = weights.map((value) => value / Math.max(totalWeight, 0.0001));
+  }
 
   const positions = selected.map((candidate, index) =>
     toPosition(
@@ -695,7 +740,9 @@ export function buildPortfolioPlan(
     Math.abs(allWinPayout - options.targetPayout) /
     Math.max(options.targetPayout, 1);
 
-  if (targetDistance > 0.15) return null;
+  // The target is guidance. Keep the best diversified executable plan even
+  // when the exact all-win payout is not mathematically reachable.
+  void targetDistance;
 
   const expectedPayout = nonZeroPositions.reduce(
     (sum, position) =>
