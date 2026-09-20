@@ -351,6 +351,41 @@ describe("combination builder", () => {
     ).toBe(true);
   });
 
+  it("does not present a one-leg swap as a different four-leg parlay", () => {
+    const markets = Array.from({ length: 9 }, (_, index) => ({
+      ...opportunity(
+        `DIVERSE${index}`,
+        `TEAM${index}-OPP${index}`,
+        6_500 - index * 100,
+        7_600 - index * 80,
+      ),
+      lynervaScore: 90 - index,
+    }));
+
+    const results = buildRankedCombinations(markets, {
+      ...baseOptions,
+      minReturn: 3,
+      maxReturn: 8,
+      maxLegs: 4,
+      mode: "multi_game",
+    }, 6);
+
+    for (let first = 0; first < results.length; first += 1) {
+      for (let second = first + 1; second < results.length; second += 1) {
+        const left = new Set(results[first]!.legs.map((leg) => leg.canonical?.key));
+        const shared = results[second]!.legs.filter((leg) =>
+          left.has(leg.canonical?.key),
+        ).length;
+        const smaller = Math.min(
+          results[first]!.legs.length,
+          results[second]!.legs.length,
+        );
+        const maxShared = smaller <= 2 ? 0 : smaller === 3 ? 1 : Math.floor(smaller / 2);
+        expect(shared).toBeLessThanOrEqual(maxShared);
+      }
+    }
+  });
+
   it("builds a no-filter weekly leaderboard sorted by score", () => {
     const markets = Array.from({ length: 10 }, (_, index) => ({
       ...opportunity(
