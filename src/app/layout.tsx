@@ -40,7 +40,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         </Script>
         <MarketDataProvider>
           <SiteHeader />
-          <main className="mx-auto w-full max-w-[1480px] px-3 pb-24 pt-5 sm:px-6 sm:pb-12 sm:pt-8 lg:px-8">
+          <main className="mx-auto w-full max-w-[1480px] px-3 pb-20 pt-3 sm:px-6 sm:pb-12 sm:pt-8 lg:px-8">
             {children}
           </main>
         </MarketDataProvider>
