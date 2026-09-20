@@ -23,7 +23,11 @@ function normalizeOrigin(value: string | undefined) {
   }
 }
 
-const LYNERVA_PRODUCTION_ORIGIN = "https://lynerva-production.up.railway.app";
+const LYNERVA_PRODUCTION_ORIGINS = [
+  "https://lynerva-production.up.railway.app",
+  "https://lynerva.vercel.app",
+  "https://nflbet.netlify.app",
+] as const;
 
 function hostFromOrigin(origin: string | null) {
   if (!origin) return null;
@@ -37,22 +41,29 @@ function hostFromOrigin(origin: string | null) {
 function resolveAuthBaseURL() {
   const railwayOrigin = normalizeOrigin(process.env.RAILWAY_PUBLIC_DOMAIN);
   const configuredOrigin = normalizeOrigin(process.env.BETTER_AUTH_URL);
+  const vercelOrigin = normalizeOrigin(
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL,
+  );
 
   if (process.env.NODE_ENV !== "production") {
-    return configuredOrigin ?? railwayOrigin ?? "http://localhost:3000";
+    return configuredOrigin ?? railwayOrigin ?? vercelOrigin ?? "http://localhost:3000";
   }
 
   const allowedHosts = [
     hostFromOrigin(railwayOrigin),
     hostFromOrigin(configuredOrigin),
-    hostFromOrigin(LYNERVA_PRODUCTION_ORIGIN),
+    hostFromOrigin(vercelOrigin),
+    ...LYNERVA_PRODUCTION_ORIGINS.map((origin) => hostFromOrigin(origin)),
   ].filter((value): value is string => Boolean(value));
 
   return {
     allowedHosts: [...new Set(allowedHosts)],
     protocol: "https" as const,
     fallback:
-      configuredOrigin ?? railwayOrigin ?? LYNERVA_PRODUCTION_ORIGIN,
+      configuredOrigin ??
+      railwayOrigin ??
+      vercelOrigin ??
+      LYNERVA_PRODUCTION_ORIGINS[0],
   };
 }
 
@@ -64,14 +75,25 @@ function createAuth() {
   const trustedOrigins = [
     normalizeOrigin(process.env.BETTER_AUTH_URL),
     normalizeOrigin(process.env.RAILWAY_PUBLIC_DOMAIN),
-    LYNERVA_PRODUCTION_ORIGIN,
+    normalizeOrigin(
+      process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL,
+    ),
+    ...LYNERVA_PRODUCTION_ORIGINS,
   ].filter((value): value is string => Boolean(value));
+  const secret =
+    process.env.BETTER_AUTH_SECRET ?? process.env.AUTH_SECRET;
+
+  if (process.env.NODE_ENV === "production" && !secret) {
+    throw new Error(
+      "BETTER_AUTH_SECRET is required for Lynerva account authentication.",
+    );
+  }
 
   return betterAuth({
     appName: "Lynerva",
     baseURL,
     trustedOrigins: [...new Set(trustedOrigins)],
-    secret: process.env.BETTER_AUTH_SECRET,
+    secret,
     database: drizzleAdapter(getDb(), {
       provider: "sqlite",
       schema,
