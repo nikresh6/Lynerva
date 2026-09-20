@@ -16,7 +16,7 @@ import type {
   ModelEstimate,
 } from "@/lib/markets/types";
 
-const MODEL_VERSION = "hybrid-consensus-learning-v3";
+const MODEL_VERSION = "hybrid-consensus-learning-v4";
 
 const emptyEvidence: HistoricalEvidence = {
   last5Hits: null,
@@ -56,6 +56,16 @@ function erf(value: number) {
 
 function normalCdf(value: number, mean: number, stdDev: number) {
   return 0.5 * (1 + erf((value - mean) / (stdDev * Math.sqrt(2))));
+}
+
+function sampleStdDev(values: number[]) {
+  if (values.length < 2) return null;
+  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+  const variance =
+    values.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
+    Math.max(1, values.length - 1);
+  const stdDev = Math.sqrt(variance);
+  return Number.isFinite(stdDev) ? stdDev : null;
 }
 
 function remainingGameFraction(game: LiveNflGame | null | undefined) {
@@ -406,24 +416,77 @@ export async function estimateMarket(
       receptions: 2.25,
       longest_reception: 8.5,
     };
+    const sourceCount = external.points.length;
+    const countMarket =
+      canonical.family === "touchdowns" ||
+      canonical.family === "passing_touchdowns" ||
+      canonical.family === "passing_interceptions";
+    const priorStdDev =
+      distributionStdDev[canonical.family] ??
+      Math.max(1, threshold * 0.35);
+    const recentStdDev = sampleStdDev(values.slice(0, 10));
+    const historyVarianceWeight =
+      recentStdDev === null
+        ? 0
+        : clamp((values.length - 3) / 14, 0.12, 0.45);
+    const blendedEventStdDev =
+      recentStdDev === null
+        ? priorStdDev
+        : priorStdDev * (1 - historyVarianceWeight) +
+          recentStdDev * historyVarianceWeight;
+    const disagreementStdDev =
+      external.dispersion === null ? 0 : external.dispersion * 0.55;
+    const adaptiveStdDev = clamp(
+      Math.sqrt(
+        blendedEventStdDev ** 2 +
+          disagreementStdDev ** 2,
+      ),
+      priorStdDev * 0.65,
+      priorStdDev * 1.65,
+    );
 
     let consensusProbability: number | null = null;
     if (external.projection !== null) {
-      const countMarket =
-        canonical.family === "touchdowns" ||
-        canonical.family === "passing_touchdowns" ||
-        canonical.family === "passing_interceptions";
-      const overProbability = countMarket
+      const rawOverProbability = countMarket
         ? poissonAtLeastProbability(threshold, external.projection)
         : 1 -
           normalCdf(
             threshold,
             external.projection,
-            distributionStdDev[canonical.family] ??
-              Math.max(1, threshold * 0.35),
+            adaptiveStdDev,
           );
+      const rawProbability =
+        canonical.direction === "under"
+          ? 1 - rawOverProbability
+          : rawOverProbability;
+
+      // Source count and agreement control confidence in the projection-derived
+      // probability. Sparse or disagreeing sources are shrunk toward 50%
+      // instead of being allowed to create an extreme edge from a fragile mean.
+      const sourceStrength =
+        sourceCount >= 6
+          ? 1
+          : sourceCount === 5
+            ? 0.97
+            : sourceCount === 4
+              ? 0.91
+              : sourceCount === 3
+                ? 0.83
+                : sourceCount === 2
+                  ? 0.72
+                  : 0.60;
+      const relativeDispersion =
+        external.dispersion === null
+          ? 0
+          : external.dispersion / Math.max(Math.abs(external.projection), 1);
+      const agreementStrength = clamp(
+        1 - relativeDispersion * 1.5,
+        0.62,
+        1,
+      );
+      const confidence = sourceStrength * agreementStrength;
       consensusProbability =
-        canonical.direction === "under" ? 1 - overProbability : overProbability;
+        0.5 + (rawProbability - 0.5) * confidence;
     }
 
     let statisticalProbability: number | null = null;
@@ -523,8 +586,6 @@ export async function estimateMarket(
     const calibrated = await selfCalibrateProbability(probability);
     probability = calibrated.probability;
 
-    const sourceCount = external.points.length;
-
     const dispersionPenalty =
       external.dispersion === null || external.projection === null
         ? 0
@@ -567,6 +628,22 @@ export async function estimateMarket(
         ? `Four-game statistical model active using ${values.length} current-season regular-season games.`
         : `Statistical model locked until four current-season games; ${values.length} available now.`,
     ];
+    if (!countMarket) {
+      factors.push(
+        recentStdDev === null
+          ? `Outcome volatility uses the ${canonical.family.replaceAll("_", " ")} prior until enough current-season results exist.`
+          : `Outcome volatility blends the stat prior with this player's current-season variability (${adaptiveStdDev.toFixed(1)} modeled standard deviation).`,
+      );
+    }
+    if (
+      external.dispersion !== null &&
+      external.projection !== null &&
+      external.points.length >= 2
+    ) {
+      factors.push(
+        `Projection disagreement is measured explicitly; source spread is ${external.dispersion.toFixed(1)} around the consensus and reduces confidence when sources separate.`,
+      );
+    }
     if (gameProjection) {
       factors.push(
         `Game context retained: projected scoring environment ${gameProjection.projectedTotal.toFixed(1)} points from current regular-season team data.`,
