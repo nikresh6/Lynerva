@@ -779,9 +779,16 @@ export function BuilderWorkbench() {
                     {combinations.length} ranked
                   </span>
                 </div>
-                <div className="scrollbar-subtle flex snap-x gap-2 overflow-x-auto pb-1">
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {combinations.map((row, index) => {
                     const active = combination === row;
+                    const families = [
+                      ...new Set(
+                        row.legs
+                          .map((leg) => leg.canonical?.family)
+                          .filter(Boolean),
+                      ),
+                    ].slice(0, 3);
                     return (
                       <button
                         key={row.legs
@@ -790,27 +797,31 @@ export function BuilderWorkbench() {
                         type="button"
                         onClick={() => setActiveParlayIndex(index)}
                         className={cn(
-                          "min-w-[164px] snap-start rounded-xl border px-3 py-2.5 text-left transition-all sm:min-w-[180px]",
+                          "rounded-xl border p-3 text-left transition-all",
                           active
                             ? "border-accent/45 bg-accent-bg shadow-[0_8px_24px_var(--accent-glow)]"
                             : "bg-surface hover:border-strong hover:bg-surface-raised",
                         )}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[9px] font-semibold uppercase tracking-[0.08em] text-faint">
-                            #{index + 1}
-                          </span>
-                          <span className={cn(
-                            "rounded-full border px-2 py-0.5 text-[9px] font-bold tabular",
-                            builderScoreTone(row.lynervaScore),
-                          )}>
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-faint">
+                              Build {index + 1}
+                            </p>
+                            <p className="mt-1 text-lg font-semibold tabular">
+                              {row.grossReturn.toFixed(2)}x
+                            </p>
+                          </div>
+                          <div
+                            className={cn(
+                              "grid size-9 place-items-center rounded-lg border text-xs font-bold tabular",
+                              builderScoreTone(row.lynervaScore),
+                            )}
+                          >
                             {row.lynervaScore}
-                          </span>
+                          </div>
                         </div>
-                        <p className="mt-2 text-sm font-semibold tabular">
-                          {row.grossReturn.toFixed(2)}x
-                        </p>
-                        <div className="mt-1 flex items-center justify-between text-[9px] text-muted">
+                        <div className="mt-2 flex items-center justify-between text-[10px] text-muted">
                           <span>{row.legs.length} legs</span>
                           <span>
                             {formatPercent(
@@ -818,6 +829,16 @@ export function BuilderWorkbench() {
                               1,
                             )} hit
                           </span>
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {families.map((family) => (
+                            <span
+                              key={family}
+                              className="rounded-md border bg-background/70 px-1.5 py-0.5 text-[8px] font-medium text-faint"
+                            >
+                              {String(family).replaceAll("_", " ")}
+                            </span>
+                          ))}
                         </div>
                       </button>
                     );
