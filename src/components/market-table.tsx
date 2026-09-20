@@ -200,8 +200,10 @@ function PastPerformance({ market }: { market: MarketOpportunity }) {
         {games > 0 && wins !== null ? (
           <>
             <div className="mt-3 flex items-end gap-2">
-              <span className="text-2xl font-bold tabular">{wins}-{games - wins}</span>
-              <span className="pb-0.5 text-[10px] text-muted">regular season only</span>
+              <span className="text-2xl font-bold tabular">{wins} wins</span>
+              <span className="pb-0.5 text-[10px] text-muted">
+                in {games} regular-season game{games === 1 ? "" : "s"}
+              </span>
             </div>
             <p className="mt-2 text-xs leading-5 text-muted">
               Lynerva uses only completed 2026 regular-season games for team form. Older seasons, preseason, and playoffs are excluded.
