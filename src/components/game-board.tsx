@@ -1,15 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, Sparkles, Target, Zap } from "lucide-react";
 import type { LiveNflGame } from "@/lib/nfl/live";
 import type { MarketOpportunity } from "@/lib/markets/types";
 import { buildRankedCombinations } from "@/lib/builder";
 import { cn, formatPercent } from "@/lib/utils";
-import { MarketTable } from "./market-table";
+import { BetLab, MarketTable } from "./market-table";
 import { useMarketData } from "./market-data-provider";
-import { teamLogo } from "./subject-visual";
+import { SubjectVisual, teamLogo } from "./subject-visual";
+import { usePlayerVisuals } from "./player-visuals";
 
 function canonicalTeamCode(code: string) {
   const upper = code.toUpperCase();
@@ -85,11 +86,12 @@ function SgpScore({ score }: { score: number }) {
 }
 
 export function GameBoard() {
-  const router = useRouter();
   const params = useSearchParams();
   const requested = params.get("game")?.toUpperCase() ?? "";
   const { opportunities, loading, refreshing, refresh } = useMarketData();
   const [games, setGames] = useState<LiveNflGame[]>([]);
+  const [selectedKey, setSelectedKey] = useState(requested);
+  const [selectedMarket, setSelectedMarket] = useState<MarketOpportunity | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -120,16 +122,26 @@ export function GameBoard() {
     [games],
   );
 
+  useEffect(() => {
+    if (requested) setSelectedKey(requested);
+  }, [requested]);
+
   const selectedIndex = Math.max(
     0,
-    slate.findIndex((game) => keyFor(game) === requested),
+    slate.findIndex((game) => keyFor(game) === selectedKey),
   );
   const game = slate[selectedIndex] ?? null;
 
   useEffect(() => {
-    if (!game || requested) return;
-    router.replace(`/games?game=${encodeURIComponent(keyFor(game))}`);
-  }, [game, requested, router]);
+    if (!game || selectedKey) return;
+    const key = keyFor(game);
+    setSelectedKey(key);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `/games?game=${encodeURIComponent(key)}`,
+    );
+  }, [game, selectedKey]);
 
   useEffect(() => {
     if (game?.state !== "in") return;
@@ -205,8 +217,29 @@ export function GameBoard() {
     });
   }, [game?.state, markets]);
 
-  const choose = (next: LiveNflGame) =>
-    router.replace(`/games?game=${encodeURIComponent(keyFor(next))}`);
+  const choose = (next: LiveNflGame) => {
+    const key = keyFor(next);
+    // Switch immediately from already-loaded game and market data. Updating the
+    // URL with history.replaceState avoids a Next navigation round trip.
+    setSelectedKey(key);
+    setSelectedMarket(null);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `/games?game=${encodeURIComponent(key)}`,
+    );
+  };
+
+  const sgpPlayerNames = useMemo(
+    () =>
+      sgps.flatMap((row) =>
+        row.build?.legs
+          .map((leg) => leg.canonical?.subject ?? "")
+          .filter(Boolean) ?? [],
+      ),
+    [sgps],
+  );
+  const sgpVisuals = usePlayerVisuals(sgpPlayerNames);
 
   if (!game) {
     return (
@@ -382,28 +415,37 @@ export function GameBoard() {
 
                 {build ? (
                   <div className="border-t bg-background/45 p-3">
-                    <ol className="space-y-2">
-                      {build.legs.map((leg, index) => (
-                        <li
-                          key={`${leg.platformMarketId}:${index}`}
-                          className="rounded-xl border bg-surface px-3 py-2.5"
-                        >
-                          <div className="flex items-start gap-2">
-                            <span className="grid size-5 shrink-0 place-items-center rounded-full bg-foreground text-[8px] font-bold text-background">
-                              {index + 1}
-                            </span>
-                            <div className="min-w-0">
-                              <p className="text-[10px] font-semibold leading-4">
-                                {leg.marketTitle}
-                              </p>
-                              <p className="mt-1 text-[9px] text-muted">
-                                Market {formatPercent(leg.executablePriceBps)} ·
-                                Lynerva {formatPercent(leg.recommendedProbabilityBps)}
-                              </p>
-                            </div>
-                          </div>
-                        </li>
-                      ))}
+                    <ol className="space-y-1.5">
+                      {build.legs.map((leg, index) => {
+                        const subject = leg.canonical?.subject ?? "";
+                        return (
+                          <li key={`${leg.platformMarketId}:${index}`}>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedMarket(leg)}
+                              className="group/leg flex w-full items-center gap-3 rounded-xl border bg-surface px-2.5 py-2 text-left transition-all hover:border-accent/35 hover:bg-surface-raised"
+                            >
+                              <SubjectVisual
+                                market={leg}
+                                visual={sgpVisuals[subject]}
+                                size="sm"
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-[10px] font-semibold leading-4">
+                                  {leg.marketTitle}
+                                </span>
+                                <span className="mt-0.5 block text-[9px] text-muted">
+                                  Market {formatPercent(leg.executablePriceBps)} · Lynerva{" "}
+                                  {formatPercent(leg.recommendedProbabilityBps)}
+                                </span>
+                              </span>
+                              <span className="shrink-0 rounded-lg border bg-background px-2 py-1 text-[10px] font-bold tabular transition-colors group-hover/leg:border-accent/35">
+                                {leg.lynervaScore ?? "—"}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
                     </ol>
                   </div>
                 ) : null}
@@ -439,6 +481,10 @@ export function GameBoard() {
           }
         />
       )}
+
+      {selectedMarket ? (
+        <BetLab market={selectedMarket} onClose={() => setSelectedMarket(null)} />
+      ) : null}
     </div>
   );
 }
