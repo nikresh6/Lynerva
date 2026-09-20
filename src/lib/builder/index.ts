@@ -186,10 +186,15 @@ function candidatePool(
 
       if (valueMultiplier <= 1) return [];
 
+      const publicScore = clamp((market.lynervaScore ?? 50) / 100, 0, 1);
+      const sourceCount = market.model.components?.projectionSourceCount ?? 0;
+      const sourceDepth = clamp(sourceCount / 6, 0, 1);
       const searchScore =
-        0.8 * Math.log(valueMultiplier) +
-        0.55 * Math.log(adjustedProbability) +
-        0.15 * edge;
+        0.58 * Math.log(valueMultiplier) +
+        0.42 * Math.log(adjustedProbability) +
+        0.18 * publicScore +
+        0.08 * sourceDepth +
+        0.12 * edge;
 
       return [
         {
@@ -210,23 +215,49 @@ function candidatePool(
         second.valueMultiplier - first.valueMultiplier,
     );
 
-  const perPlayerStat = new Map<string, number>();
-  const perGame = new Map<string, number>();
+  // First pass: one representative line per player/stat. This prevents the
+  // optimizer from treating a ladder of 30/40/50-yard lines as three distinct
+  // ideas and makes the search start from genuinely different bets.
   const selected: RankedCandidate[] = [];
+  const usedPrimaryStats = new Set<string>();
+  const perGame = new Map<string, number>();
+  const perFamily = new Map<string, number>();
 
   for (const candidate of ranked) {
     const statKey = playerStatKey(candidate.market);
-    const statCount = perPlayerStat.get(statKey) ?? 0;
-    if (statCount >= 2) continue;
+    if (usedPrimaryStats.has(statKey)) continue;
 
-    const key = gameKey(candidate.market);
-    const gameCount = perGame.get(key) ?? 0;
-    if (gameCount >= 22) continue;
+    const game = gameKey(candidate.market);
+    const gameCount = perGame.get(game) ?? 0;
+    if (gameCount >= 28) continue;
+
+    const family = candidate.market.canonical?.family ?? "unknown";
+    const familyCount = perFamily.get(family) ?? 0;
+    if (familyCount >= 42) continue;
 
     selected.push(candidate);
-    perPlayerStat.set(statKey, statCount + 1);
-    perGame.set(key, gameCount + 1);
-    if (selected.length >= 140) break;
+    usedPrimaryStats.add(statKey);
+    perGame.set(game, gameCount + 1);
+    perFamily.set(family, familyCount + 1);
+    if (selected.length >= 180) break;
+  }
+
+  // Second pass: retain at most one alternate line for payout fitting, but
+  // only after the diverse primary pool has been populated.
+  const alternateCount = new Map<string, number>();
+  for (const candidate of ranked) {
+    if (selected.includes(candidate)) continue;
+    const statKey = playerStatKey(candidate.market);
+    if (!usedPrimaryStats.has(statKey)) continue;
+    if ((alternateCount.get(statKey) ?? 0) >= 1) continue;
+
+    const game = gameKey(candidate.market);
+    if ((perGame.get(game) ?? 0) >= 34) continue;
+
+    selected.push(candidate);
+    alternateCount.set(statKey, 1);
+    perGame.set(game, (perGame.get(game) ?? 0) + 1);
+    if (selected.length >= 240) break;
   }
 
   return selected;
@@ -426,7 +457,7 @@ function searchCombinations(
   if (eligible.length === 0) return [];
 
   const targetReturn = Math.sqrt(options.minReturn * options.maxReturn);
-  const beamWidth = resultLimit > 1 ? 2_200 : 3_000;
+  const beamWidth = resultLimit > 1 ? 4_200 : 3_600;
   let frontier: SearchState[] = [
     {
       legs: [],
@@ -549,7 +580,7 @@ function searchCombinations(
                     options.objective,
                   ),
               )
-              .slice(0, 3);
+              .slice(0, 8);
 
             bestByReturnBucket.set(bucket, nextRows);
           }
@@ -637,6 +668,129 @@ function searchCombinations(
   return [...unique.values()];
 }
 
+function combinationIdentity(combination: BuiltCombination) {
+  return combination.legs
+    .map(
+      (leg) =>
+        leg.canonical?.key ??
+        `${leg.platform}:${leg.platformMarketId}:${leg.platformOutcomeId ?? "yes"}`,
+    )
+    .toSorted()
+    .join("|");
+}
+
+function playerStatIdentity(market: MarketOpportunity) {
+  return playerStatKey(market);
+}
+
+function overlapRatio(
+  first: BuiltCombination,
+  second: BuiltCombination,
+  identity: (market: MarketOpportunity) => string,
+) {
+  const left = new Set(first.legs.map(identity));
+  const right = new Set(second.legs.map(identity));
+  let shared = 0;
+  for (const key of left) if (right.has(key)) shared += 1;
+  return shared / Math.max(1, Math.min(left.size, right.size));
+}
+
+function diversifyCombinations(
+  rows: BuiltCombination[],
+  options: BuilderOptions,
+  limit: number,
+) {
+  if (rows.length <= 1) return rows.slice(0, limit);
+
+  const targetReturn = Math.sqrt(options.minReturn * options.maxReturn);
+  const unique = [...new Map(rows.map((row) => [combinationIdentity(row), row])).values()];
+  const baseSorted = unique.toSorted(
+    (first, second) =>
+      combinationScore(second, targetReturn, options.objective) -
+        combinationScore(first, targetReturn, options.objective) ||
+      second.lynervaScore - first.lynervaScore,
+  );
+
+  const chosen: BuiltCombination[] = [];
+  const remaining = new Set(baseSorted);
+
+  for (const overlapCeiling of [0.34, 0.5, 0.67, 1]) {
+    while (chosen.length < limit) {
+      const candidates = [...remaining]
+        .map((row) => {
+          const maxStatOverlap = chosen.length
+            ? Math.max(
+                ...chosen.map((picked) =>
+                  overlapRatio(row, picked, playerStatIdentity),
+                ),
+              )
+            : 0;
+          const maxExactOverlap = chosen.length
+            ? Math.max(
+                ...chosen.map((picked) =>
+                  overlapRatio(
+                    row,
+                    picked,
+                    (market) =>
+                      market.canonical?.key ??
+                      `${market.platform}:${market.platformMarketId}`,
+                  ),
+                ),
+              )
+            : 0;
+          const quality = combinationScore(
+            row,
+            targetReturn,
+            options.objective,
+          );
+          return {
+            row,
+            maxStatOverlap,
+            maxExactOverlap,
+            score:
+              quality -
+              1.8 * maxStatOverlap -
+              0.9 * maxExactOverlap,
+          };
+        })
+        .filter(
+          ({ maxStatOverlap, maxExactOverlap }) =>
+            chosen.length === 0 ||
+            (maxStatOverlap <= overlapCeiling &&
+              maxExactOverlap <= overlapCeiling),
+        )
+        .toSorted((a, b) => b.score - a.score);
+
+      const next = candidates[0];
+      if (!next) break;
+      chosen.push(next.row);
+      remaining.delete(next.row);
+    }
+    if (chosen.length >= limit || remaining.size === 0) break;
+  }
+
+  return chosen;
+}
+
+function markRelaxedReturn(
+  combination: BuiltCombination,
+  options: BuilderOptions,
+) {
+  if (
+    combination.grossReturn >= options.minReturn &&
+    combination.grossReturn <= options.maxReturn
+  ) {
+    return combination;
+  }
+  return {
+    ...combination,
+    relaxedConstraints: [
+      ...combination.relaxedConstraints,
+      "No exact payout fit existed, so Lynerva showed the nearest strong build.",
+    ],
+  };
+}
+
 export function buildCombination(
   opportunities: MarketOpportunity[],
   options: BuilderOptions,
@@ -652,7 +806,7 @@ export function buildCombinationCandidates(
   return searchCombinations(
     opportunities,
     options,
-    Math.max(2, Math.min(limit, 48)),
+    Math.max(2, Math.min(limit, 120)),
   );
 }
 
@@ -669,18 +823,57 @@ export function buildRankedCombinations(
   options: BuilderOptions,
   limit = 6,
 ): BuiltCombination[] {
-  return buildCombinationCandidates(
+  const searchLimit = Math.max(24, Math.min(limit * 16, 120));
+  const exact = buildCombinationCandidates(
     opportunities,
     options,
-    Math.max(8, Math.min(limit * 4, 48)),
-  )
-    .toSorted(
-      (first, second) =>
-        second.lynervaScore - first.lynervaScore ||
-        second.expectedValueMultiplier - first.expectedValueMultiplier ||
-        second.estimatedProbability - first.estimatedProbability,
-    )
-    .slice(0, Math.max(1, limit));
+    searchLimit,
+  );
+
+  let candidates = exact;
+
+  // High-return targets are discrete. If a 28x request has strong builds at
+  // 26x and 31x, returning nothing is worse than surfacing the nearest valid
+  // structures. Search a modest outer band only when the exact band cannot
+  // fill the requested result set.
+  if (candidates.length < limit && options.maxReturn >= 12) {
+    const relaxedOptions: BuilderOptions = {
+      ...options,
+      minReturn: Math.max(1.05, options.minReturn * 0.82),
+      maxReturn: Math.min(500, options.maxReturn * 1.22),
+      maxLegs: Math.min(12, Math.max(options.maxLegs, options.maxLegs + 2)),
+    };
+    const relaxed = buildCombinationCandidates(
+      opportunities,
+      relaxedOptions,
+      searchLimit,
+    ).map((row) => markRelaxedReturn(row, options));
+
+    candidates = [
+      ...new Map(
+        [...exact, ...relaxed].map((row) => [combinationIdentity(row), row]),
+      ).values(),
+    ];
+  }
+
+  const sorted = candidates.toSorted(
+    (first, second) =>
+      combinationScore(
+        second,
+        Math.sqrt(options.minReturn * options.maxReturn),
+        options.objective,
+      ) -
+        combinationScore(
+          first,
+          Math.sqrt(options.minReturn * options.maxReturn),
+          options.objective,
+        ) ||
+      second.lynervaScore - first.lynervaScore ||
+      second.expectedValueMultiplier - first.expectedValueMultiplier ||
+      second.estimatedProbability - first.estimatedProbability,
+  );
+
+  return diversifyCombinations(sorted, options, Math.max(1, limit));
 }
 
 export function buildTopScoredCombinations(
@@ -691,8 +884,8 @@ export function buildTopScoredCombinations(
     opportunities,
     {
       minReturn: 1.3,
-      maxReturn: 150,
-      maxLegs: 8,
+      maxReturn: 300,
+      maxLegs: 10,
       platform: "either",
       live: "pregame",
       mode: "any",
