@@ -1,4 +1,4 @@
-import { buildBestAvailableCombination } from "../src/lib/builder";
+import { buildBestAvailableCombination, buildRankedCombinations } from "../src/lib/builder";
 import {
   isBuilderEligibleOpportunity,
   isTopOpportunity,
@@ -147,6 +147,50 @@ async function main() {
     mode: "multi_game",
     objective: "balanced",
   });
+  const diverseBuilds = buildRankedCombinations(
+    builderMarkets,
+    {
+      minReturn: 3,
+      maxReturn: 12,
+      maxLegs: 6,
+      platform: "either",
+      live: "pregame",
+      mode: "any",
+      objective: "balanced",
+    },
+    6,
+  );
+  const highReturnBuilds = buildRankedCombinations(
+    builderMarkets,
+    {
+      minReturn: 20,
+      maxReturn: 60,
+      maxLegs: 10,
+      platform: "either",
+      live: "pregame",
+      mode: "any",
+      objective: "balanced",
+    },
+    6,
+  );
+  const playerStatIdentity = (market: MarketOpportunity) => [
+    market.canonical?.matchup ?? market.eventTitle,
+    market.canonical?.subject ?? market.platformMarketId,
+    market.canonical?.family ?? "unknown",
+  ].join("|");
+  let maxBuilderOverlap = 0;
+  for (let left = 0; left < diverseBuilds.length; left += 1) {
+    for (let right = left + 1; right < diverseBuilds.length; right += 1) {
+      const first = new Set(diverseBuilds[left]!.legs.map(playerStatIdentity));
+      const second = diverseBuilds[right]!.legs.map(playerStatIdentity);
+      const shared = second.filter((key) => first.has(key)).length;
+      const denominator = Math.max(
+        1,
+        Math.min(first.size, new Set(second).size),
+      );
+      maxBuilderOverlap = Math.max(maxBuilderOverlap, shared / denominator);
+    }
+  }
   const unsupportedPeriodMarkets = payload.opportunities.filter((market) =>
     /\b(?:1q|2q|3q|4q|1h|2h|first quarter|second quarter|third quarter|fourth quarter|first half|second half)\b/i.test(
       market.marketTitle,
@@ -247,6 +291,10 @@ async function main() {
         builderEligible: builderMarkets.length,
         defaultBuilderWorks: Boolean(defaultBuild),
         pregameBuilderWorks: Boolean(pregameBuild),
+        diversifiedBuilderResults: diverseBuilds.length,
+        maxBuilderOverlap,
+        highReturnBuilderResults: highReturnBuilds.length,
+        bestHighReturn: highReturnBuilds[0]?.grossReturn ?? null,
         unsupportedPeriodMarkets: unsupportedPeriodMarkets.length,
         completedGameMarkets: completedGameMarkets.length,
         displayedTopPicks: displayedTopPicks.length,
@@ -378,6 +426,28 @@ async function main() {
   }
   if (!pregameBuild) {
     console.warn("Live smoke note: no qualified current-season pregame combination is available yet.");
+  }
+  if (builderMarkets.length >= 30 && diverseBuilds.length < 4) {
+    throw new Error(
+      `Live smoke failed: Builder had ${builderMarkets.length} eligible markets but produced only ${diverseBuilds.length} ranked combinations.`,
+    );
+  }
+  if (
+    builderMarkets.length >= 60 &&
+    diverseBuilds.length >= 4 &&
+    maxBuilderOverlap > 0.5
+  ) {
+    throw new Error(
+      `Live smoke failed: ranked Builder results still overlap too heavily (${Math.round(maxBuilderOverlap * 100)}% shared player/stat legs).`,
+    );
+  }
+  if (
+    builderMarkets.length >= 60 &&
+    !highReturnBuilds.some((build) => build.grossReturn >= 20)
+  ) {
+    throw new Error(
+      "Live smoke failed: deep eligible board could not produce a 20x+ parlay.",
+    );
   }
   if (unsupportedPeriodMarkets.length > 0) {
     throw new Error("Live smoke failed: unsupported quarter/half markets leaked into the feed.");
