@@ -587,7 +587,13 @@ function shareBounds(
   }
   if (role === "aggressive_straight") return { min: 0.06, max: 0.18 };
   if (role === "core_parlay") {
-    return targetReturn < 3 ? { min: 0.08, max: 0.34 } : { min: 0.08, max: 0.24 };
+    // Around 2x-3.5x, the requested all-win payout is often mathematically
+    // unreachable if the entire parlay sleeve is capped near 20%. Allow the
+    // balanced plan to use more ordinary, model-backed parlays while the
+    // per-position cap still prevents one bet from becoming the bankroll.
+    return targetReturn <= 3.5
+      ? { min: 0.08, max: 0.64 }
+      : { min: 0.08, max: 0.24 };
   }
   if (role === "upside_parlay") return { min: 0.04, max: 0.18 };
   return {
