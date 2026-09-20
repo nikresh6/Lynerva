@@ -502,8 +502,8 @@ export default async function SourcesPage() {
                 and feed Lynerva&apos;s source-weight learning loop. Current roster
                 metadata and player headshot URLs also come from nflverse so the
                 interface can show real player identity without a paid media API.
-                Kalshi and Polymarket prices are pulled separately and are never
-                treated as outside player projections.
+                Kalshi prices are pulled separately and are never treated as outside
+                player projections.
               </p>
             </div>
             <div className="border-t p-4 md:border-l md:border-t-0 sm:p-5">
