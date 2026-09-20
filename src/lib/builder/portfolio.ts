@@ -170,6 +170,13 @@ function portfolioCandidateIsDistinct(
 
   return selected.every((row) => {
     if (row.kind !== "parlay") return true;
+
+    // Diversity is enforced between alternatives serving the same portfolio
+    // job. A core parlay and a Hail Mary are intentionally different risk
+    // sleeves, so the longshot should not disappear merely because it shares a
+    // strong leg with the safer sleeve.
+    if (row.role !== candidate.role) return true;
+
     const smallerLegCount = Math.min(candidate.legs.length, row.legs.length);
     if (smallerLegCount <= 2) return true;
     const maxSharedExact =
