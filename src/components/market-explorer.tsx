@@ -8,7 +8,6 @@ import { filterAndSortMarkets } from "@/lib/markets/filters";
 import type {
   MarketFamily,
   MarketFilters,
-  Platform,
 } from "@/lib/markets/types";
 import { MarketTable } from "./market-table";
 import { useMarketData } from "./market-data-provider";
@@ -16,7 +15,7 @@ import { teamLogo } from "./subject-visual";
 
 const DEFAULT_FILTERS: MarketFilters = {
   query: "",
-  platform: "all",
+  platform: "kalshi",
   status: "all",
   family: "all",
   side: "all",
@@ -334,18 +333,6 @@ export function MarketExplorer({
             />
           </label>
 
-          <Select
-            value={filters.platform}
-            onChange={(value) =>
-              update("platform", value as "all" | Platform)
-            }
-            label="Platform"
-          >
-            <option value="all">All platforms</option>
-            <option value="kalshi">Kalshi</option>
-            <option value="polymarket">Polymarket</option>
-          </Select>
-
           {!forceStatus ? (
             <Select
               value={filters.status}
@@ -480,6 +467,7 @@ export function MarketExplorer({
               onClick={() =>
                 setFilters({
                   ...DEFAULT_FILTERS,
+                  platform: "kalshi",
                   status: forceStatus ?? "all",
                 })
               }
