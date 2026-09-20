@@ -151,6 +151,56 @@ function isAcceptablePayoutShape(legs: RankedCandidate[]) {
   return maxShare <= exceptionalCeiling;
 }
 
+function familyKey(market: MarketOpportunity) {
+  return market.canonical?.family ?? "other";
+}
+
+function pickDirection(market: MarketOpportunity) {
+  const canonical = market.canonical;
+  if (!canonical) return market.recommendedSide ?? "yes";
+  if (market.recommendedSide !== "no") return canonical.direction;
+  if (canonical.direction === "over") return "under";
+  if (canonical.direction === "under") return "over";
+  if (canonical.direction === "yes") return "no";
+  return "yes";
+}
+
+function combinationShape(legs: RankedCandidate[]) {
+  if (!legs.length) {
+    return {
+      familyDiversity: 0,
+      subjectDiversity: 0,
+      normalLegShare: 0,
+      directionBalance: 0,
+      ultraSafeShare: 0,
+    };
+  }
+
+  const families = new Set(legs.map((leg) => familyKey(leg.market)));
+  const subjects = new Set(
+    legs.map((leg) => leg.market.canonical?.subject.toLowerCase() ?? leg.market.platformMarketId),
+  );
+  const directions = new Map<string, number>();
+  let normalLegs = 0;
+  let ultraSafeLegs = 0;
+
+  for (const leg of legs) {
+    const direction = pickDirection(leg.market);
+    directions.set(direction, (directions.get(direction) ?? 0) + 1);
+    if (leg.price >= 0.32 && leg.price <= 0.82) normalLegs += 1;
+    if (leg.price >= 0.86) ultraSafeLegs += 1;
+  }
+
+  const dominantDirection = Math.max(...directions.values()) / legs.length;
+  return {
+    familyDiversity: clamp(families.size / Math.min(legs.length, 5), 0, 1),
+    subjectDiversity: clamp(subjects.size / legs.length, 0, 1),
+    normalLegShare: normalLegs / legs.length,
+    directionBalance: clamp(1 - Math.max(0, dominantDirection - 0.66) / 0.34, 0, 1),
+    ultraSafeShare: ultraSafeLegs / legs.length,
+  };
+}
+
 function candidatePool(
   opportunities: MarketOpportunity[],
   options: BuilderOptions,
@@ -186,10 +236,14 @@ function candidatePool(
 
       if (valueMultiplier <= 1) return [];
 
+      // Prefer real parlay legs over stacks of nearly certain contracts, but do
+      // not exclude a strong favorite when the model sees genuine value.
+      const normalLegFit = clamp(1 - Math.abs(price - 0.62) / 0.38, 0, 1);
       const searchScore =
-        0.8 * Math.log(valueMultiplier) +
-        0.55 * Math.log(adjustedProbability) +
-        0.15 * edge;
+        0.9 * Math.log(valueMultiplier) +
+        0.3 * Math.log(adjustedProbability) +
+        0.12 * edge +
+        0.12 * normalLegFit;
 
       return [
         {
@@ -206,27 +260,60 @@ function candidatePool(
     .toSorted(
       (first, second) =>
         second.searchScore - first.searchScore ||
-        second.adjustedProbability - first.adjustedProbability ||
-        second.valueMultiplier - first.valueMultiplier,
+        second.valueMultiplier - first.valueMultiplier ||
+        second.adjustedProbability - first.adjustedProbability,
     );
 
+  // A single deep family should never consume the whole optimizer pool.
+  // Round-robin the best candidates from every prop family, while still
+  // enforcing one alternate line per player/stat and reasonable game caps.
+  const familyBuckets = new Map<string, RankedCandidate[]>();
+  for (const candidate of ranked) {
+    const key = familyKey(candidate.market);
+    const bucket = familyBuckets.get(key) ?? [];
+    bucket.push(candidate);
+    familyBuckets.set(key, bucket);
+  }
+
+  const buckets = [...familyBuckets.entries()].toSorted(
+    (first, second) =>
+      (second[1][0]?.searchScore ?? -Infinity) -
+      (first[1][0]?.searchScore ?? -Infinity),
+  );
   const perPlayerStat = new Map<string, number>();
   const perGame = new Map<string, number>();
+  const perSubject = new Map<string, number>();
   const selected: RankedCandidate[] = [];
 
-  for (const candidate of ranked) {
-    const statKey = playerStatKey(candidate.market);
-    const statCount = perPlayerStat.get(statKey) ?? 0;
-    if (statCount >= 2) continue;
+  while (selected.length < 220) {
+    let added = false;
 
-    const key = gameKey(candidate.market);
-    const gameCount = perGame.get(key) ?? 0;
-    if (gameCount >= 22) continue;
+    for (const [, bucket] of buckets) {
+      while (bucket.length) {
+        const candidate = bucket.shift()!;
+        const statKey = playerStatKey(candidate.market);
+        if ((perPlayerStat.get(statKey) ?? 0) >= 1) continue;
 
-    selected.push(candidate);
-    perPlayerStat.set(statKey, statCount + 1);
-    perGame.set(key, gameCount + 1);
-    if (selected.length >= 140) break;
+        const game = gameKey(candidate.market);
+        if ((perGame.get(game) ?? 0) >= 36) continue;
+
+        const subject =
+          candidate.market.canonical?.subject.toLowerCase() ??
+          candidate.market.platformMarketId;
+        if ((perSubject.get(subject) ?? 0) >= 8) continue;
+
+        selected.push(candidate);
+        perPlayerStat.set(statKey, 1);
+        perGame.set(game, (perGame.get(game) ?? 0) + 1);
+        perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
+        added = true;
+        break;
+      }
+
+      if (selected.length >= 220) break;
+    }
+
+    if (!added) break;
   }
 
   return selected;
@@ -251,12 +338,14 @@ function buildFromState(state: SearchState): BuiltCombination {
     100,
   );
   const hitQuality = clamp(state.probabilityProduct * 130, 0, 100);
+  const shape = combinationShape(state.legs);
   const lynervaScore = Math.round(
     clamp(
-      0.56 * averageLegScore +
-        0.22 * valueQuality +
-        0.14 * balanceScore * 100 +
-        0.08 * hitQuality,
+      0.48 * averageLegScore +
+        0.24 * valueQuality +
+        0.12 * balanceScore * 100 +
+        0.08 * hitQuality +
+        0.08 * shape.familyDiversity * 100,
       0,
       100,
     ),
@@ -297,36 +386,65 @@ function combinationScore(
     0,
     combination.maxOddsContributionShare - preferredShare,
   );
+  const shape = combinationShape(
+    combination.legs.map((market) => ({
+      market,
+      price: (market.executablePriceBps ?? 1) / 10_000,
+      modelProbability: (market.recommendedProbabilityBps ?? 1) / 10_000,
+      adjustedProbability: adjustedLegProbability(market),
+      valueMultiplier:
+        adjustedLegProbability(market) /
+        Math.max((market.executablePriceBps ?? 1) / 10_000, 0.001),
+      edge:
+        adjustedLegProbability(market) -
+        (market.executablePriceBps ?? 1) / 10_000,
+      searchScore: 0,
+    })),
+  );
+  const ultraSafePenalty =
+    combination.legs.length >= 4 ? Math.max(0, shape.ultraSafeShare - 0.5) : 0;
 
   if (objective === "safer") {
     return (
-      1.35 * hit +
-      0.35 * ev +
+      1.2 * hit +
+      0.4 * ev +
       0.08 * edgeRatio -
       0.12 * returnDistance -
       2.4 * concentration +
-      0.1 * combination.balanceScore
+      0.12 * combination.balanceScore +
+      0.12 * shape.familyDiversity +
+      0.1 * shape.normalLegShare +
+      0.06 * shape.directionBalance -
+      0.55 * ultraSafePenalty
     );
   }
 
   if (objective === "max_ev") {
     return (
-      0.6 * hit +
+      0.5 * hit +
       1.25 * ev +
       0.18 * edgeRatio -
       0.08 * returnDistance -
       1.7 * concentration +
-      0.06 * combination.balanceScore
+      0.08 * combination.balanceScore +
+      0.14 * shape.familyDiversity +
+      0.12 * shape.normalLegShare +
+      0.05 * shape.directionBalance -
+      0.4 * ultraSafePenalty
     );
   }
 
   return (
-    1.0 * hit +
-    0.72 * ev +
+    0.82 * hit +
+    0.76 * ev +
     0.12 * edgeRatio -
     0.16 * returnDistance -
     2.8 * concentration +
-    0.14 * combination.balanceScore
+    0.14 * combination.balanceScore +
+    0.16 * shape.familyDiversity +
+    0.13 * shape.normalLegShare +
+    0.07 * shape.directionBalance -
+    0.6 * ultraSafePenalty
   );
 }
 
@@ -366,6 +484,9 @@ function stateSearchValue(
   const { maxShare, balanceScore } = oddsContributionShares(state.legs);
   const preferredShare = preferredOddsContribution(state.legs.length);
   const concentration = Math.max(0, maxShare - preferredShare);
+  const shape = combinationShape(state.legs);
+  const ultraSafePenalty =
+    state.legs.length >= 4 ? Math.max(0, shape.ultraSafeShare - 0.5) : 0;
 
   const probabilityWeight =
     objective === "safer" ? 1.25 : objective === "max_ev" ? 0.6 : 0.95;
@@ -378,7 +499,11 @@ function stateSearchValue(
     evWeight * Math.log(Math.max(expectedValueMultiplier, 1e-12)) -
     0.12 * returnDistance -
     1.8 * concentration +
-    0.1 * balanceScore
+    0.1 * balanceScore +
+    0.12 * shape.familyDiversity +
+    0.1 * shape.normalLegShare +
+    0.05 * shape.directionBalance -
+    0.45 * ultraSafePenalty
   );
 }
 
@@ -426,7 +551,7 @@ function searchCombinations(
   if (eligible.length === 0) return [];
 
   const targetReturn = Math.sqrt(options.minReturn * options.maxReturn);
-  const beamWidth = resultLimit > 1 ? 2_200 : 3_000;
+  const beamWidth = resultLimit > 1 ? 3_200 : 4_200;
   let frontier: SearchState[] = [
     {
       legs: [],
@@ -582,7 +707,7 @@ function searchCombinations(
               stateSearchValue(second, targetReturn, options.objective) -
               stateSearchValue(first, targetReturn, options.objective),
           )
-          .slice(0, resultLimit > 1 ? 72 : 96),
+          .slice(0, resultLimit > 1 ? 88 : 112),
       )
       .toSorted(
         (first, second) =>
@@ -652,7 +777,7 @@ export function buildCombinationCandidates(
   return searchCombinations(
     opportunities,
     options,
-    Math.max(2, Math.min(limit, 48)),
+    Math.max(2, Math.min(limit, 96)),
   );
 }
 
@@ -672,7 +797,7 @@ export function buildRankedCombinations(
   return buildCombinationCandidates(
     opportunities,
     options,
-    Math.max(8, Math.min(limit * 4, 48)),
+    Math.max(12, Math.min(limit * 6, 96)),
   )
     .toSorted(
       (first, second) =>
@@ -691,9 +816,9 @@ export function buildTopScoredCombinations(
     opportunities,
     {
       minReturn: 1.3,
-      maxReturn: 150,
-      maxLegs: 8,
-      platform: "either",
+      maxReturn: 500,
+      maxLegs: 10,
+      platform: "kalshi",
       live: "pregame",
       mode: "any",
       objective: "balanced",
