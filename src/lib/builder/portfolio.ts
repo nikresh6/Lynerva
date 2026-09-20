@@ -329,6 +329,8 @@ function bestCandidate(
   let bestScore = -Infinity;
 
   for (const candidate of candidates) {
+    if (avoid.some((row) => row.id === candidate.id)) continue;
+
     if (
       options.probabilityMin !== undefined &&
       candidate.probability < options.probabilityMin
