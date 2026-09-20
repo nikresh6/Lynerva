@@ -257,30 +257,44 @@ function parlayCandidates(
   const candidates: Candidate[] = [];
   const seen = new Set<string>();
 
-  for (const mode of modes) {
-    const built = buildRankedCombinations(
-      opportunities,
-      {
-        minReturn: 1.3,
-        maxReturn: 300,
-        maxLegs: Math.min(12, options.maxLegs),
-        platform: options.platform,
-        live: options.live,
-        mode,
-        objective,
-      },
-      30,
-    );
+  const returnBands = [
+    { minReturn: 1.3, maxReturn: 4, limit: 14 },
+    { minReturn: 3.5, maxReturn: 10, limit: 12 },
+    { minReturn: 8, maxReturn: 25, limit: 12 },
+    { minReturn: 20, maxReturn: 80, limit: 10 },
+    { minReturn: 60, maxReturn: 300, limit: 10 },
+  ] as const;
 
-    for (const combination of built) {
-      const candidate = parlayCandidate(combination, mode);
-      if (seen.has(candidate.id)) continue;
-      seen.add(candidate.id);
-      candidates.push(candidate);
+  for (const mode of modes) {
+    for (const band of returnBands) {
+      const built = buildRankedCombinations(
+        opportunities,
+        {
+          minReturn: band.minReturn,
+          maxReturn: band.maxReturn,
+          maxLegs: Math.min(12, Math.max(2, options.maxLegs)),
+          platform: options.platform,
+          live: options.live,
+          mode,
+          objective,
+        },
+        band.limit,
+      );
+
+      for (const combination of built) {
+        const candidate = parlayCandidate(combination, mode);
+        if (seen.has(candidate.id)) continue;
+        seen.add(candidate.id);
+        candidates.push(candidate);
+      }
     }
   }
 
-  return candidates;
+  return candidates.toSorted(
+    (first, second) =>
+      first.grossReturn - second.grossReturn ||
+      second.score - first.score,
+  );
 }
 
 function bestCandidate(
