@@ -112,6 +112,24 @@ describe("bankroll portfolio builder", () => {
     );
   });
 
+  it("builds a useful 2.5x plan instead of failing low payout targets", () => {
+    const plan = buildPortfolioPlan(markets, {
+      amount: 100,
+      targetPayout: 250,
+      risk: "balanced",
+      platform: "either",
+      live: "pregame",
+      mode: "multi_game",
+      maxLegs: 6,
+    });
+
+    expect(plan).not.toBeNull();
+    expect(plan?.totalStake).toBeCloseTo(100, 2);
+    expect(
+      Math.abs((plan?.allWinPayout ?? 0) - 250) / 250,
+    ).toBeLessThanOrEqual(0.2);
+  });
+
   it("keeps any one position inside the configured balanced risk cap", () => {
     const plan = buildPortfolioPlan(markets, {
       amount: 250,
