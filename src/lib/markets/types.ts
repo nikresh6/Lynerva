@@ -137,6 +137,7 @@ export interface MarketOpportunity extends ProviderMarket {
   equivalentPlatform: Platform | null;
   arbitrage: ArbitrageOpportunity | null;
   scoreMovement?: ScoreMovement | null;
+  priceChangedAt?: string | null;
 }
 
 export interface ArbitrageLeg {
