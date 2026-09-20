@@ -89,7 +89,7 @@ function TeamScore({
       <img
         src={teamLogo(team)}
         alt=""
-        className="size-4 shrink-0 object-contain"
+        className="size-3.5 shrink-0 object-contain sm:size-4"
       />
       <span className="font-semibold">{team}</span>
       {showScore ? (
@@ -116,7 +116,7 @@ function TickerItem({
       onClick={() => onOpen(game)}
       className={
         mobile
-          ? "score-ticker-item-mobile flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-[10px] transition-colors hover:bg-surface"
+          ? "score-ticker-item-mobile flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[9px] transition-colors hover:bg-surface"
           : "score-ticker-item-desktop flex shrink-0 items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[10px] transition-colors hover:bg-surface"
       }
       aria-label={`Open best bets for ${game.away.team} at ${game.home.team}`}
@@ -206,7 +206,7 @@ export function MobileScoreTicker({ games }: { games: LiveNflGame[] }) {
     router.push(`/games?game=${encodeURIComponent(matchupKey(game))}`);
 
   return (
-    <div className="score-ticker-mobile -mx-1 flex min-w-0 items-center overflow-hidden pb-2 sm:hidden">
+    <div className="score-ticker-mobile -mx-1 flex min-w-0 items-center overflow-hidden pb-1 sm:hidden">
       <Track games={games} mobile onOpen={openGame} />
     </div>
   );
