@@ -29,6 +29,7 @@ function matchupKey(game: LiveNflGame) {
 
 function pickSide(market: MarketOpportunity) {
   if (!market.recommendedSide) return "No pick";
+  if (market.canonical?.family === "moneyline") return "To win";
   const direction = market.canonical?.direction;
   if (market.recommendedSide === "yes") {
     if (direction === "over") return "Over";
@@ -57,6 +58,10 @@ function marketTitle(market: MarketOpportunity) {
     touchdowns: "touchdowns",
   };
   const label = labels[canonical.family] ?? titleCase(canonical.family);
+
+  if (canonical.family === "moneyline") {
+    return `${canonical.subject} moneyline`;
+  }
 
   if (canonical.threshold !== null) {
     if (
