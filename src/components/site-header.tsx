@@ -81,7 +81,9 @@ export function SiteHeader() {
           </div>
           </div>
 
-          <MobileScoreTicker games={tickerGames} />
+          <div className="border-t border-border/70 sm:hidden">
+            <MobileScoreTicker games={tickerGames} />
+          </div>
         </div>
       </header>
 
