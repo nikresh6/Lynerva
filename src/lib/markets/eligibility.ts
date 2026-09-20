@@ -79,11 +79,12 @@ export function isBuilderEligibleOpportunity(market: MarketOpportunity) {
     market.canonical &&
       !["moneyline", "spread", "game_total"].includes(market.canonical.family),
   );
-  if (
-    isPlayerProp &&
-    (market.model.components?.projectionSourceCount ?? 0) < 5
-  ) {
-    return false;
+  if (isPlayerProp) {
+    const sourceCount = market.model.components?.projectionSourceCount ?? 0;
+    // Builder can use strong four-source props after reliability shrinkage.
+    // Public top picks remain stricter at five sources.
+    if (sourceCount < 4) return false;
+    if (sourceCount === 4 && market.model.reliabilityBps < 6_500) return false;
   }
   if (market.model.reliabilityBps < 4_500) return false;
   if ((market.edgeBps ?? 0) <= 0) return false;
