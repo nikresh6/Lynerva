@@ -46,7 +46,7 @@ function Select({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-10 w-full appearance-none rounded-lg border bg-surface py-1 pl-3 pr-8 text-xs text-foreground outline-none transition-colors hover:border-border-strong focus:border-accent sm:w-auto"
+        className="h-9 w-full appearance-none rounded-lg border bg-surface py-1 pl-2.5 pr-7 text-[11px] text-foreground outline-none transition-colors hover:border-border-strong focus:border-accent sm:h-10 sm:pl-3 sm:pr-8 sm:text-xs sm:w-auto"
       >
         {children}
       </select>
@@ -319,7 +319,7 @@ export function MarketExplorer({
 
   return (
     <>
-      <div className="filter-dock premium-panel sticky top-[94px] z-30 mb-3 rounded-2xl p-2.5 backdrop-blur-xl sm:top-14">
+      <div className="filter-dock premium-panel relative z-30 mb-3 rounded-[16px] p-2 backdrop-blur-xl sm:sticky sm:top-14 sm:rounded-2xl sm:p-2.5">
         <div className="grid grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
           <label className="relative col-span-2 min-w-0 sm:col-span-1 sm:min-w-[220px] sm:flex-1">
             <Search
@@ -330,7 +330,7 @@ export function MarketExplorer({
               value={filters.query}
               onChange={(event) => update("query", event.target.value)}
               placeholder="Player, team, or game…"
-              className="h-10 w-full rounded-lg border bg-surface pl-9 pr-3 text-xs outline-none placeholder:text-faint focus:border-accent"
+              className="h-9 w-full rounded-lg border bg-surface pl-9 pr-3 text-[11px] outline-none placeholder:text-faint focus:border-accent sm:h-10 sm:text-xs"
             />
           </label>
 
@@ -380,7 +380,7 @@ export function MarketExplorer({
           <button
             type="button"
             onClick={() => setAdvancedOpen((value) => !value)}
-            className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-lg border bg-surface px-3 text-xs transition-colors hover:border-border-strong hover:bg-surface-raised sm:w-auto"
+            className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border bg-surface px-2.5 text-[11px] transition-colors hover:border-border-strong hover:bg-surface-raised sm:h-10 sm:w-auto sm:px-3 sm:text-xs"
           >
             <SlidersHorizontal size={13} />
             More
