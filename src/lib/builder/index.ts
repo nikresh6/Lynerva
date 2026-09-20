@@ -849,7 +849,12 @@ function selectDistinctCombinations(
     selected.push(remaining.splice(bestIndex, 1)[0]!);
   }
 
-  return selected;
+  return selected.toSorted(
+    (first, second) =>
+      second.lynervaScore - first.lynervaScore ||
+      second.expectedValueMultiplier - first.expectedValueMultiplier ||
+      second.estimatedProbability - first.estimatedProbability,
+  );
 }
 
 export function buildRankedCombinations(
