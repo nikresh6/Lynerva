@@ -37,6 +37,25 @@ describe("market normalization", () => {
     });
   });
 
+  it("maps Kalshi JAC tickers to Lynerva's JAX team code", () => {
+    const normalized = normalizeMarket(
+      contract({
+        platformMarketId: "KXNFLGAME-26SEP20JACDEN-JAC",
+        eventTitle: "KXNFLGAME-26SEP20JACDEN",
+        marketTitle: "Jacksonville wins",
+        outcomeLabel: "Jacksonville Jaguars",
+        resolutionRules: "Resolves Yes if Jacksonville wins.",
+        closesAt: "2026-09-21T03:30:00.000Z",
+      }),
+    );
+
+    expect(normalized).toMatchObject({
+      family: "moneyline",
+      subject: "JAX",
+      matchup: "DEN-JAX",
+    });
+  });
+
   it("recognizes compact KXNFLGAME titles that do not contain the word win", () => {
     const normalized = normalizeMarket(
       contract({
