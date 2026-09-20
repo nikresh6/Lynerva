@@ -328,8 +328,21 @@ function bestCandidate(
   let best: Candidate | null = null;
   let bestScore = -Infinity;
 
+  const straightExposure = new Set(
+    avoid
+      .filter((row) => row.kind === "straight")
+      .flatMap((row) => row.legs.map(marketKey)),
+  );
+
   for (const candidate of candidates) {
     if (avoid.some((row) => row.id === candidate.id)) continue;
+
+    if (
+      candidate.kind === "parlay" &&
+      candidate.legs.some((leg) => straightExposure.has(marketKey(leg)))
+    ) {
+      continue;
+    }
 
     if (
       options.probabilityMin !== undefined &&
