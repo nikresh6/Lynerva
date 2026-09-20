@@ -204,6 +204,17 @@ export function BuilderWorkbench() {
     () => opportunities.filter(isBuilderEligibleOpportunity),
     [opportunities],
   );
+  const uniqueBuilderIdeas = useMemo(
+    () =>
+      new Set(
+        currentMarkets.map((market) => [
+          market.canonical?.matchup ?? market.eventTitle,
+          market.canonical?.subject ?? market.platformMarketId,
+          market.canonical?.family ?? "unknown",
+        ].join("|")),
+      ).size,
+    [currentMarkets],
+  );
 
   type ParlayRequest = {
     markets: MarketOpportunity[];
@@ -450,7 +461,7 @@ export function BuilderWorkbench() {
             </div>
             <div className="mt-2 flex items-center gap-2 text-[10px] text-muted sm:mt-0">
               <span className="size-1.5 rounded-full bg-positive" />
-              {currentMarkets.length.toLocaleString()} eligible live markets
+              {uniqueBuilderIdeas.toLocaleString()} unique bet ideas · {currentMarkets.length.toLocaleString()} executable lines
             </div>
           </div>
         </div>
