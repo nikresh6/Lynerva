@@ -171,15 +171,11 @@ function portfolioCandidateIsDistinct(
   return selected.every((row) => {
     if (row.kind !== "parlay") return true;
     const smallerLegCount = Math.min(candidate.legs.length, row.legs.length);
+    if (smallerLegCount <= 2) return true;
     const maxSharedExact =
-      smallerLegCount <= 2
-        ? smallerLegCount - 1
-        : smallerLegCount === 3
-          ? 1
-          : Math.floor(smallerLegCount / 2);
+      smallerLegCount === 3 ? 1 : Math.floor(smallerLegCount / 2);
     if (sharedExactLegs(candidate, row) > maxSharedExact) return false;
 
-    if (smallerLegCount <= 2) return true;
     const left = exposureSets(candidate, subjectTeams);
     const right = exposureSets(row, subjectTeams);
     return setOverlap(left.subjects, right.subjects) <= 0.67;
