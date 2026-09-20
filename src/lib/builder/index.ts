@@ -842,6 +842,7 @@ function isMeaningfullyDistinct(
 
     // Also reject a near-identical player thesis even when the exact lines
     // differ. This prevents alternate thresholds from masquerading as variety.
+    if (smallerLegCount <= 2) return true;
     const subjectOverlap = overlapShare(
       candidate,
       row,
@@ -849,8 +850,7 @@ function isMeaningfullyDistinct(
         market.canonical?.subject.toLowerCase() ??
         combinationIdentity(market),
     );
-    const subjectLimit = smallerLegCount <= 2 ? 0.75 : 0.67;
-    return subjectOverlap <= subjectLimit;
+    return subjectOverlap <= 0.67;
   });
 }
 
