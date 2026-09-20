@@ -296,15 +296,25 @@ function MarketPicker({
         if (!matches) return null;
 
         // Search should feel like intent matching, not a browser find box.
-        // Player-name matches come first, then an explicitly requested line,
-        // then Lynerva score.
+        // Exact player/team intent comes first. If somebody types "Patriots",
+        // the NE moneyline should beat every player prop from the same matchup.
         const subjectHits = tokens.filter((token) => subject.includes(token)).length;
+        const subjectTeamName = normalizeMarketSearch(
+          TEAM_SEARCH_NAMES[market.canonical?.subject ?? ""] ?? "",
+        );
+        const teamNameHits = tokens.filter((token) =>
+          subjectTeamName.includes(token),
+        ).length;
         const thresholdHit =
           threshold !== null &&
           threshold !== undefined &&
           tokens.includes(String(threshold));
+        const moneylineTeamIntent =
+          market.canonical?.family === "moneyline" && teamNameHits > 0;
         const relevance =
           subjectHits * 100 +
+          teamNameHits * 110 +
+          (moneylineTeamIntent ? 120 : 0) +
           (thresholdHit ? 40 : 0) +
           (market.lynervaScore ?? 0) / 100;
         return { market, relevance };
