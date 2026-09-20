@@ -364,13 +364,16 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
     }
   }
 
-  normalized = completeMoneylinePairs(normalized);
-
-  const modeled = normalized.filter(
+  const executableNormalized = normalized.filter(
     (item) =>
       (item.market.yesAskBps ?? 0) > 0 ||
       (item.market.noAskBps ?? 0) > 0,
   );
+  // Complete the pair after the executable-price gate. Kalshi can publish a
+  // nominal second team outcome with no book while the opponent's NO side is
+  // fully tradable. Treat that real NO book as the missing team's executable
+  // moneyline rather than silently dropping one side of the game.
+  const modeled = completeMoneylinePairs(executableNormalized);
   const accepted = new Set(
     modeled.map((item) => marketKey(item.market)),
   );
