@@ -937,9 +937,15 @@ function likelyPositions(family: CanonicalMarket["family"]) {
   ) {
     return ["QB"] as const;
   }
-  if (family === "rushing_yards") return ["RB", "QB", "WR"] as const;
+  if (
+    family === "rushing_yards" ||
+    family === "rushing_touchdowns"
+  ) {
+    return ["RB", "QB", "WR"] as const;
+  }
   if (
     family === "receiving_yards" ||
+    family === "receiving_touchdowns" ||
     family === "receptions" ||
     family === "touchdowns"
   ) {
