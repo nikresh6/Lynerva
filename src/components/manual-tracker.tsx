@@ -54,7 +54,9 @@ function normalizeStoredBet(raw: Record<string, unknown>): ManualBet | null {
     rawStatus === "loss" ||
     rawStatus === "cashed_out"
       ? rawStatus
-      : "open";
+      : rawStatus === "push"
+        ? "cashed_out"
+        : "open";
   return {
     id: String(raw.id),
     date: String(raw.date ?? new Date().toISOString().slice(0, 10)),
@@ -64,7 +66,11 @@ function normalizeStoredBet(raw: Record<string, unknown>): ManualBet | null {
     payout: Number(raw.payout ?? 0) || 0,
     status,
     cashoutAmount:
-      raw.cashoutAmount === undefined ? undefined : Number(raw.cashoutAmount),
+      rawStatus === "push"
+        ? stake
+        : raw.cashoutAmount === undefined
+          ? undefined
+          : Number(raw.cashoutAmount),
     entryPriceBps:
       raw.entryPriceBps === undefined || raw.entryPriceBps === null
         ? null
