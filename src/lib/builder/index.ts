@@ -623,7 +623,7 @@ function searchCombinations(
               ],
               bucketTarget,
               options.objective,
-              12,
+              18,
             );
 
             bestByReturnBucket.set(bucket, nextRows);
@@ -829,10 +829,9 @@ function diversifyCombinations(
           };
         })
         .filter(
-          ({ maxStatOverlap, maxPlayerOverlap, maxExactOverlap }) =>
+          ({ maxStatOverlap, maxExactOverlap }) =>
             chosen.length === 0 ||
             (maxStatOverlap <= overlapCeiling &&
-              maxPlayerOverlap <= overlapCeiling &&
               maxExactOverlap <= overlapCeiling),
         )
         .toSorted((a, b) => b.score - a.score);
@@ -882,7 +881,7 @@ export function buildCombinationCandidates(
   return searchCombinations(
     opportunities,
     options,
-    Math.max(2, Math.min(limit, 64)),
+    Math.max(2, Math.min(limit, 96)),
   );
 }
 
@@ -899,7 +898,7 @@ export function buildRankedCombinations(
   options: BuilderOptions,
   limit = 6,
 ): BuiltCombination[] {
-  const searchLimit = Math.max(24, Math.min(limit * 8, 64));
+  const searchLimit = Math.max(36, Math.min(limit * 12, 96));
   const exact = buildCombinationCandidates(
     opportunities,
     options,
