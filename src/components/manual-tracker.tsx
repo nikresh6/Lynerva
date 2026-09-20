@@ -1,20 +1,39 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
+import {
+  Activity,
+  CheckCircle2,
+  ChevronDown,
+  CircleDollarSign,
+  Plus,
+  Trash2,
+  XCircle,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { cn } from "@/lib/utils";
+import type { MarketOpportunity } from "@/lib/markets/types";
+import { cn, formatPercent } from "@/lib/utils";
+import { useMarketData } from "./market-data-provider";
+
+type TrackerStatus = "open" | "win" | "loss" | "push" | "cashed";
 
 interface ManualBet {
   id: string;
   date: string;
   description: string;
-  platform: "kalshi" | "polymarket";
+  platform: "kalshi";
   stake: number;
   payout: number;
-  status: "open" | "win" | "loss" | "push";
+  status: TrackerStatus;
+  marketId: string | null;
+  side: "yes" | "no" | null;
+  entryPriceBps: number | null;
+  isLive: boolean;
+  isParlay: boolean;
+  legs: string[];
 }
 
-const STORAGE_KEY = "lynerva-manual-tracker-v1";
+const STORAGE_KEY = "lynerva-manual-tracker-v2";
+const LEGACY_STORAGE_KEY = "lynerva-manual-tracker-v1";
 
 function profit(bet: ManualBet) {
   if (bet.status === "open") return null;
@@ -24,42 +43,177 @@ function profit(bet: ManualBet) {
 }
 
 function money(value: number | null) {
-  if (value === null) return "—";
+  if (value === null) return "n/a";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
   }).format(value);
 }
 
-function resultTone(status: ManualBet["status"]) {
+function marketPickLabel(market: MarketOpportunity) {
+  const canonical = market.canonical;
+  if (!canonical) return market.marketTitle;
+
+  const takingContract = market.recommendedSide !== "no";
+  const direction = takingContract
+    ? canonical.direction
+    : canonical.direction === "over"
+      ? "under"
+      : canonical.direction === "under"
+        ? "over"
+        : canonical.direction === "yes"
+          ? "no"
+          : "yes";
+
+  const label = canonical.family.replaceAll("_", " ");
+  const threshold =
+    canonical.threshold === null ? "" : ` ${canonical.threshold}`;
+  const side =
+    direction === "over"
+      ? "Over"
+      : direction === "under"
+        ? "Under"
+        : direction === "yes"
+          ? "Yes"
+          : "No";
+
+  return `${canonical.subject}: ${side}${threshold} ${label}`;
+}
+
+function statusTone(status: TrackerStatus) {
   if (status === "win") return "bg-positive-bg text-positive";
   if (status === "loss") return "bg-negative-bg text-negative";
+  if (status === "cashed") return "bg-accent-bg text-accent";
+  if (status === "push") return "bg-warning-bg text-warning";
   return "bg-background text-muted";
 }
 
+function livePulse(
+  bet: ManualBet,
+  current: MarketOpportunity | undefined,
+) {
+  if (!bet.entryPriceBps || !bet.side || !current) {
+    return {
+      delta: null as number | null,
+      label: "Waiting for live price",
+      tone: "tracker-live-watch",
+    };
+  }
+
+  const currentPrice =
+    bet.side === "yes" ? current.yesAskBps : current.noAskBps;
+  if (currentPrice === null) {
+    return {
+      delta: null as number | null,
+      label: "Price temporarily unavailable",
+      tone: "tracker-live-watch",
+    };
+  }
+
+  const delta = currentPrice - bet.entryPriceBps;
+  return {
+    delta,
+    label: `Market pulse ${delta >= 0 ? "+" : ""}${(delta / 100).toFixed(1)}pp`,
+    tone:
+      delta >= 400
+        ? "tracker-live-good"
+        : delta <= -400
+          ? "tracker-live-bad"
+          : "tracker-live-watch",
+  };
+}
+
 export function ManualTracker() {
+  const { opportunities, refreshing } = useMarketData();
   const [bets, setBets] = useState<ManualBet[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [description, setDescription] = useState("");
-  const [platform, setPlatform] = useState<ManualBet["platform"]>("kalshi");
   const [stake, setStake] = useState("");
-  const [payout, setPayout] = useState("");
-  const [status, setStatus] = useState<ManualBet["status"]>("open");
+  const [status, setStatus] = useState<TrackerStatus>("open");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [selectedMarketId, setSelectedMarketId] = useState("");
+  const [betType, setBetType] = useState<"straight" | "parlay">("straight");
+  const [parlayLegs, setParlayLegs] = useState("");
+  const [cashoutBetId, setCashoutBetId] = useState<string | null>(null);
+  const [cashoutAmount, setCashoutAmount] = useState("");
+
+  const realMarkets = useMemo(() => {
+    const seen = new Set<string>();
+    return opportunities
+      .filter(
+        (market) =>
+          market.platform === "kalshi" &&
+          market.canonical &&
+          market.executablePriceBps !== null &&
+          market.recommendedSide !== null,
+      )
+      .toSorted(
+        (a, b) =>
+          Number(b.isLive) - Number(a.isLive) ||
+          (b.lynervaScore ?? 0) - (a.lynervaScore ?? 0),
+      )
+      .filter((market) => {
+        if (seen.has(market.platformMarketId)) return false;
+        seen.add(market.platformMarketId);
+        return true;
+      })
+      .slice(0, 250);
+  }, [opportunities]);
+
+  const currentById = useMemo(
+    () =>
+      new Map(
+        opportunities
+          .filter((market) => market.platform === "kalshi")
+          .map((market) => [market.platformMarketId, market]),
+      ),
+    [opportunities],
+  );
+
+  const selectedMarket = useMemo(
+    () =>
+      realMarkets.find(
+        (market) => market.platformMarketId === selectedMarketId,
+      ) ?? null,
+    [realMarkets, selectedMarketId],
+  );
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setBets(JSON.parse(raw));
+      const raw =
+        localStorage.getItem(STORAGE_KEY) ??
+        localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Array<Partial<ManualBet> & {
+          platform?: "kalshi" | "polymarket";
+        }>;
+        setBets(
+          parsed.map((bet) => ({
+            id: bet.id ?? crypto.randomUUID(),
+            date: bet.date ?? new Date().toISOString().slice(0, 10),
+            description: bet.description ?? "Tracked bet",
+            platform: "kalshi",
+            stake: Number(bet.stake ?? 0),
+            payout: Number(bet.payout ?? 0),
+            status: (bet.status as TrackerStatus) ?? "open",
+            marketId: bet.marketId ?? null,
+            side: bet.side ?? null,
+            entryPriceBps: bet.entryPriceBps ?? null,
+            isLive: Boolean(bet.isLive),
+            isParlay: Boolean(bet.isParlay),
+            legs: Array.isArray(bet.legs) ? bet.legs : [],
+          })),
+        );
+      }
 
       const draftRaw = localStorage.getItem("lynerva-track-draft");
       if (draftRaw) {
         const draft = JSON.parse(draftRaw) as {
           description?: string;
-          platform?: ManualBet["platform"];
+          platformMarketId?: string;
         };
         setDescription(draft.description ?? "");
-        setPlatform(draft.platform ?? "kalshi");
+        setSelectedMarketId(draft.platformMarketId ?? "");
         setShowForm(true);
         localStorage.removeItem("lynerva-track-draft");
       }
@@ -71,6 +225,12 @@ export function ManualTracker() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(bets));
     } catch {}
   }, [bets]);
+
+  useEffect(() => {
+    if (!selectedMarket) return;
+    setDescription(marketPickLabel(selectedMarket));
+    setBetType("straight");
+  }, [selectedMarket]);
 
   const summary = useMemo(() => {
     const settled = bets.filter((bet) => bet.status !== "open");
@@ -94,16 +254,24 @@ export function ManualTracker() {
     };
   }, [bets]);
 
-  const updateStatus = (id: string, next: ManualBet["status"]) =>
+  const updateStatus = (id: string, next: TrackerStatus) =>
     setBets((current) =>
-      current.map((item) => (item.id === id ? { ...item, status: next } : item)),
-    );
-
-  const updatePayout = (id: string, value: number) =>
-    setBets((current) =>
-      current.map((item) =>
-        item.id === id ? { ...item, payout: value } : item,
-      ),
+      current.map((item) => {
+        if (item.id !== id) return item;
+        if (
+          next === "win" &&
+          item.payout <= 0 &&
+          item.entryPriceBps &&
+          item.entryPriceBps > 0
+        ) {
+          return {
+            ...item,
+            status: next,
+            payout: item.stake / (item.entryPriceBps / 10_000),
+          };
+        }
+        return { ...item, status: next };
+      }),
     );
 
   const removeBet = (id: string) =>
@@ -112,7 +280,6 @@ export function ManualTracker() {
   const add = (event: React.FormEvent) => {
     event.preventDefault();
     const stakeValue = Number(stake);
-    const payoutValue = Number(payout || 0);
     if (
       !description.trim() ||
       !Number.isFinite(stakeValue) ||
@@ -121,23 +288,63 @@ export function ManualTracker() {
       return;
     }
 
+    const market = selectedMarket;
+    const entryPriceBps =
+      betType === "straight" ? market?.executablePriceBps ?? null : null;
+    const side =
+      betType === "straight" ? market?.recommendedSide ?? null : null;
+    const automaticPayout =
+      status === "win" && entryPriceBps
+        ? stakeValue / (entryPriceBps / 10_000)
+        : 0;
+
     setBets((current) => [
       {
         id: crypto.randomUUID(),
         date,
         description: description.trim(),
-        platform,
+        platform: "kalshi",
         stake: stakeValue,
-        payout: payoutValue,
+        payout: automaticPayout,
         status,
+        marketId:
+          betType === "straight" ? market?.platformMarketId ?? null : null,
+        side,
+        entryPriceBps,
+        isLive: Boolean(market?.isLive),
+        isParlay: betType === "parlay",
+        legs:
+          betType === "parlay"
+            ? parlayLegs
+                .split("\n")
+                .map((leg) => leg.trim())
+                .filter(Boolean)
+            : [],
       },
       ...current,
     ]);
+
     setDescription("");
     setStake("");
-    setPayout("");
     setStatus("open");
+    setSelectedMarketId("");
+    setParlayLegs("");
+    setBetType("straight");
     setShowForm(false);
+  };
+
+  const confirmCashout = () => {
+    const amount = Number(cashoutAmount);
+    if (!cashoutBetId || !Number.isFinite(amount) || amount < 0) return;
+    setBets((current) =>
+      current.map((bet) =>
+        bet.id === cashoutBetId
+          ? { ...bet, status: "cashed", payout: amount }
+          : bet,
+      ),
+    );
+    setCashoutBetId(null);
+    setCashoutAmount("");
   };
 
   const inputClass =
@@ -145,38 +352,22 @@ export function ManualTracker() {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-5">
         {[
-          [
-            "Net P/L",
-            money(summary.net),
-            summary.net > 0
-              ? "positive"
-              : summary.net < 0
-                ? "negative"
-                : "",
-          ],
-          [
-            "ROI",
-            `${(summary.roi * 100).toFixed(1)}%`,
-            summary.roi > 0
-              ? "positive"
-              : summary.roi < 0
-                ? "negative"
-                : "",
-          ],
+          ["Net P/L", money(summary.net), summary.net],
+          ["ROI", `${(summary.roi * 100).toFixed(1)}%`, summary.roi],
           [
             "Win rate",
             summary.decisions
               ? `${Math.round((summary.wins / summary.decisions) * 100)}%`
-              : "—",
-            "",
+              : "n/a",
+            0,
           ],
-          ["Settled risk", money(summary.totalRisked), ""],
-          ["Open risk", money(summary.open), ""],
-        ].map(([label, value, tone], index) => (
+          ["Settled risk", money(summary.totalRisked), 0],
+          ["Open risk", money(summary.open), 0],
+        ].map(([label, value, numeric], index) => (
           <div
-            key={label}
+            key={String(label)}
             className={cn(
               "premium-panel rounded-2xl p-3.5 sm:p-4",
               index === 4 ? "col-span-2 lg:col-span-1" : "",
@@ -188,9 +379,9 @@ export function ManualTracker() {
             <div
               className={cn(
                 "mt-2 text-lg font-bold tabular sm:text-xl",
-                tone === "positive"
+                Number(numeric) > 0
                   ? "text-positive"
-                  : tone === "negative"
+                  : Number(numeric) < 0
                     ? "text-negative"
                     : "",
               )}
@@ -202,12 +393,21 @@ export function ManualTracker() {
       </div>
 
       <section className="premium-panel overflow-hidden rounded-2xl">
-        <div className="flex flex-col gap-3 border-b bg-surface-raised/45 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <div className="flex flex-col gap-3 border-b bg-[radial-gradient(circle_at_10%_0%,var(--accent-bg),transparent_46%),var(--surface-raised)] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
           <div>
-            <h2 className="font-semibold">Manual bet log</h2>
+            <div className="flex items-center gap-2">
+              <Activity className="size-4 text-accent" />
+              <h2 className="font-semibold">Position tracker</h2>
+              {refreshing ? (
+                <span className="rounded-full bg-accent-bg px-2 py-0.5 text-[8px] font-semibold text-accent">
+                  Updating live prices
+                </span>
+              ) : null}
+            </div>
             <p className="mt-1 max-w-2xl text-[11px] leading-5 text-muted">
-              Nothing is connected to a betting account. You enter positions
-              and results yourself.
+              Pick a real Kalshi market for autofill, or enter a manual straight
+              or parlay. Linked open bets get a live market pulse from current
+              pricing.
             </p>
           </div>
           <button
@@ -216,90 +416,71 @@ export function ManualTracker() {
             className="primary-action inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-xl px-4 text-xs font-semibold sm:w-auto"
           >
             <Plus size={14} />
-            {showForm ? "Close form" : "Add bet"}
+            {showForm ? "Close" : "Add position"}
           </button>
         </div>
 
         {showForm ? (
           <form
             onSubmit={add}
-            className="grid gap-3 border-b bg-background/40 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-6"
+            className="grid gap-3 border-b bg-background/45 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-6"
           >
-            <label className="sm:col-span-2 lg:col-span-2">
+            <label className="sm:col-span-2 lg:col-span-3">
               <span className="mb-1.5 block text-[10px] font-medium text-muted">
-                Bet
-              </span>
-              <input
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                required
-                className={inputClass}
-                placeholder="Bills moneyline"
-              />
-            </label>
-
-            <label>
-              <span className="mb-1.5 block text-[10px] font-medium text-muted">
-                Platform
+                Autofill from current Kalshi markets
               </span>
               <select
-                value={platform}
-                onChange={(event) =>
-                  setPlatform(event.target.value as ManualBet["platform"])
-                }
+                value={selectedMarketId}
+                onChange={(event) => setSelectedMarketId(event.target.value)}
+                disabled={betType === "parlay"}
                 className={inputClass}
               >
-                <option value="kalshi">Kalshi</option>
-                <option value="polymarket">Polymarket</option>
+                <option value="">Manual entry</option>
+                {realMarkets.map((market) => (
+                  <option
+                    key={market.platformMarketId}
+                    value={market.platformMarketId}
+                  >
+                    {market.isLive ? "LIVE | " : ""}
+                    {marketPickLabel(market)} |{" "}
+                    {formatPercent(market.executablePriceBps)}
+                  </option>
+                ))}
               </select>
             </label>
 
             <label>
               <span className="mb-1.5 block text-[10px] font-medium text-muted">
-                Stake ($)
-              </span>
-              <input
-                value={stake}
-                onChange={(event) => setStake(event.target.value)}
-                required
-                type="number"
-                min="0.01"
-                step="0.01"
-                className={inputClass}
-              />
-            </label>
-
-            <label>
-              <span className="mb-1.5 block text-[10px] font-medium text-muted">
-                Result
+                Bet type
               </span>
               <select
-                value={status}
-                onChange={(event) =>
-                  setStatus(event.target.value as ManualBet["status"])
-                }
+                value={betType}
+                onChange={(event) => {
+                  const next = event.target.value as "straight" | "parlay";
+                  setBetType(next);
+                  if (next === "parlay") setSelectedMarketId("");
+                }}
                 className={inputClass}
               >
-                <option value="open">Open</option>
-                <option value="win">Win</option>
-                <option value="loss">Loss</option>
-                <option value="push">Push / void</option>
+                <option value="straight">Straight</option>
+                <option value="parlay">Parlay</option>
               </select>
             </label>
 
             <label>
               <span className="mb-1.5 block text-[10px] font-medium text-muted">
-                Payout ($)
+                Stake
               </span>
-              <input
-                value={payout}
-                onChange={(event) => setPayout(event.target.value)}
-                type="number"
-                min="0"
-                step="0.01"
-                className={inputClass}
-                placeholder="For wins"
-              />
+              <div className="control-surface flex h-11 items-center rounded-xl px-3">
+                <span className="text-xs text-muted">$</span>
+                <input
+                  value={stake}
+                  onChange={(event) => setStake(event.target.value)}
+                  required
+                  inputMode="decimal"
+                  className="w-full bg-transparent pl-1 text-xs outline-none"
+                />
+              </div>
             </label>
 
             <label>
@@ -314,9 +495,55 @@ export function ManualTracker() {
               />
             </label>
 
-            <div className="sm:col-span-2 lg:col-span-5 lg:flex lg:items-end">
-              <button className="primary-action h-11 w-full rounded-xl px-4 text-xs font-semibold sm:w-auto">
-                Save bet
+            <label>
+              <span className="mb-1.5 block text-[10px] font-medium text-muted">
+                Starting status
+              </span>
+              <select
+                value={status}
+                onChange={(event) =>
+                  setStatus(event.target.value as TrackerStatus)
+                }
+                className={inputClass}
+              >
+                <option value="open">Open</option>
+                <option value="win">Won</option>
+                <option value="loss">Lost</option>
+                <option value="push">Push / void</option>
+              </select>
+            </label>
+
+            <label className="sm:col-span-2 lg:col-span-4">
+              <span className="mb-1.5 block text-[10px] font-medium text-muted">
+                Description
+              </span>
+              <input
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                required
+                className={inputClass}
+                placeholder="Saquon Barkley over 72.5 rushing yards"
+              />
+            </label>
+
+            {betType === "parlay" ? (
+              <label className="sm:col-span-2 lg:col-span-4">
+                <span className="mb-1.5 block text-[10px] font-medium text-muted">
+                  Parlay legs, one per line
+                </span>
+                <textarea
+                  value={parlayLegs}
+                  onChange={(event) => setParlayLegs(event.target.value)}
+                  rows={4}
+                  className="control-surface w-full rounded-xl px-3 py-2.5 text-xs outline-none focus:border-accent"
+                  placeholder={"Leg 1\nLeg 2\nLeg 3"}
+                />
+              </label>
+            ) : null}
+
+            <div className="sm:col-span-2 lg:col-span-2 lg:flex lg:items-end lg:justify-end">
+              <button className="primary-action h-11 w-full rounded-xl px-5 text-xs font-semibold lg:w-auto">
+                Save position
               </button>
             </div>
           </form>
@@ -324,220 +551,245 @@ export function ManualTracker() {
 
         {!bets.length ? (
           <div className="px-6 py-16 text-center">
-            <p className="font-medium">No bets tracked yet.</p>
+            <div className="mx-auto grid size-10 place-items-center rounded-xl border bg-surface-raised">
+              <Activity className="size-4 text-muted" />
+            </div>
+            <p className="mt-3 font-medium">Nothing tracked yet</p>
             <p className="mt-1 text-xs text-muted">
-              Add one manually, or use Track this bet inside Bet Lab.
+              Add a real Kalshi market above, or send a pick here from Bet Lab.
             </p>
           </div>
         ) : (
-          <>
-            <div className="grid gap-2 p-3 sm:hidden">
-              {bets.map((bet) => {
-                const pl = profit(bet);
-                return (
-                  <article
-                    key={bet.id}
-                    className="rounded-xl border bg-surface-raised/35 p-3.5"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-[9px] uppercase tracking-[0.08em] text-faint">
-                          {bet.date} · {bet.platform}
-                        </p>
-                        <p className="mt-1 text-sm font-semibold leading-5">
-                          {bet.description}
-                        </p>
+          <div className="grid gap-3 p-3 sm:p-4 lg:grid-cols-2">
+            {bets.map((bet) => {
+              const current = bet.marketId
+                ? currentById.get(bet.marketId)
+                : undefined;
+              const pulse = livePulse(bet, current);
+              const isLinkedOpen =
+                bet.status === "open" && Boolean(bet.marketId);
+              const liveControls =
+                bet.status === "open" &&
+                (bet.isLive || Boolean(current?.isLive));
+              const pl = profit(bet);
+
+              return (
+                <article
+                  key={bet.id}
+                  className={cn(
+                    "tracker-card rounded-2xl border bg-surface p-4",
+                    isLinkedOpen ? pulse.tone : "",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={cn(
+                          "rounded-full px-2 py-0.5 text-[8px] font-semibold uppercase tracking-[0.07em]",
+                          statusTone(bet.status),
+                        )}>
+                          {bet.status === "cashed"
+                            ? "Cashed out"
+                            : bet.status}
+                        </span>
+                        {bet.isParlay ? (
+                          <span className="rounded-full border bg-accent-bg px-2 py-0.5 text-[8px] font-semibold text-accent">
+                            Parlay
+                          </span>
+                        ) : null}
+                        {isLinkedOpen ? (
+                          <span className="rounded-full border bg-background px-2 py-0.5 text-[8px] font-semibold text-muted">
+                            {pulse.label}
+                          </span>
+                        ) : null}
                       </div>
+                      <p className="mt-2 text-sm font-semibold leading-5">
+                        {bet.description}
+                      </p>
+                      <p className="mt-1 text-[9px] uppercase tracking-[0.08em] text-faint">
+                        {bet.date} · Kalshi
+                        {bet.entryPriceBps
+                          ? ` · entry ${formatPercent(bet.entryPriceBps)}`
+                          : ""}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => removeBet(bet.id)}
+                      className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-negative-bg hover:text-negative"
+                      aria-label="Delete position"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-3 gap-2">
+                    <div className="rounded-xl border bg-background p-2.5">
+                      <p className="text-[8px] uppercase tracking-[0.07em] text-faint">
+                        Stake
+                      </p>
+                      <p className="mt-1 text-xs font-semibold tabular">
+                        {money(bet.stake)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border bg-background p-2.5">
+                      <p className="text-[8px] uppercase tracking-[0.07em] text-faint">
+                        Returned
+                      </p>
+                      <p className="mt-1 text-xs font-semibold tabular">
+                        {bet.status === "open" || bet.status === "loss"
+                          ? "n/a"
+                          : money(bet.payout)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border bg-background p-2.5">
+                      <p className="text-[8px] uppercase tracking-[0.07em] text-faint">
+                        P/L
+                      </p>
+                      <p
+                        className={cn(
+                          "mt-1 text-xs font-semibold tabular",
+                          (pl ?? 0) > 0
+                            ? "text-positive"
+                            : (pl ?? 0) < 0
+                              ? "text-negative"
+                              : "",
+                        )}
+                      >
+                        {money(pl)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {bet.isParlay && bet.legs.length ? (
+                    <details className="group mt-3 rounded-xl border bg-background">
+                      <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-[10px] font-semibold">
+                        <span>{bet.legs.length} parlay legs</span>
+                        <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
+                      </summary>
+                      <div className="border-t px-3 py-2.5">
+                        <ol className="space-y-1.5 text-[10px] leading-4 text-muted">
+                          {bet.legs.map((leg, index) => (
+                            <li key={`${bet.id}:${index}`}>
+                              <span className="mr-2 text-faint">
+                                {index + 1}.
+                              </span>
+                              {leg}
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    </details>
+                  ) : null}
+
+                  {liveControls ? (
+                    <div className="mt-3 grid grid-cols-3 gap-2">
                       <button
                         type="button"
-                        onClick={() => removeBet(bet.id)}
-                        className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-negative-bg hover:text-negative"
-                        aria-label="Delete bet"
+                        onClick={() => updateStatus(bet.id, "win")}
+                        className="inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-positive/25 bg-positive-bg text-[10px] font-semibold text-positive"
                       >
-                        <Trash2 size={13} />
+                        <CheckCircle2 size={12} />
+                        Hit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateStatus(bet.id, "loss")}
+                        className="inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-negative/25 bg-negative-bg text-[10px] font-semibold text-negative"
+                      >
+                        <XCircle size={12} />
+                        Didn&apos;t
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCashoutBetId(bet.id);
+                          setCashoutAmount("");
+                        }}
+                        className="inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-accent/25 bg-accent-bg text-[10px] font-semibold text-accent"
+                      >
+                        <CircleDollarSign size={12} />
+                        Cashed
                       </button>
                     </div>
-
-                    <div className="mt-3 grid grid-cols-3 gap-2">
-                      <div className="rounded-lg border bg-surface p-2.5">
-                        <p className="text-[9px] text-faint">Stake</p>
-                        <p className="mt-1 text-xs font-semibold tabular">
-                          {money(bet.stake)}
-                        </p>
-                      </div>
-                      <div className="rounded-lg border bg-surface p-2.5">
-                        <p className="text-[9px] text-faint">Payout</p>
-                        <p className="mt-1 text-xs font-semibold tabular">
-                          {bet.status === "win" ? money(bet.payout) : "—"}
-                        </p>
-                      </div>
-                      <div className="rounded-lg border bg-surface p-2.5">
-                        <p className="text-[9px] text-faint">P/L</p>
-                        <p
-                          className={cn(
-                            "mt-1 text-xs font-semibold tabular",
-                            (pl ?? 0) > 0
-                              ? "text-positive"
-                              : (pl ?? 0) < 0
-                                ? "text-negative"
-                                : "",
-                          )}
-                        >
-                          {money(pl)}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                      <label>
-                        <span className="mb-1 block text-[9px] text-faint">
-                          Result
-                        </span>
-                        <select
-                          value={bet.status}
-                          onChange={(event) =>
-                            updateStatus(
-                              bet.id,
-                              event.target.value as ManualBet["status"],
-                            )
-                          }
-                          className="h-10 w-full rounded-lg border bg-surface px-2.5 text-[11px]"
-                        >
-                          <option value="open">Open</option>
-                          <option value="win">Win</option>
-                          <option value="loss">Loss</option>
-                          <option value="push">Push / void</option>
-                        </select>
-                      </label>
-
-                      {bet.status === "win" ? (
-                        <label>
-                          <span className="mb-1 block text-[9px] text-faint">
-                            Payout
-                          </span>
-                          <input
-                            aria-label="Payout"
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={bet.payout || ""}
-                            onChange={(event) =>
-                              updatePayout(
-                                bet.id,
-                                Number(event.target.value || 0),
-                              )
-                            }
-                            className="h-10 w-full rounded-lg border bg-surface px-3 text-[11px]"
-                          />
-                        </label>
-                      ) : null}
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-
-            <div className="hidden overflow-x-auto sm:block">
-              <table className="w-full min-w-[760px] text-left text-xs">
-                <thead className="border-b bg-surface-raised text-[10px] uppercase tracking-[0.09em] text-faint">
-                  <tr>
-                    <th className="px-4 py-3">Date</th>
-                    <th className="px-3 py-3">Bet</th>
-                    <th className="px-3 py-3">Platform</th>
-                    <th className="px-3 py-3">Result</th>
-                    <th className="px-3 py-3 text-right">Stake</th>
-                    <th className="px-3 py-3 text-right">Payout</th>
-                    <th className="px-3 py-3 text-right">P/L</th>
-                    <th className="px-4 py-3" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {bets.map((bet) => {
-                    const pl = profit(bet);
-                    return (
-                      <tr
-                        key={bet.id}
-                        className="border-t transition-colors hover:bg-surface-raised/50"
+                  ) : bet.status === "open" ? (
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <span className="text-[9px] text-faint">
+                        Settle when the market closes
+                      </span>
+                      <select
+                        value={bet.status}
+                        onChange={(event) =>
+                          updateStatus(
+                            bet.id,
+                            event.target.value as TrackerStatus,
+                          )
+                        }
+                        className="h-8 rounded-lg border bg-background px-2 text-[10px]"
                       >
-                        <td className="px-4 py-3 tabular">{bet.date}</td>
-                        <td className="max-w-[320px] px-3 py-3 font-medium">
-                          {bet.description}
-                        </td>
-                        <td className="px-3 py-3 capitalize">{bet.platform}</td>
-                        <td className="px-3 py-3">
-                          <select
-                            value={bet.status}
-                            onChange={(event) =>
-                              updateStatus(
-                                bet.id,
-                                event.target.value as ManualBet["status"],
-                              )
-                            }
-                            className={cn(
-                              "h-8 rounded-md border-0 px-2 text-[11px] font-medium",
-                              resultTone(bet.status),
-                            )}
-                          >
-                            <option value="open">Open</option>
-                            <option value="win">Win</option>
-                            <option value="loss">Loss</option>
-                            <option value="push">Push / void</option>
-                          </select>
-                        </td>
-                        <td className="px-3 py-3 text-right tabular">
-                          {money(bet.stake)}
-                        </td>
-                        <td className="px-3 py-3 text-right tabular">
-                          {bet.status === "win" ? (
-                            <input
-                              aria-label="Payout"
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={bet.payout || ""}
-                              onChange={(event) =>
-                                updatePayout(
-                                  bet.id,
-                                  Number(event.target.value || 0),
-                                )
-                              }
-                              className="h-8 w-24 rounded-md border bg-background px-2 text-right text-[11px]"
-                            />
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td
-                          className={cn(
-                            "px-3 py-3 text-right font-semibold tabular",
-                            (pl ?? 0) > 0
-                              ? "text-positive"
-                              : (pl ?? 0) < 0
-                                ? "text-negative"
-                                : "",
-                          )}
-                        >
-                          {money(pl)}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => removeBet(bet.id)}
-                            className="grid size-7 place-items-center rounded-md text-muted hover:bg-negative-bg hover:text-negative"
-                            aria-label="Delete bet"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </>
+                        <option value="open">Open</option>
+                        <option value="win">Won</option>
+                        <option value="loss">Lost</option>
+                        <option value="push">Push / void</option>
+                      </select>
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
         )}
       </section>
+
+      {cashoutBetId ? (
+        <div className="fixed inset-0 z-[80] grid place-items-center bg-[var(--overlay)] p-4">
+          <div className="premium-panel w-full max-w-sm rounded-2xl p-5">
+            <div className="flex items-center gap-2">
+              <CircleDollarSign className="size-4 text-accent" />
+              <h3 className="text-sm font-semibold">Cashout amount</h3>
+            </div>
+            <p className="mt-2 text-[11px] leading-5 text-muted">
+              Enter the total amount returned to you when you cashed out. Lynerva
+              will use it to calculate realized P/L.
+            </p>
+            <label className="mt-4 block">
+              <span className="mb-1.5 block text-[10px] font-medium text-muted">
+                Amount returned
+              </span>
+              <div className="control-surface flex h-11 items-center rounded-xl px-3">
+                <span className="text-xs text-muted">$</span>
+                <input
+                  autoFocus
+                  value={cashoutAmount}
+                  onChange={(event) => setCashoutAmount(event.target.value)}
+                  inputMode="decimal"
+                  className="w-full bg-transparent pl-1 text-sm outline-none"
+                />
+              </div>
+            </label>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setCashoutBetId(null);
+                  setCashoutAmount("");
+                }}
+                className="h-10 rounded-xl border bg-surface text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmCashout}
+                className="primary-action h-10 rounded-xl text-xs font-semibold"
+              >
+                Save cashout
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
