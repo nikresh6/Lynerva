@@ -1,8 +1,5 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
-import { getDb } from "@/db";
-import { nflGames } from "@/db/schema";
 import { clamp } from "@/lib/utils";
 
 export interface CurrentSeasonTeamProfile {
@@ -39,11 +36,141 @@ interface TeamGame {
   result: "W" | "L" | "T";
 }
 
-const CACHE_MS = 10 * 60_000;
-const cache = new Map<
+interface CompletedGame {
+  kickoffAt: Date;
+  week: number | null;
+  homeTeam: string;
+  awayTeam: string;
+  homeScore: number;
+  awayScore: number;
+}
+
+type CsvRow = Record<string, string>;
+
+const CACHE_MS = 20 * 60_000;
+const matchupCache = new Map<
   string,
   { storedAt: number; value: CurrentSeasonMatchupProjection | null }
 >();
+const seasonGamesCache = new Map<
+  string,
+  { expiresAt: number; promise: Promise<CompletedGame[]> }
+>();
+
+function parseCsvLine(line: string) {
+  const values: string[] = [];
+  let value = "";
+  let quoted = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (character === '"') {
+      if (quoted && line[index + 1] === '"') {
+        value += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (character === "," && !quoted) {
+      values.push(value);
+      value = "";
+    } else {
+      value += character;
+    }
+  }
+
+  values.push(value);
+  return values;
+}
+
+function parseCsv(text: string) {
+  const lines = text.replaceAll("\r\n", "\n").split("\n").filter(Boolean);
+  const headers = parseCsvLine(lines[0] ?? "");
+  return lines.slice(1).map((line): CsvRow => {
+    const values = parseCsvLine(line);
+    return Object.fromEntries(
+      headers.map((header, index) => [header, values[index] ?? ""]),
+    );
+  });
+}
+
+function numberOrNull(value: string | undefined) {
+  if (value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function gameDate(value: string | undefined) {
+  if (!value) return null;
+  const parsed = new Date(`${value}T12:00:00Z`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function loadCompletedSeasonGames(season: number, currentWeek: number) {
+  const key = `${season}:${currentWeek}`;
+  const cached = seasonGamesCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+
+  const entry = {
+    expiresAt: Date.now() + CACHE_MS,
+    promise: (async () => {
+      const response = await fetch(
+        "https://cdn.jsdelivr.net/gh/nflverse/nfldata@master/data/games.csv",
+        {
+          cache: "no-store",
+          headers: { "user-agent": "Lynerva/1.0 current-season-team-model" },
+          signal: AbortSignal.timeout(2_500),
+        },
+      );
+      if (!response.ok) {
+        throw new Error(`nflverse games returned ${response.status}`);
+      }
+
+      return parseCsv(await response.text()).flatMap((row) => {
+        if (
+          Number(row.season) !== season ||
+          row.game_type !== "REG" ||
+          !row.home_team ||
+          !row.away_team
+        ) {
+          return [];
+        }
+
+        const week = numberOrNull(row.week);
+        // For a Week N prediction, only Weeks < N are eligible. This keeps
+        // Sunday afternoon games from learning from earlier Week N finals.
+        if (week !== null && week >= currentWeek) return [];
+
+        const kickoffAt = gameDate(row.gameday);
+        const homeScore = numberOrNull(row.home_score);
+        const awayScore = numberOrNull(row.away_score);
+        if (
+          !kickoffAt ||
+          homeScore === null ||
+          awayScore === null
+        ) {
+          return [];
+        }
+
+        return [{
+          kickoffAt,
+          week,
+          homeTeam: row.home_team,
+          awayTeam: row.away_team,
+          homeScore,
+          awayScore,
+        }];
+      });
+    })(),
+  };
+
+  seasonGamesCache.set(key, entry);
+  entry.promise.catch(() => {
+    const current = seasonGamesCache.get(key);
+    if (current === entry) current.expiresAt = Date.now() + 30_000;
+  });
+  return entry.promise;
+}
 
 function mean(values: number[]) {
   if (!values.length) return 0;
@@ -98,8 +225,8 @@ function shrunkAverage(
   games: number,
   leagueAverage: number,
 ) {
-  // Week 2 should not treat one 35-point game like a stable team identity.
-  // Shrink only toward this season's league environment, never prior seasons.
+  // Early-season samples are noisy. The prior is the current season's league
+  // scoring environment, never a previous NFL season.
   const pseudoGames = 3;
   return (
     (observed * games + leagueAverage * pseudoGames) /
@@ -124,40 +251,15 @@ export async function getCurrentSeasonMatchupProjection(
   currentWeek: number,
 ): Promise<CurrentSeasonMatchupProjection | null> {
   const key = `${season}:${currentWeek}:${homeTeam}:${awayTeam}`;
-  const cached = cache.get(key);
+  const cached = matchupCache.get(key);
   if (cached && Date.now() - cached.storedAt < CACHE_MS) {
     return cached.value;
   }
 
   try {
-    const db = getDb();
-    const rows = await db
-      .select({
-        kickoffAt: nflGames.kickoffAt,
-        week: nflGames.week,
-        homeTeam: nflGames.homeTeam,
-        awayTeam: nflGames.awayTeam,
-        homeScore: nflGames.homeScore,
-        awayScore: nflGames.awayScore,
-      })
-      .from(nflGames)
-      .where(
-        and(
-          eq(nflGames.season, season),
-          eq(nflGames.seasonType, "REG"),
-          eq(nflGames.status, "final"),
-        ),
-      );
-
-    const completed = rows.filter(
-      (row) =>
-        row.homeScore !== null &&
-        row.awayScore !== null &&
-        (row.week === null || row.week < currentWeek),
-    );
-
+    const completed = await loadCompletedSeasonGames(season, currentWeek);
     if (!completed.length) {
-      cache.set(key, { storedAt: Date.now(), value: null });
+      matchupCache.set(key, { storedAt: Date.now(), value: null });
       return null;
     }
 
@@ -172,29 +274,35 @@ export async function getCurrentSeasonMatchupProjection(
     };
 
     for (const row of completed) {
-      const homeScore = row.homeScore!;
-      const awayScore = row.awayScore!;
       const homeResult =
-        homeScore > awayScore ? "W" : homeScore < awayScore ? "L" : "T";
+        row.homeScore > row.awayScore
+          ? "W"
+          : row.homeScore < row.awayScore
+            ? "L"
+            : "T";
       const awayResult =
-        awayScore > homeScore ? "W" : awayScore < homeScore ? "L" : "T";
+        row.awayScore > row.homeScore
+          ? "W"
+          : row.awayScore < row.homeScore
+            ? "L"
+            : "T";
 
       push(row.homeTeam, {
         kickoffAt: row.kickoffAt,
-        pointsFor: homeScore,
-        pointsAgainst: awayScore,
+        pointsFor: row.homeScore,
+        pointsAgainst: row.awayScore,
         result: homeResult,
       });
       push(row.awayTeam, {
         kickoffAt: row.kickoffAt,
-        pointsFor: awayScore,
-        pointsAgainst: homeScore,
+        pointsFor: row.awayScore,
+        pointsAgainst: row.homeScore,
         result: awayResult,
       });
 
-      margins.push(homeScore - awayScore);
-      totals.push(homeScore + awayScore);
-      teamPoints += homeScore + awayScore;
+      margins.push(row.homeScore - row.awayScore);
+      totals.push(row.homeScore + row.awayScore);
+      teamPoints += row.homeScore + row.awayScore;
       teamSamples += 2;
     }
 
@@ -219,7 +327,7 @@ export async function getCurrentSeasonMatchupProjection(
     );
 
     if (!home || !away) {
-      cache.set(key, { storedAt: Date.now(), value: null });
+      matchupCache.set(key, { storedAt: Date.now(), value: null });
       return null;
     }
 
@@ -269,11 +377,11 @@ export async function getCurrentSeasonMatchupProjection(
       leaguePointsPerTeam,
     };
 
-    cache.set(key, { storedAt: Date.now(), value });
+    matchupCache.set(key, { storedAt: Date.now(), value });
     return value;
   } catch (error) {
     console.error("Current-season team projection unavailable", error);
-    cache.set(key, { storedAt: Date.now(), value: null });
+    matchupCache.set(key, { storedAt: Date.now(), value: null });
     return null;
   }
 }
