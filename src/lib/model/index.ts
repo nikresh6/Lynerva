@@ -3,10 +3,12 @@ import "server-only";
 import { clamp } from "@/lib/utils";
 import { findPublicPlayerHistory } from "@/lib/nfl/history";
 import { getMatchupProjection } from "@/lib/nfl/team-history";
+import { getCurrentSeasonMatchupProjection } from "@/lib/nfl/current-season-team";
 import type { NflScheduleGame } from "@/lib/nfl/schedule-match";
 import type { LiveNflGame } from "@/lib/nfl/live";
 import { canPublishPlayerProbability, empiricalPlayerProbability, poissonAtLeastProbability } from "./player-probability";
 import { getExternalProjectionConsensus } from "./external-projections";
+import { getEspnGameProbability } from "./game-projections";
 import { selfCalibrateProbability } from "./self-learning";
 import { weatherProbabilityAdjustment } from "./weather-adjustment";
 import { getGameWeather } from "@/lib/weather";
@@ -194,24 +196,16 @@ async function estimateGameMarket(
   scheduleGame: NflScheduleGame,
   liveGame?: LiveNflGame | null,
 ): Promise<ModelEstimate> {
-  const projection = getMatchupProjection(
-    scheduleGame.homeTeam,
-    scheduleGame.awayTeam,
-    scheduleGame.season,
-    scheduleGame.week ?? 1,
-  );
-
-  if (!projection) {
-    const baseline = baselineGameProjection(scheduleGame, liveGame);
-    return estimateGameFromDistribution(canonical, scheduleGame, {
-      meanHomeMargin: baseline.meanHomeMargin,
-      meanTotal: baseline.meanTotal,
-      marginStdDev: baseline.marginStdDev,
-      totalStdDev: baseline.totalStdDev,
-      reliability: baseline.live ? 0.42 : 0.28,
-      factors: baseline.factors,
-    });
-  }
+  const currentWeek = scheduleGame.week ?? 1;
+  const [projection, espn] = await Promise.all([
+    getCurrentSeasonMatchupProjection(
+      scheduleGame.homeTeam,
+      scheduleGame.awayTeam,
+      scheduleGame.season,
+      currentWeek,
+    ),
+    liveGame?.id ? getEspnGameProbability(liveGame.id) : Promise.resolve(null),
+  ]);
 
   const live = liveGame?.state === "in" ? liveGame : null;
   const remaining = remainingGameFraction(live);
@@ -220,26 +214,53 @@ async function estimateGameMarket(
   const currentMargin = currentHome - currentAway;
   const currentTotal = currentHome + currentAway;
 
+  const baseline = baselineGameProjection(scheduleGame, liveGame);
+  const projectedHomeMargin =
+    projection?.projectedHomeMargin ?? baseline.meanHomeMargin;
+  const projectedTotal = projection?.projectedTotal ?? baseline.meanTotal;
+  const baseMarginStdDev =
+    projection?.marginStdDev ?? baseline.marginStdDev;
+  const baseTotalStdDev =
+    projection?.totalStdDev ?? baseline.totalStdDev;
+
   const meanHomeMargin = live
-    ? currentMargin + projection.projectedHomeMargin * remaining
-    : projection.projectedHomeMargin;
+    ? currentMargin + projectedHomeMargin * remaining
+    : projectedHomeMargin;
   const meanTotal = live
-    ? currentTotal + projection.projectedTotal * remaining
-    : projection.projectedTotal;
+    ? currentTotal + projectedTotal * remaining
+    : projectedTotal;
   const marginStdDev = Math.max(
     2.5,
-    projection.marginStdDev * Math.sqrt(remaining),
+    baseMarginStdDev * Math.sqrt(remaining),
   );
   const totalStdDev = Math.max(
     3,
-    projection.totalStdDev * Math.sqrt(remaining),
+    baseTotalStdDev * Math.sqrt(remaining),
   );
 
   let probability: number | null = null;
-  const factors = [
-    `Regular-season-only sample: ${projection.home.games} ${scheduleGame.homeTeam} games and ${projection.away.games} ${scheduleGame.awayTeam} games.`,
-    `Pregame projection: ${projection.homePoints.toFixed(1)}-${projection.awayPoints.toFixed(1)} (${projection.projectedTotal.toFixed(1)} total).`,
-  ];
+  let statisticalProbability: number | null = null;
+  let subjectProfile:
+    | NonNullable<typeof projection>["home"]
+    | NonNullable<typeof projection>["away"]
+    | null = null;
+  let opponentProfile:
+    | NonNullable<typeof projection>["home"]
+    | NonNullable<typeof projection>["away"]
+    | null = null;
+  const gameProjectionSources: Array<{
+    source: string;
+    probabilityBps: number;
+  }> = [];
+
+  const factors = projection
+    ? [
+        `2026 regular-season team data only: ${projection.home.games} ${scheduleGame.homeTeam} game${projection.home.games === 1 ? "" : "s"} and ${projection.away.games} ${scheduleGame.awayTeam} game${projection.away.games === 1 ? "" : "s"}.`,
+        `Current-season scoring model: ${projection.homePoints.toFixed(1)}-${projection.awayPoints.toFixed(1)} (${projection.projectedTotal.toFixed(1)} total).`,
+      ]
+    : [
+        "Current-season team sample is incomplete, so the internal game model is using a low-confidence league baseline.",
+      ];
 
   if (live) {
     factors.push(
@@ -259,10 +280,94 @@ async function estimateGameMarket(
         factors: ["Could not identify the team represented by this moneyline."],
       };
     }
+
     const subjectMarginMean = subjectIsHome ? meanHomeMargin : -meanHomeMargin;
-    probability = 1 - normalCdf(0, subjectMarginMean, marginStdDev);
+    statisticalProbability =
+      1 - normalCdf(0, subjectMarginMean, marginStdDev);
+
+    gameProjectionSources.push({
+      source: "nflverse_current_season_scoring",
+      probabilityBps: Math.round(statisticalProbability * 10_000),
+    });
+
+    const weighted: Array<{ probability: number; weight: number }> = [
+      { probability: statisticalProbability, weight: live ? 0.50 : 0.50 },
+    ];
+
+    if (projection) {
+      subjectProfile = subjectIsHome ? projection.home : projection.away;
+      opponentProfile = subjectIsHome ? projection.away : projection.home;
+      const subjectWinRate =
+        (subjectProfile.wins + subjectProfile.ties * 0.5 + 1.5) /
+        (subjectProfile.games + 3);
+      const opponentWinRate =
+        (opponentProfile.wins + opponentProfile.ties * 0.5 + 1.5) /
+        (opponentProfile.games + 3);
+      const subjectHomeAdjustment = subjectIsHome ? 0.025 : -0.025;
+      const recordProbability = clamp(
+        0.5 +
+          (subjectWinRate - opponentWinRate) * 0.42 +
+          subjectHomeAdjustment,
+        0.18,
+        0.82,
+      );
+      weighted.push({
+        probability: recordProbability,
+        weight: live ? 0.08 : 0.15,
+      });
+      gameProjectionSources.push({
+        source: "nflverse_current_season_record",
+        probabilityBps: Math.round(recordProbability * 10_000),
+      });
+    }
+
+    const espnPregameSubject =
+      espn?.pregameHomeProbability === null ||
+      espn?.pregameHomeProbability === undefined
+        ? null
+        : subjectIsHome
+          ? espn.pregameHomeProbability
+          : 1 - espn.pregameHomeProbability;
+    const espnLiveSubject =
+      espn?.liveHomeProbability === null ||
+      espn?.liveHomeProbability === undefined
+        ? null
+        : subjectIsHome
+          ? espn.liveHomeProbability
+          : 1 - espn.liveHomeProbability;
+
+    if (live && espnLiveSubject !== null) {
+      weighted.push({ probability: espnLiveSubject, weight: 0.42 });
+      gameProjectionSources.push({
+        source: "espn_live_win_probability",
+        probabilityBps: Math.round(espnLiveSubject * 10_000),
+      });
+      factors.push(
+        `ESPN live win model: ${(espnLiveSubject * 100).toFixed(1)}% for ${canonical.subject}.`,
+      );
+    } else if (espnPregameSubject !== null) {
+      weighted.push({
+        probability: espnPregameSubject,
+        weight: live ? 0.12 : 0.35,
+      });
+      gameProjectionSources.push({
+        source: "espn_fpi",
+        probabilityBps: Math.round(espnPregameSubject * 10_000),
+      });
+      factors.push(
+        `ESPN pregame projection: ${(espnPregameSubject * 100).toFixed(1)}% for ${canonical.subject}.`,
+      );
+    }
+
+    const totalWeight = weighted.reduce((sum, point) => sum + point.weight, 0);
+    probability =
+      weighted.reduce(
+        (sum, point) => sum + point.probability * point.weight,
+        0,
+      ) / totalWeight;
+
     factors.push(
-      `Projected ${canonical.subject} scoring margin: ${subjectMarginMean >= 0 ? "+" : ""}${subjectMarginMean.toFixed(1)}.`,
+      `Lynerva current-season margin model: ${(statisticalProbability * 100).toFixed(1)}% for ${canonical.subject} (${subjectMarginMean >= 0 ? "+" : ""}${subjectMarginMean.toFixed(1)} projected margin).`,
     );
   } else if (canonical.family === "spread" && canonical.threshold !== null) {
     const subjectIsHome = canonical.subject === scheduleGame.homeTeam;
@@ -284,9 +389,6 @@ async function estimateGameMarket(
         subjectMarginMean,
         marginStdDev,
       );
-    factors.push(
-      `Model margin for ${canonical.subject}: ${subjectMarginMean >= 0 ? "+" : ""}${subjectMarginMean.toFixed(1)} versus a ${canonical.threshold >= 0 ? "+" : ""}${canonical.threshold.toFixed(1)} requirement.`,
-    );
   } else if (
     canonical.family === "game_total" &&
     canonical.threshold !== null
@@ -295,9 +397,6 @@ async function estimateGameMarket(
       1 - normalCdf(canonical.threshold, meanTotal, totalStdDev);
     probability =
       canonical.direction === "under" ? 1 - overProbability : overProbability;
-    factors.push(
-      `Projected final total: ${meanTotal.toFixed(1)} versus ${canonical.threshold.toFixed(1)}.`,
-    );
   }
 
   if (probability === null) {
@@ -310,25 +409,79 @@ async function estimateGameMarket(
     };
   }
 
-  const sampleSize = Math.min(
-    projection.home.games,
-    projection.away.games,
+  const calibrated = await selfCalibrateProbability(
+    clamp(probability, 0.01, 0.99),
+    canonical.family,
   );
+  probability = calibrated.probability;
+
+  const sampleSize = projection
+    ? Math.min(projection.home.games, projection.away.games)
+    : 0;
+  const independentSourceBoost =
+    gameProjectionSources.some((point) => point.source === "espn_fpi") ||
+    gameProjectionSources.some(
+      (point) => point.source === "espn_live_win_probability",
+    )
+      ? 0.10
+      : 0;
   const reliability = clamp(
-    0.52 + sampleSize / 100 + (live ? 0.08 : 0),
-    0.5,
-    0.84,
+    0.42 +
+      Math.min(sampleSize, 8) * 0.035 +
+      independentSourceBoost +
+      (live ? 0.07 : 0) +
+      (gameProjectionSources.length >= 3 ? 0.04 : 0),
+    0.38,
+    0.88,
   );
 
+  const subjectWins = subjectProfile?.wins ?? null;
+  const subjectGames = subjectProfile?.games ?? null;
+  const recentResults = subjectProfile?.recentResults ?? [];
+  const recentWins = recentResults.filter((result) => result === "W").length;
+
   return {
-    probabilityBps: Math.round(clamp(probability, 0.02, 0.98) * 10_000),
+    probabilityBps: Math.round(clamp(probability, 0.01, 0.99) * 10_000),
     reliabilityBps: Math.round(reliability * 10_000),
     version: MODEL_VERSION,
     evidence: {
-      ...emptyEvidence,
-      sampleSize,
+      last5Hits: recentResults.length ? recentWins : null,
+      last10Hits: recentResults.length ? recentWins : null,
+      seasonHits: subjectWins,
+      seasonGames: subjectGames,
+      sampleSize: subjectGames ?? sampleSize,
     },
     factors,
+    components: {
+      consensusProjection: null,
+      consensusProbabilityBps:
+        gameProjectionSources.find((point) => point.source === "espn_fpi")
+          ?.probabilityBps ??
+        gameProjectionSources.find(
+          (point) => point.source === "espn_live_win_probability",
+        )?.probabilityBps ??
+        null,
+      statisticalProbabilityBps:
+        statisticalProbability === null
+          ? null
+          : Math.round(statisticalProbability * 10_000),
+      contextAdjustmentBps: 0,
+      projectionSourceCount: gameProjectionSources.length,
+      projectionSources: [],
+      gameProjectionSources,
+      currentSeasonTeamGames:
+        subjectProfile && opponentProfile
+          ? {
+              subject: subjectProfile.games,
+              opponent: opponentProfile.games,
+            }
+          : null,
+      projectionSeason: scheduleGame.season,
+      projectionWeek: scheduleGame.week,
+      learnedSourceWeightWeek: null,
+      learnedCalibrationSample: calibrated.sampleSize,
+      learnedCalibrationActive: calibrated.learned,
+    },
   };
 }
 
