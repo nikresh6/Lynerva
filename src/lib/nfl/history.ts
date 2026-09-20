@@ -36,6 +36,13 @@ function valueFromTuple(game: number[], statistic: string) {
       return game[6] ?? 0;
     case "touchdowns":
       return game[7] ?? 0;
+    // The compact static history stores total touchdowns, not separate rushing
+    // and receiving touchdown counts. Split TD markets stay projection-backed
+    // until a split historical series is available rather than borrowing the
+    // wrong total-touchdown history.
+    case "rushing_touchdowns":
+    case "receiving_touchdowns":
+      return null;
     default:
       return null;
   }
