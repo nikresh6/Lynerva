@@ -741,7 +741,14 @@ export function buildRankedCombinations(
     opportunities,
     options,
     Math.max(18, Math.min(limit * 8, 72)),
-  ).slice(0, Math.max(1, limit));
+  )
+    .slice(0, Math.max(1, limit))
+    .toSorted(
+      (first, second) =>
+        second.lynervaScore - first.lynervaScore ||
+        second.expectedValueMultiplier - first.expectedValueMultiplier ||
+        second.estimatedProbability - first.estimatedProbability,
+    );
 }
 
 export function buildTopScoredCombinations(
