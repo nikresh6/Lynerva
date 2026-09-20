@@ -138,6 +138,45 @@ function marketAccentStyle(
   };
 }
 
+function normalizeMarketSearch(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/['’.-]/g, "")
+    .replace(/\b(tds?|touchdowns?)\b/g, " touchdown ")
+    .replace(/\b(rec|recs|receptions?)\b/g, " reception ")
+    .replace(/\b(rec(?:eiving)?\s*yds?|receiving\s+yards?)\b/g, " receiving yard ")
+    .replace(/\b(rush(?:ing)?\s*yds?|rushing\s+yards?)\b/g, " rushing yard ")
+    .replace(/\b(pass(?:ing)?\s*yds?|passing\s+yards?)\b/g, " passing yard ")
+    .replace(/\b(ints?|interceptions?)\b/g, " interception ")
+    .replace(/\byards?\b/g, " yard ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function marketSearchText(market: MarketOpportunity) {
+  const canonical = market.canonical;
+  const family = canonical?.family ?? "";
+  const aliases =
+    family === "touchdowns"
+      ? "td touchdown anytime touchdown anytime td score scorer"
+      : family === "receptions"
+        ? "rec reception catches catch"
+        : family === "passing_interceptions"
+          ? "int interception pick"
+          : family.replaceAll("_", " ");
+
+  return normalizeMarketSearch(
+    [
+      marketPickLabel(market),
+      canonical?.matchup ?? "",
+      canonical?.subject ?? "",
+      canonical?.statistic ?? "",
+      aliases,
+      market.eventTitle,
+    ].join(" "),
+  );
+}
+
 function MarketPicker({
   markets,
   selectedMarketId,
@@ -156,26 +195,44 @@ function MarketPicker({
   const selected =
     markets.find((market) => market.platformMarketId === selectedMarketId) ??
     null;
-  const clean = query.trim().toLowerCase();
-  const results = useMemo(
-    () =>
-      markets
-        .filter((market) => !excludedIds.includes(market.platformMarketId))
-        .filter((market) => {
-          if (!clean) return true;
-          const haystack = [
-            marketPickLabel(market),
-            market.canonical?.matchup ?? "",
-            market.canonical?.subject ?? "",
-            market.eventTitle,
-          ]
-            .join(" ")
-            .toLowerCase();
-          return clean.split(/\s+/).every((token) => haystack.includes(token));
-        })
-        .slice(0, 36),
-    [clean, excludedIds, markets],
-  );
+  const clean = normalizeMarketSearch(query);
+  const results = useMemo(() => {
+    const tokens = clean ? clean.split(/\s+/).filter(Boolean) : [];
+    return markets
+      .filter((market) => !excludedIds.includes(market.platformMarketId))
+      .map((market) => {
+        const haystack = marketSearchText(market);
+        const subject = normalizeMarketSearch(market.canonical?.subject ?? "");
+        const threshold = market.canonical?.threshold;
+        const matches = tokens.every((token) => haystack.includes(token));
+        if (!matches) return null;
+
+        // Search should feel like intent matching, not a browser find box.
+        // Player-name matches come first, then an explicitly requested line,
+        // then Lynerva score.
+        const subjectHits = tokens.filter((token) => subject.includes(token)).length;
+        const thresholdHit =
+          threshold !== null &&
+          threshold !== undefined &&
+          tokens.includes(String(threshold));
+        const relevance =
+          subjectHits * 100 +
+          (thresholdHit ? 40 : 0) +
+          (market.lynervaScore ?? 0) / 100;
+        return { market, relevance };
+      })
+      .filter(
+        (row): row is { market: MarketOpportunity; relevance: number } =>
+          row !== null,
+      )
+      .toSorted(
+        (a, b) =>
+          b.relevance - a.relevance ||
+          (b.market.lynervaScore ?? 0) - (a.market.lynervaScore ?? 0),
+      )
+      .slice(0, clean ? 80 : 60)
+      .map((row) => row.market);
+  }, [clean, excludedIds, markets]);
   const visibleNames = useMemo(
     () =>
       results
@@ -217,7 +274,7 @@ function MarketPicker({
                 autoFocus
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search current Kalshi markets"
+                placeholder="Try “Chase 40 yards” or “Chase TD”"
                 className="w-full bg-transparent text-xs outline-none placeholder:text-faint"
               />
               {query ? (
@@ -410,8 +467,7 @@ export function ManualTracker() {
         if (seen.has(market.platformMarketId)) return false;
         seen.add(market.platformMarketId);
         return true;
-      })
-      .slice(0, 250);
+      });
   }, [opportunities]);
 
   const currentById = useMemo(
