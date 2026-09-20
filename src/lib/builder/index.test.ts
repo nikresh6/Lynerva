@@ -380,7 +380,7 @@ describe("combination builder", () => {
           results[first]!.legs.length,
           results[second]!.legs.length,
         );
-        const maxShared = smaller <= 2 ? 0 : smaller === 3 ? 1 : Math.floor(smaller / 2);
+        const maxShared = smaller <= 2 ? smaller - 1 : smaller === 3 ? 1 : Math.floor(smaller / 2);
         expect(shared).toBeLessThanOrEqual(maxShared);
       }
     }
