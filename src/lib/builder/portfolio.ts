@@ -323,6 +323,7 @@ function bestCandidate(
     returnMax?: number;
     returnTarget?: number;
     role: PortfolioRole;
+    avoidStraightExposure?: boolean;
   },
 ) {
   let best: Candidate | null = null;
@@ -338,6 +339,7 @@ function bestCandidate(
     if (avoid.some((row) => row.id === candidate.id)) continue;
 
     if (
+      options.avoidStraightExposure &&
       candidate.kind === "parlay" &&
       candidate.legs.some((leg) => straightExposure.has(marketKey(leg)))
     ) {
@@ -405,6 +407,28 @@ function bestCandidate(
   return best;
 }
 
+function bestParlayCandidate(
+  candidates: Candidate[],
+  avoid: Candidate[],
+  options: {
+    probabilityMin?: number;
+    probabilityMax?: number;
+    probabilityTarget?: number;
+    returnMin?: number;
+    returnMax?: number;
+    returnTarget?: number;
+    role: PortfolioRole;
+  },
+) {
+  return (
+    bestCandidate(candidates, avoid, {
+      ...options,
+      avoidStraightExposure: true,
+    }) ??
+    bestCandidate(candidates, avoid, options)
+  );
+}
+
 function addCandidate(selected: Candidate[], candidate: Candidate | null) {
   if (!candidate) return;
   if (selected.some((row) => row.id === candidate.id)) return;
@@ -456,7 +480,7 @@ function selectPortfolioCandidates(
   }
 
   const preferredCoreParlay =
-    bestCandidate(parlays, selected, {
+    bestParlayCandidate(parlays, selected, {
       probabilityMin: 0.55,
       probabilityMax: 0.74,
       probabilityTarget: 0.64,
@@ -465,7 +489,7 @@ function selectPortfolioCandidates(
       returnTarget: 1.8,
       role: "core_parlay",
     }) ??
-    bestCandidate(parlays, selected, {
+    bestParlayCandidate(parlays, selected, {
       probabilityMin: 0.45,
       returnMin: 1.3,
       returnMax: 4,
@@ -479,7 +503,7 @@ function selectPortfolioCandidates(
     const upsideTarget = clamp(targetReturn * 2.2, 7, 22);
     addCandidate(
       selected,
-      bestCandidate(parlays, selected, {
+      bestParlayCandidate(parlays, selected, {
         returnMin: 6,
         returnMax: 25,
         returnTarget: upsideTarget,
@@ -495,7 +519,7 @@ function selectPortfolioCandidates(
     const hailTarget = clamp(targetReturn * 20, 35, 500);
     addCandidate(
       selected,
-      bestCandidate(parlays, selected, {
+      bestParlayCandidate(parlays, selected, {
         returnMin: 25,
         returnMax: 500,
         returnTarget: hailTarget,
