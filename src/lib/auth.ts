@@ -30,7 +30,10 @@ function resolveAuthOrigin() {
   const configuredOrigin = normalizeOrigin(process.env.BETTER_AUTH_URL);
 
   if (process.env.NODE_ENV === "production") {
-    return railwayOrigin ?? LYNERVA_PRODUCTION_ORIGIN;
+    // BETTER_AUTH_URL is the explicitly configured canonical origin. Prefer it
+    // over Railway's inferred domain so cookies and callback URLs do not change
+    // if Railway exposes a different public-domain value during a deployment.
+    return configuredOrigin ?? railwayOrigin ?? LYNERVA_PRODUCTION_ORIGIN;
   }
 
   return configuredOrigin ?? railwayOrigin ?? undefined;
