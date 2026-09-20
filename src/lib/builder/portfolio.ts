@@ -153,6 +153,38 @@ function exposureSets(
   };
 }
 
+function sharedExactLegs(first: Candidate, second: Candidate) {
+  const left = new Set(first.legs.map((leg) => marketKey(leg)));
+  const right = new Set(second.legs.map((leg) => marketKey(leg)));
+  let shared = 0;
+  for (const key of left) if (right.has(key)) shared += 1;
+  return shared;
+}
+
+function portfolioCandidateIsDistinct(
+  candidate: Candidate,
+  selected: Candidate[],
+  subjectTeams?: PortfolioPlanOptions["subjectTeams"],
+) {
+  if (candidate.kind !== "parlay") return true;
+
+  return selected.every((row) => {
+    if (row.kind !== "parlay") return true;
+    const smallerLegCount = Math.min(candidate.legs.length, row.legs.length);
+    const maxSharedExact =
+      smallerLegCount <= 2
+        ? 0
+        : smallerLegCount === 3
+          ? 1
+          : Math.floor(smallerLegCount / 2);
+    if (sharedExactLegs(candidate, row) > maxSharedExact) return false;
+
+    const left = exposureSets(candidate, subjectTeams);
+    const right = exposureSets(row, subjectTeams);
+    return setOverlap(left.subjects, right.subjects) <= 0.67;
+  });
+}
+
 function overlapShare(
   first: Candidate,
   second: Candidate,
@@ -388,6 +420,9 @@ function bestCandidate(
   let bestScore = -Infinity;
 
   for (const candidate of candidates) {
+    if (!portfolioCandidateIsDistinct(candidate, avoid, options.subjectTeams)) {
+      continue;
+    }
     if (
       options.probabilityMin !== undefined &&
       candidate.probability < options.probabilityMin
