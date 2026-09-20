@@ -722,7 +722,15 @@ export function BuilderWorkbench() {
       </section>
 
       <section className="premium-panel overflow-hidden rounded-2xl">
-        {loading && currentMarkets.length === 0 ? (
+        {building === "parlay" ? (
+          <div className="px-6 py-20 text-center">
+            <LoaderCircle className="mx-auto size-7 animate-spin text-accent" />
+            <p className="mt-4 font-medium">Searching the board...</p>
+            <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-muted">
+              Lynerva is balancing payout, model edge, stat-family diversity, and player overlap.
+            </p>
+          </div>
+        ) : loading && currentMarkets.length === 0 ? (
           <div className="px-6 py-20 text-center">
             <div className="mx-auto mb-3 grid size-10 place-items-center rounded-xl border bg-surface-raised">
               <Sparkles className="size-4 text-muted" />
@@ -1221,7 +1229,15 @@ export function BuilderWorkbench() {
         </section>
 
         <section className="premium-panel overflow-hidden rounded-2xl">
-          {loading && currentMarkets.length === 0 ? (
+          {building === "portfolio" ? (
+            <div className="px-6 py-20 text-center">
+              <LoaderCircle className="mx-auto size-7 animate-spin text-accent" />
+              <p className="mt-4 font-medium">Building the portfolio...</p>
+              <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-muted">
+                Searching straights, core parlays, upside parlays, and high-return combinations.
+              </p>
+            </div>
+          ) : loading && currentMarkets.length === 0 ? (
             <div className="px-6 py-20 text-center">
               <div className="mx-auto mb-3 grid size-10 place-items-center rounded-xl border bg-surface-raised">
                 <WalletCards className="size-4 text-muted" />
