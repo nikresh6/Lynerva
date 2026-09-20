@@ -10,7 +10,7 @@ export const metadata: Metadata = {
     template: "%s — Lynerva",
   },
   description:
-    "Compare executable NFL prediction-market prices across Kalshi and Polymarket with disciplined probability estimates.",
+    "Research executable Kalshi NFL prediction-market prices with disciplined probability estimates.",
   applicationName: "Lynerva",
   robots: { index: true, follow: true },
 };
