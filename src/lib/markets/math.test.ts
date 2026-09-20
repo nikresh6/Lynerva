@@ -77,7 +77,6 @@ describe("market math", () => {
     const first = lynervaScore(base);
     const noisyRefresh = lynervaScore({
       ...base,
-      reliabilityBps: 5_100,
       liquidityCents: 500,
       volumeCents: 500_000,
       spreadBps: 1_400,
@@ -85,6 +84,41 @@ describe("market math", () => {
     });
 
     expect(first?.score).toBe(noisyRefresh?.score);
+  });
+
+  it("shrinks thinly supported cheap props before ranking them", () => {
+    const common = {
+      edgeBps: 2_000,
+      expectedRoi: 1,
+      seasonHits: null,
+      seasonGames: null,
+      last10Hits: null,
+      sampleSize: 0,
+      recommendedSide: "yes" as const,
+      liquidityCents: 25_000,
+      volumeCents: 80_000,
+      spreadBps: 100,
+      ageSeconds: 5,
+    };
+
+    const cheapThin = lynervaScore({
+      ...common,
+      probabilityBps: 4_000,
+      priceBps: 2_000,
+      reliabilityBps: 5_000,
+    });
+    const credibleMidPrice = lynervaScore({
+      ...common,
+      probabilityBps: 6_500,
+      priceBps: 5_000,
+      edgeBps: 1_500,
+      expectedRoi: 0.3,
+      reliabilityBps: 8_000,
+    });
+
+    expect((credibleMidPrice?.score ?? 0)).toBeGreaterThan(
+      cheapThin?.score ?? 0,
+    );
   });
 
   it("ignores a one-point market tick in the published score", () => {
