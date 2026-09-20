@@ -80,7 +80,55 @@ async function main() {
     );
   }
 
-  console.log("Auth sign-up and session smoke test passed.");
+  // Exercise the actual sign-in endpoint separately. Previously CI only proved
+  // sign-up and the session cookie created by sign-up, so a broken login flow
+  // could still ship.
+  const signin = await fetch(`${baseUrl}/api/auth/sign-in/email`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: baseUrl,
+    },
+    body: JSON.stringify({
+      email,
+      password,
+      callbackURL: "/tracker",
+    }),
+  });
+  const signinBody = await bodyText(signin);
+  if (!signin.ok) {
+    throw new Error(
+      `Auth sign-in failed (${signin.status}): ${signinBody.slice(0, 1200)}`,
+    );
+  }
+
+  const signinCookies = cookieHeader(signin);
+  if (!signinCookies) {
+    throw new Error("Auth sign-in succeeded but no session cookie was returned.");
+  }
+
+  const signinSession = await fetch(`${baseUrl}/api/auth/get-session`, {
+    headers: {
+      cookie: signinCookies,
+      origin: baseUrl,
+    },
+  });
+  const signinSessionBody = await bodyText(signinSession);
+  if (!signinSession.ok) {
+    throw new Error(
+      `Signed-in session check failed (${signinSession.status}): ${signinSessionBody.slice(0, 1200)}`,
+    );
+  }
+  const signinPayload = JSON.parse(signinSessionBody) as {
+    user?: { email?: string };
+  } | null;
+  if (signinPayload?.user?.email !== email) {
+    throw new Error(
+      `Sign-in did not resolve the expected user: ${signinSessionBody.slice(0, 1200)}`,
+    );
+  }
+
+  console.log("Auth sign-up, sign-in, and session smoke test passed.");
 }
 
 main().catch((error: unknown) => {
