@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import {
+  ArrowRight,
   ArrowUpRight,
   BarChart3,
   CheckCircle2,
@@ -301,6 +302,116 @@ export default async function SourcesPage() {
                 <p className="mt-1 text-2xl font-semibold tabular">
                   {trackedStats || STAT_ORDER.length}
                 </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="premium-panel overflow-hidden rounded-2xl">
+          <div className="flex flex-col gap-2 border-b bg-surface-raised/35 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+            <div>
+              <div className="text-[9px] font-semibold uppercase tracking-[0.13em] text-faint">
+                Live model pipeline
+              </div>
+              <h2 className="mt-1 text-sm font-semibold">
+                From projection sites to one auditable probability
+              </h2>
+            </div>
+            <span className="w-fit rounded-full border bg-surface px-2.5 py-1 text-[9px] font-medium text-muted">
+              No black-box source blending
+            </span>
+          </div>
+
+          <div className="grid md:grid-cols-[1fr_auto_1fr_auto_1fr] md:items-stretch">
+            <div className="p-4 sm:p-5">
+              <div className="flex items-center justify-between gap-3">
+                <span className="grid size-9 place-items-center rounded-xl border bg-background">
+                  <Database className="size-4 text-muted" />
+                </span>
+                <span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-faint">
+                  01
+                </span>
+              </div>
+              <h3 className="mt-3 text-xs font-semibold">Collect</h3>
+              <p className="mt-1 text-[11px] leading-5 text-muted">
+                Pull the exact NFL week from {performance.sources.length} free
+                projection feeds and reject stale or mismatched pages.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {performance.sources.slice(0, 4).map((source) => (
+                  <span
+                    key={source.id}
+                    className="rounded-md border bg-surface-raised/45 px-2 py-1 text-[9px] font-medium"
+                  >
+                    {source.name}
+                  </span>
+                ))}
+                {performance.sources.length > 4 ? (
+                  <span className="rounded-md border bg-surface-raised/45 px-2 py-1 text-[9px] text-muted">
+                    +{performance.sources.length - 4} more
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="hidden place-items-center text-faint md:grid">
+              <ArrowRight className="size-4" />
+            </div>
+
+            <div className="border-y p-4 md:border-x md:border-y-0 sm:p-5">
+              <div className="flex items-center justify-between gap-3">
+                <span className="grid size-9 place-items-center rounded-xl border bg-background">
+                  <BarChart3 className="size-4 text-muted" />
+                </span>
+                <span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-faint">
+                  02
+                </span>
+              </div>
+              <h3 className="mt-3 text-xs font-semibold">Grade by stat</h3>
+              <p className="mt-1 text-[11px] leading-5 text-muted">
+                Compare each source against settled NFL results separately for
+                yards, receptions, touchdowns, and interceptions.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {[
+                  "Pass yds",
+                  "Rush yds",
+                  "Rec yds",
+                  "Receptions",
+                  "TDs",
+                  "INTs",
+                ].map((label) => (
+                  <span
+                    key={label}
+                    className="rounded-md border bg-surface-raised/45 px-2 py-1 text-[9px] text-muted"
+                  >
+                    {label}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="hidden place-items-center text-faint md:grid">
+              <ArrowRight className="size-4" />
+            </div>
+
+            <div className="p-4 sm:p-5">
+              <div className="flex items-center justify-between gap-3">
+                <span className="grid size-9 place-items-center rounded-xl border bg-background">
+                  <ShieldCheck className="size-4 text-positive" />
+                </span>
+                <span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-faint">
+                  03
+                </span>
+              </div>
+              <h3 className="mt-3 text-xs font-semibold">Weight and publish</h3>
+              <p className="mt-1 text-[11px] leading-5 text-muted">
+                Robust source weights and family calibration turn the consensus
+                into Lynerva probability, then Kalshi price determines the edge.
+              </p>
+              <div className="mt-3 inline-flex items-center gap-2 rounded-lg border bg-positive-bg px-2.5 py-1.5 text-[9px] font-semibold text-positive">
+                <CheckCircle2 className="size-3" />
+                Source-level audit trail retained
               </div>
             </div>
           </div>
