@@ -179,10 +179,10 @@ function portfolioCandidateIsDistinct(
           : Math.floor(smallerLegCount / 2);
     if (sharedExactLegs(candidate, row) > maxSharedExact) return false;
 
+    if (smallerLegCount <= 2) return true;
     const left = exposureSets(candidate, subjectTeams);
     const right = exposureSets(row, subjectTeams);
-    const subjectLimit = smallerLegCount <= 2 ? 0.75 : 0.67;
-    return setOverlap(left.subjects, right.subjects) <= subjectLimit;
+    return setOverlap(left.subjects, right.subjects) <= 0.67;
   });
 }
 
