@@ -186,6 +186,47 @@ describe("additional weekly player prop normalization", () => {
     });
   });
 
+  it("splits rushing and receiving touchdown props from anytime touchdowns", () => {
+    const rushing = normalizeMarket(
+      contract({
+        marketTitle: "Bijan Robinson: 1+ rushing touchdowns",
+        platformMarketId: "KXNFLRUSHTD-26SEP20ATLCAR-BROBINSON-1",
+        eventTitle: "Atlanta Falcons at Carolina Panthers",
+        resolutionRules:
+          "Resolves Yes if Bijan Robinson scores at least 1 rushing touchdown.",
+      }),
+    );
+    const receiving = normalizeMarket(
+      contract({
+        marketTitle: "Ja'Marr Chase: 1+ receiving touchdowns",
+        platformMarketId: "KXNFLRECTD-26SEP20CINHOU-JCHASE-1",
+        resolutionRules:
+          "Resolves Yes if Ja'Marr Chase scores at least 1 receiving touchdown.",
+      }),
+    );
+    const anytime = normalizeMarket(
+      contract({
+        marketTitle: "Ja'Marr Chase: 1+ touchdowns",
+        platformMarketId: "KXNFLSCORE-26SEP20CINHOU-JCHASE-1",
+        resolutionRules:
+          "Resolves Yes if Ja'Marr Chase scores at least 1 touchdown by rushing or receiving.",
+      }),
+    );
+
+    expect(rushing).toMatchObject({
+      family: "rushing_touchdowns",
+      statistic: "rushing_touchdowns",
+    });
+    expect(receiving).toMatchObject({
+      family: "receiving_touchdowns",
+      statistic: "receiving_touchdowns",
+    });
+    expect(anytime).toMatchObject({
+      family: "touchdowns",
+      statistic: "touchdowns",
+    });
+  });
+
   it("keeps rushing yards as a separate searchable family", () => {
     const normalized = normalizeMarket(
       contract({
