@@ -813,6 +813,46 @@ function combinationSimilarity(
   return clamp(exact * 0.68 + subjects * 0.22 + games * 0.10, 0, 1);
 }
 
+function maximumSharedExactLegs(first: BuiltCombination, second: BuiltCombination) {
+  const left = new Set(first.legs.map(combinationIdentity));
+  const right = new Set(second.legs.map(combinationIdentity));
+  let shared = 0;
+  for (const key of left) if (right.has(key)) shared += 1;
+  return shared;
+}
+
+function isMeaningfullyDistinct(
+  candidate: BuiltCombination,
+  selected: BuiltCombination[],
+) {
+  return selected.every((row) => {
+    const smallerLegCount = Math.min(candidate.legs.length, row.legs.length);
+    const sharedExact = maximumSharedExactLegs(candidate, row);
+
+    // One swapped leg is not a new option. A four-leg build may share at most
+    // two exact legs with another four-leg build; larger builds stay under
+    // roughly half exact overlap as well.
+    const maxSharedExact =
+      smallerLegCount <= 2
+        ? 0
+        : smallerLegCount === 3
+          ? 1
+          : Math.floor(smallerLegCount / 2);
+    if (sharedExact > maxSharedExact) return false;
+
+    // Also reject a near-identical player thesis even when the exact lines
+    // differ. This prevents alternate thresholds from masquerading as variety.
+    const subjectOverlap = overlapShare(
+      candidate,
+      row,
+      (market) =>
+        market.canonical?.subject.toLowerCase() ??
+        combinationIdentity(market),
+    );
+    return subjectOverlap <= 0.67;
+  });
+}
+
 function selectDistinctCombinations(
   candidates: BuiltCombination[],
   limit: number,
@@ -826,6 +866,7 @@ function selectDistinctCombinations(
 
     for (let index = 0; index < remaining.length; index += 1) {
       const candidate = remaining[index]!;
+      if (!isMeaningfullyDistinct(candidate, selected)) continue;
       const maxSimilarity = selected.length
         ? Math.max(
             ...selected.map((row) => combinationSimilarity(candidate, row)),
@@ -855,6 +896,7 @@ function selectDistinctCombinations(
       }
     }
 
+    if (bestUtility === -Infinity) break;
     selected.push(remaining.splice(bestIndex, 1)[0]!);
   }
 
