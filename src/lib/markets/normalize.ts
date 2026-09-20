@@ -179,7 +179,7 @@ function familyFrom(value: string): { family: MarketFamily; statistic: string | 
   if (/total points|game total|combined score|o\/u/i.test(value)) {
     return { family: "game_total", statistic: "game_points" };
   }
-  if (/moneyline|to win|will .* win|winner/i.test(value)) {
+  if (/\bKXNFLGAME\b|moneyline|to win|will .* win|winner/i.test(value)) {
     return { family: "moneyline", statistic: "game_winner" };
   }
   return { family: "other", statistic: null };
