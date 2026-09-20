@@ -187,8 +187,10 @@ function sourceValue(
   if (family === "passing_touchdowns") return stats.passingTouchdowns ?? null;
   if (family === "passing_interceptions") return stats.passingInterceptions ?? null;
   if (family === "rushing_yards") return stats.rushingYards ?? null;
+  if (family === "rushing_touchdowns") return stats.rushingTouchdowns ?? null;
   if (family === "receptions") return stats.receptions ?? null;
   if (family === "receiving_yards") return stats.receivingYards ?? null;
+  if (family === "receiving_touchdowns") return stats.receivingTouchdowns ?? null;
   if (family === "touchdowns") {
     if (stats.totalTouchdowns !== undefined) return stats.totalTouchdowns;
     const rushing = stats.rushingTouchdowns ?? 0;
