@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 
@@ -21,7 +20,6 @@ function authErrorMessage(error: { message?: string | null; status?: number } | 
 }
 
 export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
-  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -55,8 +53,10 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
         return;
       }
 
-      router.push("/tracker");
-      router.refresh();
+      // Force a document navigation so the freshly written auth cookie is
+      // guaranteed to be visible to server-rendered tracker/account routes and
+      // to useSession on the next page.
+      window.location.assign("/tracker");
     } catch (caught) {
       console.error("Authentication request failed", caught);
       setError("The account service could not be reached. Please try again.");
@@ -113,13 +113,15 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
             type="password"
             autoComplete={mode === "sign-in" ? "current-password" : "new-password"}
             required
-            minLength={10}
+            minLength={mode === "sign-up" ? 10 : undefined}
             maxLength={128}
             className="control-surface h-11 w-full rounded-xl px-3 outline-none focus:border-accent"
           />
-          <span className="mt-1 block text-[10px] text-faint">
-            At least 10 characters
-          </span>
+          {mode === "sign-up" ? (
+            <span className="mt-1 block text-[10px] text-faint">
+              At least 10 characters
+            </span>
+          ) : null}
         </label>
 
         {error ? (
