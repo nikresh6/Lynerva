@@ -155,17 +155,19 @@ export function lynervaScore(input: {
     spread * 0.35 +
     freshness * 0.25;
 
-  // Hit rate and short-lived market microstructure stay out of the public
-  // score. Reliability now matters only through coarse buckets and the
-  // reliability shrink above, so source quality can matter without making the
-  // number twitch on ordinary quote refreshes.
-  // Raw win probability is diagnostic, not a reason to reward an
-  // expensive near-certain contract. Ranking should answer "how good is this
-  // opportunity?" rather than "how safe is this leg?" Reliability still
-  // matters through the shrink above.
+  // Raw model hit probability belongs in the public score, but it should not
+  // overwhelm price/value. The probability reaching this point has already
+  // been reliability-shrunk, and the model itself calibrates each stat family
+  // separately. That makes a 75% receptions estimate comparable to a 75%
+  // yardage estimate without granting any family a leaderboard quota.
+  //
+  // Value and edge still carry the largest combined weight, while probability
+  // and source reliability reward bets that are both attractive and likely.
   const score =
-    value * 0.58 +
-    edge * 0.42;
+    value * 0.34 +
+    probability * 0.30 +
+    edge * 0.24 +
+    reliability * 0.12;
 
   return {
     score: Math.round(clamp(score, 0, 100)),
