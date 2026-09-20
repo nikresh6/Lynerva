@@ -37,6 +37,30 @@ describe("market normalization", () => {
     });
   });
 
+  it("normalizes each Kalshi team moneyline as its own game-winner outcome", () => {
+    const normalized = normalizeMarket(
+      contract({
+        platformMarketId: "KXNFLGAME-26SEP20DALCHI-CHI",
+        eventTitle: "KXNFLGAME-26SEP20DALCHI",
+        marketTitle: "Will the Chicago Bears beat the Dallas Cowboys?",
+        outcomeLabel: "Chicago Bears",
+        resolutionRules:
+          "Resolves Yes if the Chicago Bears win the Dallas Cowboys at Chicago Bears NFL game.",
+        closesAt: "2026-09-21T03:30:00.000Z",
+      }),
+    );
+
+    expect(normalized).toMatchObject({
+      family: "moneyline",
+      statistic: "game_winner",
+      direction: "yes",
+      threshold: null,
+      subject: "CHI",
+      matchup: "CHI-DAL",
+      parseConfidence: "high",
+    });
+  });
+
   it("does not treat an NFL season-long receiving-yards future as a game prop", () => {
     const normalized = normalizeMarket(
       contract({
