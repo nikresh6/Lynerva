@@ -35,6 +35,8 @@ interface ManualBet {
   isParlay: boolean;
   legs: string[];
   legMarketIds: string[];
+  legSides: Array<"yes" | "no" | null>;
+  legEntryPriceBps: Array<number | null>;
   decimalOdds: number | null;
 }
 
@@ -100,6 +102,15 @@ function marketPickLabel(market: MarketOpportunity) {
           ? "no"
           : "yes";
 
+  if (canonical.family === "moneyline") {
+    const matchupTeams = canonical.matchup?.split("-").filter(Boolean) ?? [];
+    const backedTeam =
+      market.recommendedSide === "no"
+        ? matchupTeams.find((team) => team !== canonical.subject) ?? canonical.subject
+        : canonical.subject;
+    return `${backedTeam} moneyline`;
+  }
+
   const label = canonical.family.replaceAll("_", " ");
   const threshold =
     canonical.threshold === null ? "" : ` ${canonical.threshold}`;
@@ -148,6 +159,7 @@ function normalizeMarketSearch(value: string) {
     .replace(/\b(rush(?:ing)?\s*yds?|rushing\s+yards?)\b/g, " rushing yard ")
     .replace(/\b(pass(?:ing)?\s*yds?|passing\s+yards?)\b/g, " passing yard ")
     .replace(/\b(ints?|interceptions?)\b/g, " interception ")
+    .replace(/\bml\b/g, " moneyline ")
     .replace(/\byards?\b/g, " yard ")
     .replace(/\s+/g, " ")
     .trim();
@@ -163,7 +175,9 @@ function marketSearchText(market: MarketOpportunity) {
         ? "rec reception catches catch"
         : family === "passing_interceptions"
           ? "int interception pick"
-          : family.replaceAll("_", " ");
+          : family === "moneyline"
+            ? "ml moneyline win winner"
+            : family.replaceAll("_", " ");
 
   return normalizeMarketSearch(
     [
@@ -397,6 +411,110 @@ function statusTone(status: TrackerStatus) {
   return "bg-background text-muted";
 }
 
+function sidePrice(
+  market: MarketOpportunity | undefined,
+  side: "yes" | "no" | null | undefined,
+) {
+  if (!market || !side) return null;
+  return side === "yes" ? market.yesAskBps : market.noAskBps;
+}
+
+function inferLegSide(
+  market: MarketOpportunity | undefined,
+  savedLabel: string | undefined,
+): "yes" | "no" | null {
+  if (!market?.canonical || !savedLabel) return null;
+  const canonical = market.canonical;
+
+  if (canonical.family === "moneyline") {
+    const pickedTeam = savedLabel.trim().split(/\s+/)[0]?.toUpperCase() ?? "";
+    if (!pickedTeam) return null;
+    if (pickedTeam === canonical.subject.toUpperCase()) return "yes";
+    if (canonical.matchup?.split("-").includes(pickedTeam)) return "no";
+    return null;
+  }
+
+  const picked = savedLabel.match(/:\s*(Over|Under|Yes|No)\b/i)?.[1]?.toLowerCase();
+  if (!picked) return null;
+
+  if (picked === "yes") return canonical.direction === "yes" ? "yes" : "no";
+  if (picked === "no") return canonical.direction === "no" ? "yes" : "no";
+  if (picked === "over") return canonical.direction === "over" ? "yes" : "no";
+  if (picked === "under") return canonical.direction === "under" ? "yes" : "no";
+  return null;
+}
+
+function parlayPulse(
+  bet: ManualBet,
+  currentById: Map<string, MarketOpportunity>,
+) {
+  const linked = bet.legMarketIds.map((marketId, index) => {
+    const market = currentById.get(marketId);
+    const side =
+      bet.legSides[index] ?? inferLegSide(market, bet.legs[index]);
+    const entryPrice = bet.legEntryPriceBps[index] ?? null;
+    const currentPrice = sidePrice(market, side);
+    const delta =
+      entryPrice !== null && currentPrice !== null
+        ? currentPrice - entryPrice
+        : null;
+    return { marketId, market, side, entryPrice, currentPrice, delta };
+  });
+
+  const priced = linked.filter(
+    (leg) =>
+      leg.entryPrice !== null &&
+      leg.entryPrice > 0 &&
+      leg.currentPrice !== null &&
+      leg.currentPrice > 0,
+  );
+  const up = priced.filter((leg) => (leg.delta ?? 0) >= 200).length;
+  const down = priced.filter((leg) => (leg.delta ?? 0) <= -200).length;
+  const steady = priced.length - up - down;
+
+  if (!priced.length) {
+    return {
+      linked,
+      relativePct: null as number | null,
+      label: "Waiting for linked leg prices",
+      detail: bet.legMarketIds.length
+        ? `${bet.legMarketIds.length} linked`
+        : "No linked legs",
+      tone: "tracker-live-watch",
+    };
+  }
+
+  const entryChance = priced.reduce(
+    (product, leg) => product * ((leg.entryPrice ?? 0) / 10_000),
+    1,
+  );
+  const currentChance = priced.reduce(
+    (product, leg) => product * ((leg.currentPrice ?? 0) / 10_000),
+    1,
+  );
+  const relativePct =
+    entryChance > 0 ? ((currentChance / entryChance) - 1) * 100 : 0;
+
+  return {
+    linked,
+    relativePct,
+    label: `Parlay pulse ${relativePct >= 0 ? "+" : ""}${relativePct.toFixed(0)}%`,
+    detail: [
+      up ? `${up} up` : "",
+      down ? `${down} down` : "",
+      steady ? `${steady} steady` : "",
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    tone:
+      relativePct >= 15
+        ? "tracker-live-good"
+        : relativePct <= -15
+          ? "tracker-live-bad"
+          : "tracker-live-watch",
+  };
+}
+
 function livePulse(
   bet: ManualBet,
   current: MarketOpportunity | undefined,
@@ -455,6 +573,7 @@ export function ManualTracker() {
         (market) =>
           market.platform === "kalshi" &&
           market.canonical &&
+          market.canonical.family !== "spread" &&
           market.executablePriceBps !== null &&
           market.recommendedSide !== null,
       )
@@ -551,6 +670,10 @@ export function ManualTracker() {
             legMarketIds: Array.isArray(bet.legMarketIds)
               ? bet.legMarketIds
               : [],
+            legSides: Array.isArray(bet.legSides) ? bet.legSides : [],
+            legEntryPriceBps: Array.isArray(bet.legEntryPriceBps)
+              ? bet.legEntryPriceBps
+              : [],
             decimalOdds:
               typeof bet.decimalOdds === "number" ? bet.decimalOdds : null,
           })),
@@ -581,6 +704,42 @@ export function ManualTracker() {
     if (!selectedMarket || betType !== "straight") return;
     setDescription(marketPickLabel(selectedMarket));
   }, [selectedMarket, betType]);
+
+  useEffect(() => {
+    if (!currentById.size) return;
+    setBets((current) => {
+      let changed = false;
+      const next = current.map((bet) => {
+        if (!bet.isParlay || !bet.legMarketIds.length) return bet;
+        if (
+          bet.legSides.length === bet.legMarketIds.length &&
+          bet.legEntryPriceBps.length === bet.legMarketIds.length
+        ) {
+          return bet;
+        }
+
+        const legSides = bet.legMarketIds.map((marketId, index) => {
+          const market = currentById.get(marketId);
+          return (
+            bet.legSides[index] ??
+            inferLegSide(market, bet.legs[index]) ??
+            market?.recommendedSide ??
+            null
+          );
+        });
+        const legEntryPriceBps = bet.legMarketIds.map((marketId, index) => {
+          if (bet.legEntryPriceBps[index] !== undefined) {
+            return bet.legEntryPriceBps[index] ?? null;
+          }
+          const market = currentById.get(marketId);
+          return sidePrice(market, legSides[index]);
+        });
+        changed = true;
+        return { ...bet, legSides, legEntryPriceBps };
+      });
+      return changed ? next : current;
+    });
+  }, [currentById]);
 
   const summary = useMemo(() => {
     const settled = bets.filter((bet) => bet.status !== "open");
@@ -673,6 +832,15 @@ export function ManualTracker() {
         : 0;
     const linkedParlayMarkets =
       betType === "parlay" ? parlayLegMarketIds : [];
+    const linkedParlayDetails = linkedParlayMarkets.map((marketId) =>
+      realMarkets.find((candidate) => candidate.platformMarketId === marketId),
+    );
+    const linkedParlaySides = linkedParlayDetails.map(
+      (market) => market?.recommendedSide ?? null,
+    );
+    const linkedParlayEntryPrices = linkedParlayDetails.map((market, index) =>
+      sidePrice(market, linkedParlaySides[index]),
+    );
     const parlayIsLive = linkedParlayMarkets.some((marketId) =>
       realMarkets.some(
         (candidate) =>
@@ -698,6 +866,8 @@ export function ManualTracker() {
         isParlay: betType === "parlay",
         legs,
         legMarketIds: linkedParlayMarkets,
+        legSides: linkedParlaySides,
+        legEntryPriceBps: linkedParlayEntryPrices,
         decimalOdds,
       },
       ...current,
@@ -985,8 +1155,13 @@ export function ManualTracker() {
                 ? currentById.get(bet.marketId)
                 : undefined;
               const pulse = livePulse(bet, current);
+              const parlay = bet.isParlay ? parlayPulse(bet, currentById) : null;
               const isLinkedOpen =
                 bet.status === "open" && Boolean(bet.marketId);
+              const isLinkedParlayOpen =
+                bet.status === "open" &&
+                bet.isParlay &&
+                bet.legMarketIds.length > 0;
               const liveControls =
                 bet.status === "open" &&
                 (bet.isLive || Boolean(current?.isLive));
@@ -997,7 +1172,11 @@ export function ManualTracker() {
                   key={bet.id}
                   className={cn(
                     "tracker-card rounded-2xl border bg-surface p-4",
-                    isLinkedOpen ? pulse.tone : "",
+                    isLinkedOpen
+                      ? pulse.tone
+                      : isLinkedParlayOpen
+                        ? parlay?.tone
+                        : "",
                   )}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -1020,11 +1199,25 @@ export function ManualTracker() {
                           <span className="rounded-full border bg-background px-2 py-0.5 text-[8px] font-semibold text-muted">
                             {pulse.label}
                           </span>
+                        ) : isLinkedParlayOpen && parlay ? (
+                          <span className="rounded-full border bg-background px-2 py-0.5 text-[8px] font-semibold text-muted">
+                            {parlay.label}
+                          </span>
                         ) : null}
                       </div>
                       <p className="mt-2 text-sm font-semibold leading-5">
-                        {bet.description}
+                        {bet.isParlay
+                          ? `${bet.legs.length}-leg parlay`
+                          : bet.description}
                       </p>
+                      {bet.isParlay &&
+                      bet.description &&
+                      bet.description !== `${bet.legs.length}-leg Kalshi parlay` &&
+                      bet.description !== bet.legs[0] ? (
+                        <p className="mt-0.5 truncate text-[10px] text-muted">
+                          {bet.description}
+                        </p>
+                      ) : null}
                       <p className="mt-1 text-[9px] uppercase tracking-[0.08em] text-faint">
                         {bet.date} · Kalshi
                         {bet.entryPriceBps
@@ -1046,43 +1239,86 @@ export function ManualTracker() {
                     </button>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-3 gap-2">
-                    <div className="rounded-xl border bg-background p-2.5">
-                      <p className="text-[8px] uppercase tracking-[0.07em] text-faint">
-                        Stake
-                      </p>
-                      <p className="mt-1 text-xs font-semibold tabular">
-                        {money(bet.stake)}
-                      </p>
+                  {bet.isParlay && bet.status === "open" ? (
+                    <div className="mt-4 grid grid-cols-3 gap-2">
+                      <div className="rounded-xl border bg-background p-2.5">
+                        <p className="text-[8px] uppercase tracking-[0.07em] text-faint">
+                          Stake
+                        </p>
+                        <p className="mt-1 text-xs font-semibold tabular">
+                          {money(bet.stake)}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border bg-background p-2.5">
+                        <p className="text-[8px] uppercase tracking-[0.07em] text-faint">
+                          To return
+                        </p>
+                        <p className="mt-1 text-xs font-semibold tabular">
+                          {bet.decimalOdds
+                            ? money(bet.stake * bet.decimalOdds)
+                            : "n/a"}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border bg-background p-2.5">
+                        <p className="text-[8px] uppercase tracking-[0.07em] text-faint">
+                          Live pulse
+                        </p>
+                        <p
+                          className={cn(
+                            "mt-1 text-xs font-semibold tabular",
+                            (parlay?.relativePct ?? 0) > 0
+                              ? "text-positive"
+                              : (parlay?.relativePct ?? 0) < 0
+                                ? "text-negative"
+                                : "",
+                          )}
+                        >
+                          {parlay?.relativePct === null ||
+                          parlay?.relativePct === undefined
+                            ? "waiting"
+                            : `${parlay.relativePct >= 0 ? "+" : ""}${parlay.relativePct.toFixed(0)}%`}
+                        </p>
+                      </div>
                     </div>
-                    <div className="rounded-xl border bg-background p-2.5">
-                      <p className="text-[8px] uppercase tracking-[0.07em] text-faint">
-                        Returned
-                      </p>
-                      <p className="mt-1 text-xs font-semibold tabular">
-                        {bet.status === "open" || bet.status === "loss"
-                          ? "n/a"
-                          : money(bet.payout)}
-                      </p>
+                  ) : (
+                    <div className="mt-4 grid grid-cols-3 gap-2">
+                      <div className="rounded-xl border bg-background p-2.5">
+                        <p className="text-[8px] uppercase tracking-[0.07em] text-faint">
+                          Stake
+                        </p>
+                        <p className="mt-1 text-xs font-semibold tabular">
+                          {money(bet.stake)}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border bg-background p-2.5">
+                        <p className="text-[8px] uppercase tracking-[0.07em] text-faint">
+                          Returned
+                        </p>
+                        <p className="mt-1 text-xs font-semibold tabular">
+                          {bet.status === "open" || bet.status === "loss"
+                            ? "n/a"
+                            : money(bet.payout)}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border bg-background p-2.5">
+                        <p className="text-[8px] uppercase tracking-[0.07em] text-faint">
+                          P/L
+                        </p>
+                        <p
+                          className={cn(
+                            "mt-1 text-xs font-semibold tabular",
+                            (pl ?? 0) > 0
+                              ? "text-positive"
+                              : (pl ?? 0) < 0
+                                ? "text-negative"
+                                : "",
+                          )}
+                        >
+                          {money(pl)}
+                        </p>
+                      </div>
                     </div>
-                    <div className="rounded-xl border bg-background p-2.5">
-                      <p className="text-[8px] uppercase tracking-[0.07em] text-faint">
-                        P/L
-                      </p>
-                      <p
-                        className={cn(
-                          "mt-1 text-xs font-semibold tabular",
-                          (pl ?? 0) > 0
-                            ? "text-positive"
-                            : (pl ?? 0) < 0
-                              ? "text-negative"
-                              : "",
-                        )}
-                      >
-                        {money(pl)}
-                      </p>
-                    </div>
-                  </div>
+                  )}
 
                   {bet.isParlay && bet.legs.length ? (
                     <details className="group mt-3 rounded-xl border bg-background">
@@ -1096,15 +1332,44 @@ export function ManualTracker() {
                         <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
                       </summary>
                       <div className="border-t px-3 py-2.5">
-                        <ol className="space-y-1.5 text-[10px] leading-4 text-muted">
-                          {bet.legs.map((leg, index) => (
-                            <li key={`${bet.id}:${index}`}>
-                              <span className="mr-2 text-faint">
-                                {index + 1}.
-                              </span>
-                              {leg}
-                            </li>
-                          ))}
+                        {bet.status === "open" && parlay?.detail ? (
+                          <div className="mb-2 text-[9px] font-medium text-faint">
+                            {parlay.detail}
+                          </div>
+                        ) : null}
+                        <ol className="space-y-2 text-[10px] leading-4 text-muted">
+                          {bet.legs.map((leg, index) => {
+                            const linkedLeg = parlay?.linked[index];
+                            const delta = linkedLeg?.delta ?? null;
+                            return (
+                              <li
+                                key={`${bet.id}:${index}`}
+                                className="flex items-center gap-2"
+                              >
+                                <span className="min-w-0 flex-1">
+                                  <span className="mr-2 text-faint">
+                                    {index + 1}.
+                                  </span>
+                                  {leg}
+                                </span>
+                                {delta !== null ? (
+                                  <span
+                                    className={cn(
+                                      "shrink-0 rounded-full border px-1.5 py-0.5 text-[8px] font-semibold tabular",
+                                      delta >= 200
+                                        ? "border-positive/25 bg-positive-bg text-positive"
+                                        : delta <= -200
+                                          ? "border-negative/25 bg-negative-bg text-negative"
+                                          : "bg-surface text-muted",
+                                    )}
+                                  >
+                                    {delta >= 0 ? "+" : ""}
+                                    {(delta / 100).toFixed(1)}pp
+                                  </span>
+                                ) : null}
+                              </li>
+                            );
+                          })}
                         </ol>
                       </div>
                     </details>
