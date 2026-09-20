@@ -361,6 +361,7 @@ function pickFacingBps(
 
 function sourceLabel(source: string) {
   if (source === "nflverse_current_season_scoring") return "nflverse scoring";
+  if (source === "current_season_league_baseline") return "2026 league baseline";
   if (source === "nflverse_current_season_record") return "nflverse record";
   if (source === "espn_fpi") return "ESPN FPI";
   if (source === "espn_live_win_probability") return "ESPN live win model";
