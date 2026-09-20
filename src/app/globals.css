@@ -601,3 +601,72 @@ button, a, input, select, textarea { outline-offset: 3px; }
     );
   }
 }
+
+
+/* Tracker live-position states */
+.tracker-live-good {
+  border-color: color-mix(in srgb, var(--positive) 48%, var(--border));
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--positive-bg) 46%, transparent),
+      transparent 56%
+    ),
+    var(--surface);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--positive) 8%, transparent);
+}
+
+.tracker-live-watch {
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--warning-bg) 38%, transparent),
+      transparent 58%
+    ),
+    var(--surface);
+}
+
+.tracker-live-bad {
+  border-color: color-mix(in srgb, var(--negative) 44%, var(--border));
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--negative-bg) 42%, transparent),
+      transparent 58%
+    ),
+    var(--surface);
+}
+
+.tracker-live-good::after,
+.tracker-live-watch::after,
+.tracker-live-bad::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: 0;
+}
+
+.tracker-live-good::after {
+  box-shadow: inset 0 0 42px color-mix(in srgb, var(--positive) 10%, transparent);
+  animation: tracker-live-pulse 2.8s ease-in-out infinite;
+}
+
+@keyframes tracker-live-pulse {
+  0%,
+  100% {
+    opacity: 0.18;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tracker-live-good::after {
+    animation: none;
+    opacity: 0.25;
+  }
+}
