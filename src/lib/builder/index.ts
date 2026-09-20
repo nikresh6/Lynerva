@@ -72,11 +72,15 @@ function playerStatKey(market: MarketOpportunity) {
 }
 
 function adjustedLegProbability(market: MarketOpportunity) {
-  const price = (market.executablePriceBps ?? 0) / 10_000;
-  const model = (market.recommendedProbabilityBps ?? 0) / 10_000;
-  const reliability = clamp(market.model.reliabilityBps / 10_000, 0, 1);
-
-  return clamp(price + reliability * (model - price), 0.001, 0.999);
+  // The market probability has already gone through stat-specific modeling and
+  // calibration. Builder economics use that calibrated probability directly
+  // so a TD or interception is not silently shrunk toward price more than a
+  // yardage prop. Reliability is handled separately in ranking/eligibility.
+  return clamp(
+    (market.recommendedProbabilityBps ?? 0) / 10_000,
+    0.001,
+    0.999,
+  );
 }
 
 function oddsContributionShares(legs: RankedCandidate[]) {
@@ -239,11 +243,15 @@ function candidatePool(
       // Prefer real parlay legs over stacks of nearly certain contracts, but do
       // not exclude a strong favorite when the model sees genuine value.
       const normalLegFit = clamp(1 - Math.abs(price - 0.62) / 0.38, 0, 1);
+      const reliability = clamp(market.model.reliabilityBps / 10_000, 0, 1);
+      const publicScore = clamp((market.lynervaScore ?? 50) / 100, 0, 1);
       const searchScore =
-        0.9 * Math.log(valueMultiplier) +
-        0.3 * Math.log(adjustedProbability) +
-        0.12 * edge +
-        0.12 * normalLegFit;
+        0.86 * Math.log(valueMultiplier) +
+        0.24 * Math.log(adjustedProbability) +
+        0.42 * publicScore +
+        0.12 * reliability +
+        0.10 * edge +
+        0.08 * normalLegFit;
 
       return [
         {
@@ -264,58 +272,32 @@ function candidatePool(
         second.adjustedProbability - first.adjustedProbability,
     );
 
-  // A single deep family should never consume the whole optimizer pool.
-  // Round-robin the best candidates from every prop family, while still
-  // enforcing one alternate line per player/stat and reasonable game caps.
-  const familyBuckets = new Map<string, RankedCandidate[]>();
-  for (const candidate of ranked) {
-    const key = familyKey(candidate.market);
-    const bucket = familyBuckets.get(key) ?? [];
-    bucket.push(candidate);
-    familyBuckets.set(key, bucket);
-  }
-
-  const buckets = [...familyBuckets.entries()].toSorted(
-    (first, second) =>
-      (second[1][0]?.searchScore ?? -Infinity) -
-      (first[1][0]?.searchScore ?? -Infinity),
-  );
+  // Keep the candidate pool globally quality-ranked. Diversity belongs at the
+  // combination level, not in family quotas that can force weaker individual
+  // legs into the optimizer.
   const perPlayerStat = new Map<string, number>();
   const perGame = new Map<string, number>();
   const perSubject = new Map<string, number>();
   const selected: RankedCandidate[] = [];
 
-  while (selected.length < 220) {
-    let added = false;
+  for (const candidate of ranked) {
+    const statKey = playerStatKey(candidate.market);
+    if ((perPlayerStat.get(statKey) ?? 0) >= 1) continue;
 
-    for (const [, bucket] of buckets) {
-      while (bucket.length) {
-        const candidate = bucket.shift()!;
-        const statKey = playerStatKey(candidate.market);
-        if ((perPlayerStat.get(statKey) ?? 0) >= 1) continue;
+    const game = gameKey(candidate.market);
+    if ((perGame.get(game) ?? 0) >= 40) continue;
 
-        const game = gameKey(candidate.market);
-        if ((perGame.get(game) ?? 0) >= 36) continue;
+    const subject =
+      candidate.market.canonical?.subject.toLowerCase() ??
+      candidate.market.platformMarketId;
+    if ((perSubject.get(subject) ?? 0) >= 7) continue;
 
-        const subject =
-          candidate.market.canonical?.subject.toLowerCase() ??
-          candidate.market.platformMarketId;
-        if ((perSubject.get(subject) ?? 0) >= 8) continue;
-
-        selected.push(candidate);
-        perPlayerStat.set(statKey, 1);
-        perGame.set(game, (perGame.get(game) ?? 0) + 1);
-        perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
-        added = true;
-        break;
-      }
-
-      if (selected.length >= 220) break;
-    }
-
-    if (!added) break;
+    selected.push(candidate);
+    perPlayerStat.set(statKey, 1);
+    perGame.set(game, (perGame.get(game) ?? 0) + 1);
+    perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
+    if (selected.length >= 220) break;
   }
-
   return selected;
 }
 
@@ -789,23 +771,107 @@ export function buildBestAvailableCombination(
 }
 
 
+function combinationIdentity(market: MarketOpportunity) {
+  return market.canonical?.key ?? `${market.platform}:${market.platformMarketId}`;
+}
+
+function overlapShare(
+  first: BuiltCombination,
+  second: BuiltCombination,
+  selector: (market: MarketOpportunity) => string,
+) {
+  const left = new Set(first.legs.map(selector));
+  const right = new Set(second.legs.map(selector));
+  const denominator = Math.max(1, Math.min(left.size, right.size));
+  let shared = 0;
+  for (const key of left) if (right.has(key)) shared += 1;
+  return shared / denominator;
+}
+
+function combinationSimilarity(
+  first: BuiltCombination,
+  second: BuiltCombination,
+) {
+  const exact = overlapShare(first, second, combinationIdentity);
+  const subjects = overlapShare(
+    first,
+    second,
+    (market) =>
+      market.canonical?.subject.toLowerCase() ??
+      combinationIdentity(market),
+  );
+  const games = overlapShare(first, second, gameKey);
+  return clamp(exact * 0.68 + subjects * 0.22 + games * 0.10, 0, 1);
+}
+
+function selectDistinctCombinations(
+  candidates: BuiltCombination[],
+  limit: number,
+) {
+  const remaining = [...candidates];
+  const selected: BuiltCombination[] = [];
+
+  while (remaining.length && selected.length < limit) {
+    let bestIndex = 0;
+    let bestUtility = -Infinity;
+
+    for (let index = 0; index < remaining.length; index += 1) {
+      const candidate = remaining[index]!;
+      const maxSimilarity = selected.length
+        ? Math.max(
+            ...selected.map((row) => combinationSimilarity(candidate, row)),
+          )
+        : 0;
+      const maxExactOverlap = selected.length
+        ? Math.max(
+            ...selected.map((row) =>
+              overlapShare(candidate, row, combinationIdentity),
+            ),
+          )
+        : 0;
+
+      // Prefer a genuinely different thesis whenever one exists. Three of the
+      // same four legs with one swap is not a new option.
+      const duplicateThesisPenalty =
+        maxExactOverlap > 0.5 ? 28 + (maxExactOverlap - 0.5) * 80 : 0;
+      const utility =
+        candidate.lynervaScore +
+        candidate.expectedProfitOn100 * 0.08 -
+        maxSimilarity * 24 -
+        duplicateThesisPenalty;
+
+      if (utility > bestUtility) {
+        bestUtility = utility;
+        bestIndex = index;
+      }
+    }
+
+    selected.push(remaining.splice(bestIndex, 1)[0]!);
+  }
+
+  return selected;
+}
+
 export function buildRankedCombinations(
   opportunities: MarketOpportunity[],
   options: BuilderOptions,
   limit = 6,
 ): BuiltCombination[] {
-  return buildCombinationCandidates(
+  const candidates = buildCombinationCandidates(
     opportunities,
     options,
-    Math.max(12, Math.min(limit * 6, 96)),
-  )
-    .toSorted(
-      (first, second) =>
-        second.lynervaScore - first.lynervaScore ||
-        second.expectedValueMultiplier - first.expectedValueMultiplier ||
-        second.estimatedProbability - first.estimatedProbability,
-    )
-    .slice(0, Math.max(1, limit));
+    Math.max(24, Math.min(limit * 10, 96)),
+  ).toSorted(
+    (first, second) =>
+      second.lynervaScore - first.lynervaScore ||
+      second.expectedValueMultiplier - first.expectedValueMultiplier ||
+      second.estimatedProbability - first.estimatedProbability,
+  );
+
+  return selectDistinctCombinations(
+    candidates,
+    Math.max(1, limit),
+  );
 }
 
 export function buildTopScoredCombinations(
