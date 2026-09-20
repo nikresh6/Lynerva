@@ -448,6 +448,9 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
           description: `${displayPickSide(market)} · ${title}`,
           platform: market.platform,
           entryPriceBps: market.executablePriceBps,
+          platformMarketId: market.platformMarketId,
+          platformOutcomeId: market.platformOutcomeId,
+          canonicalKey: market.canonical?.key ?? null,
         }),
       );
     } catch {}
@@ -542,7 +545,7 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
             <h3 className="text-sm font-semibold">Bet details</h3>
             <div className="mt-3 grid grid-cols-2 gap-4 text-xs">
               <div><div className="text-faint">Platform</div><div className="mt-1 font-medium capitalize">{market.platform}</div></div>
-              <div><div className="text-faint">Updated</div><div className="mt-1 font-medium">{relativeTime(market.updatedAt)}</div></div>
+              <div><div className="text-faint">Odds changed</div><div className="mt-1 font-medium">{relativeTime(market.priceChangedAt ?? market.updatedAt)}</div></div>
               <div><div className="text-faint">Lynerva score</div><div className="mt-1 font-medium">{market.lynervaScore ?? "—"} / 100</div></div>
               <div><div className="text-faint">Games in model</div><div className="mt-1 font-medium">{market.model.evidence.sampleSize || "—"}</div></div>
             </div>
@@ -724,7 +727,9 @@ export function MarketTable({
                 </div>
 
                 <div className="mt-auto flex items-center justify-between gap-3 pt-3.5 text-[10px] text-muted">
-                  <span>{americanOdds(market.executablePriceBps)} equivalent</span>
+                  <span>
+                    {americanOdds(market.executablePriceBps)} equivalent · odds changed {relativeTime(market.priceChangedAt ?? market.updatedAt)}
+                  </span>
                   <span className="inline-flex items-center gap-1 font-medium text-foreground/80">
                     <FlaskConical size={11} />
                     Bet Lab
