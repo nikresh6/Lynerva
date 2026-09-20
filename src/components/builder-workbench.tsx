@@ -139,6 +139,7 @@ const RETURN_PRESETS = [
   { label: "20x to 50x", min: 20, max: 50 },
   { label: "50x to 100x", min: 50, max: 100 },
   { label: "100x to 250x", min: 100, max: 250 },
+  { label: "250x to 500x", min: 250, max: 500 },
 ] as const;
 
 function legOddsContribution(
@@ -275,7 +276,7 @@ export function BuilderWorkbench() {
     Number.isFinite(stakeNumber) &&
     minReturnNumber > 1 &&
     maxReturnNumber >= minReturnNumber &&
-    maxReturnNumber <= 300 &&
+    maxReturnNumber <= 500 &&
     stakeNumber > 0;
 
   const canBuildPortfolio =
@@ -1221,6 +1222,10 @@ export function BuilderWorkbench() {
                     <option value="6">6 legs</option>
                     <option value="7">7 legs</option>
                     <option value="8">8 legs</option>
+                    <option value="9">9 legs</option>
+                    <option value="10">10 legs</option>
+                    <option value="11">11 legs</option>
+                    <option value="12">12 legs</option>
                   </select>
                 </label>
               </div>
