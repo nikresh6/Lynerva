@@ -265,11 +265,11 @@ function parlayCandidates(
   }> = [{ minReturn: 1.3, maxReturn: 4, limit: 14 }];
 
   if (targetReturn >= 2.2 || options.risk === "higher") {
-    returnBands.push({ minReturn: 5, maxReturn: 30, limit: 12 });
+    returnBands.push({ minReturn: 5, maxReturn: 24.9, limit: 12 });
   }
 
   if (targetReturn >= 2.8 || options.risk === "higher") {
-    returnBands.push({ minReturn: 20, maxReturn: 500, limit: 12 });
+    returnBands.push({ minReturn: 25, maxReturn: 500, limit: 12 });
   }
 
   if (targetReturn >= 6) {
