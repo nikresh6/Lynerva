@@ -1433,10 +1433,26 @@ async function buildConsensus(
     };
   }
 
-  const availableWeights = points.map((point) => ({
-    point,
-    weight: learned?.weights[point.source] ?? 1,
-  }));
+  const sortedValues = points.map((point) => point.value).toSorted((a, b) => a - b);
+  const median = sortedValues[Math.floor(sortedValues.length / 2)] ?? 0;
+  const deviations = sortedValues
+    .map((value) => Math.abs(value - median))
+    .toSorted((a, b) => a - b);
+  const mad = deviations[Math.floor(deviations.length / 2)] ?? 0;
+  const robustScale = Math.max(1, Math.abs(median) * 0.10, mad * 2.5);
+
+  // Learned historical accuracy is the base weight. A smooth robust-agreement
+  // weight then prevents one still-plausible but isolated source from dragging
+  // the consensus far away from the rest of the projection cluster.
+  const availableWeights = points.map((point) => {
+    const learnedWeight = learned?.weights[point.source] ?? 1;
+    const distance = Math.abs(point.value - median) / robustScale;
+    const agreementWeight = 1 / (1 + distance * distance);
+    return {
+      point,
+      weight: learnedWeight * agreementWeight,
+    };
+  });
   const weightTotal =
     availableWeights.reduce((sum, item) => sum + item.weight, 0) || 1;
   const projection = availableWeights.reduce(
