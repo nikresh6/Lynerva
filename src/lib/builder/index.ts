@@ -757,7 +757,10 @@ function diversifyCombinations(
   const chosen: BuiltCombination[] = [];
   const remaining = new Set(baseSorted);
 
-  for (const overlapCeiling of [0.34, 0.5, 0.67, 1]) {
+  // Do not fill the carousel with cosmetic variants. If two returned parlays
+  // share more than half of their player/stat ideas, one of them is not a
+  // meaningfully different recommendation.
+  for (const overlapCeiling of [0.34, 0.5]) {
     while (chosen.length < limit) {
       const candidates = [...remaining]
         .map((row) => {
