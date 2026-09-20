@@ -159,11 +159,13 @@ export function lynervaScore(input: {
   // score. Reliability now matters only through coarse buckets and the
   // reliability shrink above, so source quality can matter without making the
   // number twitch on ordinary quote refreshes.
+  // Raw win probability is diagnostic, not a reason to reward an
+  // expensive near-certain contract. Ranking should answer "how good is this
+  // opportunity?" rather than "how safe is this leg?" Reliability still
+  // matters through the shrink above.
   const score =
-    value * 0.26 +
-    probability * 0.38 +
-    edge * 0.24 +
-    reliability * 0.12;
+    value * 0.58 +
+    edge * 0.42;
 
   return {
     score: Math.round(clamp(score, 0, 100)),
