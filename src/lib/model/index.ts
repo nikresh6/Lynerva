@@ -16,7 +16,7 @@ import type {
   ModelEstimate,
 } from "@/lib/markets/types";
 
-const MODEL_VERSION = "hybrid-consensus-learning-v3";
+const MODEL_VERSION = "hybrid-consensus-learning-v4";
 
 const emptyEvidence: HistoricalEvidence = {
   last5Hits: null,
@@ -56,6 +56,26 @@ function erf(value: number) {
 
 function normalCdf(value: number, mean: number, stdDev: number) {
   return 0.5 * (1 + erf((value - mean) / (stdDev * Math.sqrt(2))));
+}
+
+function sampleStdDev(values: number[]) {
+  if (values.length < 2) return null;
+  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+  const variance =
+    values.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
+    (values.length - 1);
+  return Number.isFinite(variance) ? Math.sqrt(Math.max(variance, 0)) : null;
+}
+
+function adaptivePlayerStdDev(prior: number, values: number[]) {
+  const observed = sampleStdDev(values);
+  if (observed === null || observed <= 0 || values.length < 4) return prior;
+
+  // Start from a family-level volatility prior, then gradually let the
+  // player's own regular-season variance matter as the sample grows.
+  const historyWeight = clamp((values.length - 3) / 18, 0.12, 0.58);
+  const blended = prior * (1 - historyWeight) + observed * historyWeight;
+  return clamp(blended, prior * 0.65, prior * 1.75);
 }
 
 function remainingGameFraction(game: LiveNflGame | null | undefined) {
@@ -413,14 +433,24 @@ export async function estimateMarket(
         canonical.family === "touchdowns" ||
         canonical.family === "passing_touchdowns" ||
         canonical.family === "passing_interceptions";
+      const familyPrior =
+        distributionStdDev[canonical.family] ??
+        Math.max(1, Math.abs(external.projection) * 0.35);
+      const playerStdDev = adaptivePlayerStdDev(familyPrior, values);
+      // Receptions are integer-valued. For integer Kalshi thresholds, use a
+      // continuity-corrected boundary so P(X >= 5) is evaluated at 4.5 rather
+      // than pretending receptions are perfectly continuous.
+      const normalBoundary =
+        canonical.family === "receptions" && Number.isInteger(threshold)
+          ? threshold - 0.5
+          : threshold;
       const overProbability = countMarket
         ? poissonAtLeastProbability(threshold, external.projection)
         : 1 -
           normalCdf(
-            threshold,
+            normalBoundary,
             external.projection,
-            distributionStdDev[canonical.family] ??
-              Math.max(1, threshold * 0.35),
+            playerStdDev,
           );
       consensusProbability =
         canonical.direction === "under" ? 1 - overProbability : overProbability;
@@ -436,10 +466,20 @@ export async function estimateMarket(
       recentHits = hits(last5, threshold, canonical.direction);
       const average = last5.reduce((sum, value) => sum + value, 0) / last5.length;
       seasonHitCount = historicalHits;
+      const ratioSensitive = ![
+        "touchdowns",
+        "passing_touchdowns",
+        "passing_interceptions",
+        "receptions",
+      ].includes(canonical.family);
       statisticalProbability = empiricalPlayerProbability({
         historicalHitRate: historicalHits / values.length,
         recentHitRate: recentHits / last5.length,
-        recentPerformanceRatio: threshold === 0 ? 1 : average / threshold,
+        // A yards-above-line ratio is useful context for continuous yardage
+        // props, but it is badly scaled for low-count outcomes such as 0/1 TDs
+        // or 1/2 interceptions. Those families rely on hit frequency instead.
+        recentPerformanceRatio:
+          ratioSensitive && threshold !== 0 ? average / threshold : 1,
         sampleSize: values.length,
       });
     }
@@ -520,7 +560,10 @@ export async function estimateMarket(
     }
 
     probability = clamp(probability + contextAdjustment, 0.001, 0.999);
-    const calibrated = await selfCalibrateProbability(probability);
+    const calibrated = await selfCalibrateProbability(
+      probability,
+      canonical.family,
+    );
     probability = calibrated.probability;
 
     const sourceCount = external.points.length;
