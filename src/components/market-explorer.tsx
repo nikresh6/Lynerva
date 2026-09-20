@@ -270,11 +270,15 @@ export function MarketExplorer({
       status: forceStatus ?? filters.status,
     };
 
-    // Public pick boards only show bets where Lynerva actually has a positive
-    // model-versus-market edge. A high raw hit probability cannot rescue a
-    // poorly priced contract.
+    // The default board remains recommendation-only, but selecting Moneyline
+    // is also a market browser: show both team outcomes for every priced game
+    // so a normal weekly slate is roughly 32 team moneylines, not only the
+    // subset where Lynerva currently has positive edge.
+    const browseAllMoneylines = activeFilters.family === "moneyline";
     let eligible = opportunities.filter(
-      (market) => isPricedOpportunity(market) && (market.edgeBps ?? 0) > 0,
+      (market) =>
+        isPricedOpportunity(market) &&
+        (browseAllMoneylines || (market.edgeBps ?? 0) > 0),
     );
 
     if (activeGame) {
