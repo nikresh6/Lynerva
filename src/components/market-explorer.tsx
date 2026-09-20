@@ -8,7 +8,6 @@ import { filterAndSortMarkets } from "@/lib/markets/filters";
 import type {
   MarketFamily,
   MarketFilters,
-  Platform,
 } from "@/lib/markets/types";
 import { MarketTable } from "./market-table";
 import { useMarketData } from "./market-data-provider";
@@ -312,7 +311,7 @@ export function MarketExplorer({
 
   return (
     <>
-      <div className="filter-dock premium-panel sticky top-[94px] z-30 mb-3 rounded-2xl p-2.5 backdrop-blur-xl sm:top-14">
+      <div className="filter-dock premium-panel sticky top-[58px] z-30 mb-3 rounded-2xl p-2.5 backdrop-blur-xl sm:top-14">
         <div className="grid grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
           <label className="relative col-span-2 min-w-0 sm:col-span-1 sm:min-w-[220px] sm:flex-1">
             <Search
@@ -326,18 +325,6 @@ export function MarketExplorer({
               className="h-10 w-full rounded-lg border bg-surface pl-9 pr-3 text-xs outline-none placeholder:text-faint focus:border-accent"
             />
           </label>
-
-          <Select
-            value={filters.platform}
-            onChange={(value) =>
-              update("platform", value as "all" | Platform)
-            }
-            label="Platform"
-          >
-            <option value="all">All platforms</option>
-            <option value="kalshi">Kalshi</option>
-            <option value="polymarket">Polymarket</option>
-          </Select>
 
           {!forceStatus ? (
             <Select
