@@ -30,6 +30,8 @@ interface ManualBet {
   isLive: boolean;
   isParlay: boolean;
   legs: string[];
+  legMarketIds: string[];
+  decimalOdds: number | null;
 }
 
 const STORAGE_KEY = "lynerva-manual-tracker-v2";
@@ -48,6 +50,35 @@ function money(value: number | null) {
     style: "currency",
     currency: "USD",
   }).format(value);
+}
+
+function parseTrackedOdds(value: string) {
+  const raw = value.trim().toLowerCase().replace(/x$/, "");
+  if (!raw) return null;
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric)) return null;
+
+  const looksAmerican =
+    /^[+-]\d+(?:\.\d+)?$/.test(raw) ||
+    (/^\d{3,}(?:\.\d+)?$/.test(raw) && numeric >= 100);
+
+  if (looksAmerican) {
+    if (numeric === 0) return null;
+    return numeric > 0
+      ? 1 + numeric / 100
+      : 1 + 100 / Math.abs(numeric);
+  }
+
+  return numeric > 1 ? numeric : null;
+}
+
+function trackedOddsLabel(decimalOdds: number | null) {
+  if (!decimalOdds || decimalOdds <= 1) return null;
+  const american =
+    decimalOdds >= 2
+      ? Math.round((decimalOdds - 1) * 100)
+      : -Math.round(100 / (decimalOdds - 1));
+  return `${american > 0 ? "+" : ""}${american} · ${decimalOdds.toFixed(2)}x`;
 }
 
 function marketPickLabel(market: MarketOpportunity) {
@@ -134,6 +165,8 @@ export function ManualTracker() {
   const [selectedMarketId, setSelectedMarketId] = useState("");
   const [betType, setBetType] = useState<"straight" | "parlay">("straight");
   const [parlayLegs, setParlayLegs] = useState("");
+  const [parlayLegMarketIds, setParlayLegMarketIds] = useState<string[]>([]);
+  const [parlayOdds, setParlayOdds] = useState("");
   const [cashoutBetId, setCashoutBetId] = useState<string | null>(null);
   const [cashoutAmount, setCashoutAmount] = useState("");
 
@@ -202,6 +235,11 @@ export function ManualTracker() {
             isLive: Boolean(bet.isLive),
             isParlay: Boolean(bet.isParlay),
             legs: Array.isArray(bet.legs) ? bet.legs : [],
+            legMarketIds: Array.isArray(bet.legMarketIds)
+              ? bet.legMarketIds
+              : [],
+            decimalOdds:
+              typeof bet.decimalOdds === "number" ? bet.decimalOdds : null,
           })),
         );
       }
@@ -227,10 +265,9 @@ export function ManualTracker() {
   }, [bets]);
 
   useEffect(() => {
-    if (!selectedMarket) return;
+    if (!selectedMarket || betType !== "straight") return;
     setDescription(marketPickLabel(selectedMarket));
-    setBetType("straight");
-  }, [selectedMarket]);
+  }, [selectedMarket, betType]);
 
   const summary = useMemo(() => {
     const settled = bets.filter((bet) => bet.status !== "open");
@@ -258,17 +295,21 @@ export function ManualTracker() {
     setBets((current) =>
       current.map((item) => {
         if (item.id !== id) return item;
-        if (
-          next === "win" &&
-          item.payout <= 0 &&
-          item.entryPriceBps &&
-          item.entryPriceBps > 0
-        ) {
-          return {
-            ...item,
-            status: next,
-            payout: item.stake / (item.entryPriceBps / 10_000),
-          };
+        if (next === "win" && item.payout <= 0) {
+          if (item.isParlay && item.decimalOdds && item.decimalOdds > 1) {
+            return {
+              ...item,
+              status: next,
+              payout: item.stake * item.decimalOdds,
+            };
+          }
+          if (item.entryPriceBps && item.entryPriceBps > 0) {
+            return {
+              ...item,
+              status: next,
+              payout: item.stake / (item.entryPriceBps / 10_000),
+            };
+          }
         }
         return { ...item, status: next };
       }),
@@ -280,10 +321,26 @@ export function ManualTracker() {
   const add = (event: React.FormEvent) => {
     event.preventDefault();
     const stakeValue = Number(stake);
+    const legs =
+      betType === "parlay"
+        ? parlayLegs
+            .split("\n")
+            .map((leg) => leg.trim())
+            .filter(Boolean)
+        : [];
+    const decimalOdds =
+      betType === "parlay" ? parseTrackedOdds(parlayOdds) : null;
+    const resolvedDescription =
+      description.trim() ||
+      (betType === "parlay" && legs.length
+        ? `${legs.length}-leg Kalshi parlay`
+        : "");
+
     if (
-      !description.trim() ||
+      !resolvedDescription ||
       !Number.isFinite(stakeValue) ||
-      stakeValue <= 0
+      stakeValue <= 0 ||
+      (betType === "parlay" && (legs.length < 2 || decimalOdds === null))
     ) {
       return;
     }
@@ -294,15 +351,27 @@ export function ManualTracker() {
     const side =
       betType === "straight" ? market?.recommendedSide ?? null : null;
     const automaticPayout =
-      status === "win" && entryPriceBps
-        ? stakeValue / (entryPriceBps / 10_000)
+      status === "win"
+        ? entryPriceBps
+          ? stakeValue / (entryPriceBps / 10_000)
+          : decimalOdds
+            ? stakeValue * decimalOdds
+            : 0
         : 0;
+    const linkedParlayMarkets =
+      betType === "parlay" ? parlayLegMarketIds : [];
+    const parlayIsLive = linkedParlayMarkets.some((marketId) =>
+      realMarkets.some(
+        (candidate) =>
+          candidate.platformMarketId === marketId && candidate.isLive,
+      ),
+    );
 
     setBets((current) => [
       {
         id: crypto.randomUUID(),
         date,
-        description: description.trim(),
+        description: resolvedDescription,
         platform: "kalshi",
         stake: stakeValue,
         payout: automaticPayout,
@@ -311,15 +380,12 @@ export function ManualTracker() {
           betType === "straight" ? market?.platformMarketId ?? null : null,
         side,
         entryPriceBps,
-        isLive: Boolean(market?.isLive),
+        isLive:
+          betType === "straight" ? Boolean(market?.isLive) : parlayIsLive,
         isParlay: betType === "parlay",
-        legs:
-          betType === "parlay"
-            ? parlayLegs
-                .split("\n")
-                .map((leg) => leg.trim())
-                .filter(Boolean)
-            : [],
+        legs,
+        legMarketIds: linkedParlayMarkets,
+        decimalOdds,
       },
       ...current,
     ]);
@@ -329,6 +395,8 @@ export function ManualTracker() {
     setStatus("open");
     setSelectedMarketId("");
     setParlayLegs("");
+    setParlayLegMarketIds([]);
+    setParlayOdds("");
     setBetType("straight");
     setShowForm(false);
   };
@@ -405,8 +473,9 @@ export function ManualTracker() {
               ) : null}
             </div>
             <p className="mt-1 max-w-2xl text-[11px] leading-5 text-muted">
-              Pick a real Kalshi market for autofill, or enter a manual straight
-              or parlay. Linked open bets get a live market pulse from current
+              Pick a real Kalshi market for a straight, or autofill Kalshi legs
+              into a parlay and enter the exact total odds you actually got.
+              Linked open straight bets get a live market pulse from current
               pricing.
             </p>
           </div>
@@ -427,15 +496,37 @@ export function ManualTracker() {
           >
             <label className="sm:col-span-2 lg:col-span-3">
               <span className="mb-1.5 block text-[10px] font-medium text-muted">
-                Autofill from current Kalshi markets
+                {betType === "parlay"
+                  ? "Add a leg from current Kalshi markets"
+                  : "Autofill from current Kalshi markets"}
               </span>
               <select
                 value={selectedMarketId}
-                onChange={(event) => setSelectedMarketId(event.target.value)}
-                disabled={betType === "parlay"}
+                onChange={(event) => {
+                  const nextId = event.target.value;
+                  if (betType === "parlay") {
+                    const market = realMarkets.find(
+                      (candidate) => candidate.platformMarketId === nextId,
+                    );
+                    if (market && !parlayLegMarketIds.includes(nextId)) {
+                      const label = marketPickLabel(market);
+                      setParlayLegs((current) =>
+                        current.trim()
+                          ? `${current.trimEnd()}\n${label}`
+                          : label,
+                      );
+                      setParlayLegMarketIds((current) => [...current, nextId]);
+                    }
+                    setSelectedMarketId("");
+                    return;
+                  }
+                  setSelectedMarketId(nextId);
+                }}
                 className={inputClass}
               >
-                <option value="">Manual entry</option>
+                <option value="">
+                  {betType === "parlay" ? "Choose a leg to add" : "Manual entry"}
+                </option>
                 {realMarkets.map((market) => (
                   <option
                     key={market.platformMarketId}
@@ -458,7 +549,7 @@ export function ManualTracker() {
                 onChange={(event) => {
                   const next = event.target.value as "straight" | "parlay";
                   setBetType(next);
-                  if (next === "parlay") setSelectedMarketId("");
+                  setSelectedMarketId("");
                 }}
                 className={inputClass}
               >
@@ -520,25 +611,52 @@ export function ManualTracker() {
               <input
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
-                required
+                required={betType === "straight"}
                 className={inputClass}
-                placeholder="Saquon Barkley over 72.5 rushing yards"
+                placeholder={
+                  betType === "parlay"
+                    ? "Optional name, e.g. Sunday 4-leg parlay"
+                    : "Saquon Barkley over 72.5 rushing yards"
+                }
               />
             </label>
 
             {betType === "parlay" ? (
-              <label className="sm:col-span-2 lg:col-span-4">
-                <span className="mb-1.5 block text-[10px] font-medium text-muted">
-                  Parlay legs, one per line
-                </span>
-                <textarea
-                  value={parlayLegs}
-                  onChange={(event) => setParlayLegs(event.target.value)}
-                  rows={4}
-                  className="control-surface w-full rounded-xl px-3 py-2.5 text-xs outline-none focus:border-accent"
-                  placeholder={"Leg 1\nLeg 2\nLeg 3"}
-                />
-              </label>
+              <>
+                <label className="sm:col-span-2 lg:col-span-4">
+                  <span className="mb-1.5 block text-[10px] font-medium text-muted">
+                    Parlay legs
+                    {parlayLegMarketIds.length
+                      ? ` · ${parlayLegMarketIds.length} autofilled`
+                      : ""}
+                  </span>
+                  <textarea
+                    value={parlayLegs}
+                    onChange={(event) => setParlayLegs(event.target.value)}
+                    rows={4}
+                    className="control-surface w-full rounded-xl px-3 py-2.5 text-xs outline-none focus:border-accent"
+                    placeholder={"Use the dropdown above to add Kalshi legs, or type them here\nLeg 2\nLeg 3"}
+                  />
+                </label>
+
+                <label className="sm:col-span-2 lg:col-span-2">
+                  <span className="mb-1.5 block text-[10px] font-medium text-muted">
+                    Your total parlay odds
+                  </span>
+                  <input
+                    value={parlayOdds}
+                    onChange={(event) => setParlayOdds(event.target.value)}
+                    required
+                    className={inputClass}
+                    placeholder="+450 or 5.50x"
+                    inputMode="decimal"
+                  />
+                  <span className="mt-1.5 block text-[9px] leading-4 text-faint">
+                    Use the odds you actually received. Lynerva uses this exact
+                    price for win payout and P/L.
+                  </span>
+                </label>
+              </>
             ) : null}
 
             <div className="sm:col-span-2 lg:col-span-2 lg:flex lg:items-end lg:justify-end">
@@ -611,6 +729,9 @@ export function ManualTracker() {
                         {bet.entryPriceBps
                           ? ` · entry ${formatPercent(bet.entryPriceBps)}`
                           : ""}
+                        {bet.isParlay && trackedOddsLabel(bet.decimalOdds)
+                          ? ` · ${trackedOddsLabel(bet.decimalOdds)}`
+                          : ""}
                       </p>
                     </div>
 
@@ -665,7 +786,12 @@ export function ManualTracker() {
                   {bet.isParlay && bet.legs.length ? (
                     <details className="group mt-3 rounded-xl border bg-background">
                       <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-[10px] font-semibold">
-                        <span>{bet.legs.length} parlay legs</span>
+                        <span>
+                          {bet.legs.length} parlay legs
+                          {bet.legMarketIds.length
+                            ? ` · ${bet.legMarketIds.length} linked`
+                            : ""}
+                        </span>
                         <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
                       </summary>
                       <div className="border-t px-3 py-2.5">
