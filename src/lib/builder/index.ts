@@ -834,7 +834,7 @@ function isMeaningfullyDistinct(
     // roughly half exact overlap as well.
     const maxSharedExact =
       smallerLegCount <= 2
-        ? 0
+        ? smallerLegCount - 1
         : smallerLegCount === 3
           ? 1
           : Math.floor(smallerLegCount / 2);
