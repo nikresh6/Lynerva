@@ -61,9 +61,13 @@ export type ProjectionPerformanceRow = {
   sampleSize: number;
   medianAbsoluteError: number;
   p90AbsoluteError: number;
+  recentMedianAbsoluteError: number;
+  robustError: number;
   rmse: number;
   bias: number;
   weight: number | null;
+  previousWeight: number | null;
+  weightChange: number | null;
   weightWeek: number | null;
 };
 
@@ -91,6 +95,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
           actualValue: sourceProjectionGrades.actualValue,
           absoluteError: sourceProjectionGrades.absoluteError,
           squaredError: sourceProjectionGrades.squaredError,
+          gradedAt: sourceProjectionGrades.gradedAt,
         })
         .from(sourceProjectionGrades)
         .innerJoin(
@@ -139,14 +144,32 @@ export async function getProjectionSourcePerformance(season = 2026) {
       string,
       { weight: number; effectiveWeek: number }
     >();
+    const previousWeights = new Map<string, number>();
+    const seenWeightWeeks = new Map<string, Set<number>>();
+
     for (const row of weightRows) {
       const key = `${row.statistic}:${row.source}`;
+      const weeks = seenWeightWeeks.get(key) ?? new Set<number>();
+
       if (!latestWeights.has(key)) {
         latestWeights.set(key, {
           weight: row.weight,
           effectiveWeek: row.effectiveWeek,
         });
+        weeks.add(row.effectiveWeek);
+        seenWeightWeeks.set(key, weeks);
+        continue;
       }
+
+      const latestWeek = latestWeights.get(key)!.effectiveWeek;
+      if (
+        row.effectiveWeek !== latestWeek &&
+        !previousWeights.has(key)
+      ) {
+        previousWeights.set(key, row.weight);
+      }
+      weeks.add(row.effectiveWeek);
+      seenWeightWeeks.set(key, weeks);
     }
 
     const groups = new Map<
@@ -157,6 +180,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
         abs: number[];
         squared: number[];
         signed: number[];
+        recent: Array<{ error: number; gradedAt: number }>;
       }
     >();
 
@@ -177,26 +201,48 @@ export async function getProjectionSourcePerformance(season = 2026) {
           abs: [],
           squared: [],
           signed: [],
+          recent: [],
         };
       group.abs.push(row.absoluteError);
       group.squared.push(row.squaredError);
       group.signed.push(row.projectedValue - row.actualValue);
+      group.recent.push({
+        error: row.absoluteError,
+        gradedAt: row.gradedAt.getTime(),
+      });
       groups.set(key, group);
     }
 
     const rows: ProjectionPerformanceRow[] = [...groups.values()].map(
       (group) => {
         const abs = group.abs.toSorted((a, b) => a - b);
-        const weight = latestWeights.get(
-          `${group.statistic}:${group.source}`,
-        );
+        const weightKey = `${group.statistic}:${group.source}`;
+        const weight = latestWeights.get(weightKey);
+        const previousWeight = previousWeights.get(weightKey) ?? null;
         const sampleSize = abs.length;
+        const medianAbsoluteError = quantile(abs, 0.5);
+        const p90AbsoluteError = quantile(abs, 0.9);
+        const recentErrors = group.recent
+          .toSorted((a, b) => b.gradedAt - a.gradedAt)
+          .slice(0, 40)
+          .map((row) => row.error)
+          .toSorted((a, b) => a - b);
+        const recentMedianAbsoluteError = recentErrors.length
+          ? quantile(recentErrors, 0.5)
+          : medianAbsoluteError;
+        const robustError =
+          0.5 * medianAbsoluteError +
+          0.3 * recentMedianAbsoluteError +
+          0.2 * p90AbsoluteError;
+
         return {
           source: group.source,
           statistic: group.statistic,
           sampleSize,
-          medianAbsoluteError: quantile(abs, 0.5),
-          p90AbsoluteError: quantile(abs, 0.9),
+          medianAbsoluteError,
+          p90AbsoluteError,
+          recentMedianAbsoluteError,
+          robustError,
           rmse: Math.sqrt(
             group.squared.reduce((sum, value) => sum + value, 0) /
               Math.max(sampleSize, 1),
@@ -205,6 +251,11 @@ export async function getProjectionSourcePerformance(season = 2026) {
             group.signed.reduce((sum, value) => sum + value, 0) /
             Math.max(sampleSize, 1),
           weight: weight?.weight ?? null,
+          previousWeight,
+          weightChange:
+            weight && previousWeight !== null
+              ? weight.weight - previousWeight
+              : null,
           weightWeek: weight?.effectiveWeek ?? null,
         };
       },
