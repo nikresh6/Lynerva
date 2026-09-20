@@ -16,7 +16,7 @@ import type {
   ModelEstimate,
 } from "@/lib/markets/types";
 
-const MODEL_VERSION = "hybrid-consensus-learning-v4";
+const MODEL_VERSION = "hybrid-consensus-learning-v5";
 
 const emptyEvidence: HistoricalEvidence = {
   last5Hits: null,
@@ -431,6 +431,8 @@ export async function estimateMarket(
     if (external.projection !== null) {
       const countMarket =
         canonical.family === "touchdowns" ||
+        canonical.family === "rushing_touchdowns" ||
+        canonical.family === "receiving_touchdowns" ||
         canonical.family === "passing_touchdowns" ||
         canonical.family === "passing_interceptions";
       const familyPrior =
@@ -468,6 +470,8 @@ export async function estimateMarket(
       seasonHitCount = historicalHits;
       const ratioSensitive = ![
         "touchdowns",
+        "rushing_touchdowns",
+        "receiving_touchdowns",
         "passing_touchdowns",
         "passing_interceptions",
         "receptions",
@@ -552,6 +556,8 @@ export async function estimateMarket(
         "receptions",
         "longest_reception",
         "touchdowns",
+        "rushing_touchdowns",
+        "receiving_touchdowns",
       ].includes(canonical.family);
       if (environmentSensitive && environment !== 0) {
         contextAdjustment +=
