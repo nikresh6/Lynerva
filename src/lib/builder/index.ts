@@ -67,13 +67,18 @@ function mutuallyExclusiveMoneylines(
 ) {
   const left = first.canonical;
   const right = second.canonical;
-  return (
-    left?.family === "moneyline" &&
-    right?.family === "moneyline" &&
-    Boolean(left.matchup) &&
-    left.matchup === right.matchup &&
-    left.subject !== right.subject
-  );
+  if (
+    left?.family !== "moneyline" ||
+    right?.family !== "moneyline" ||
+    !left.matchup ||
+    left.matchup !== right.matchup ||
+    left.subject === right.subject
+  ) {
+    return false;
+  }
+
+  const teams = left.matchup.split("-");
+  return teams.includes(left.subject) && teams.includes(right.subject);
 }
 
 function playerStatKey(market: MarketOpportunity) {
