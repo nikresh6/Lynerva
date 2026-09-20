@@ -261,7 +261,6 @@ export function BuilderWorkbench() {
     Number.isFinite(stakeNumber) &&
     minReturnNumber > 1 &&
     maxReturnNumber >= minReturnNumber &&
-    maxReturnNumber <= 100 &&
     stakeNumber > 0;
 
   const canBuildPortfolio =
@@ -1232,9 +1231,9 @@ export function BuilderWorkbench() {
               </div>
               <p className="font-medium">No diversified plan fits this target</p>
               <p className="mx-auto mt-1 max-w-lg text-xs leading-5 text-muted">
-                Try a lower wanted payout, allow more parlay legs, use either
-                parlay type, or raise the risk limit. Lynerva will not fill a
-                target with a bad one-leg longshot just to make the math work.
+                There are not enough executable positive-value markets for this
+                platform and game-state filter right now. Try either platform or
+                include both pregame and live markets.
               </p>
             </div>
           ) : (
