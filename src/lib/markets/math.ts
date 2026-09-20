@@ -96,28 +96,19 @@ export function lynervaScore(input: {
     Math.floor(input.priceBps / SCORE_BUCKET_BPS) * SCORE_BUCKET_BPS;
   const stableReliabilityBps =
     Math.floor(input.reliabilityBps / 500) * 500;
-  const reliabilityRatio = clamp(
-    stableReliabilityBps / 10_000,
-    0.3,
-    0.9,
-  );
-
-  // Score the edge after shrinking it toward the live market according to how
-  // much independent evidence supports Lynerva's estimate. This prevents a
-  // cheap, thinly supported prop from winning the board only because a small
-  // probability disagreement creates a huge percentage ROI.
-  const scoredProbabilityBps = Math.round(
-    stablePriceBps +
-      reliabilityRatio * (stableProbabilityBps - stablePriceBps),
-  );
-  const scoredEdgeBps = scoredProbabilityBps - stablePriceBps;
+  // Every market family reaches this exact scoring function after its
+  // probability model has been calibrated. Do not shrink a TD, interception,
+  // reception, or yardage edge differently here. A 14 percentage-point edge
+  // is the same scoring input regardless of which stat produced it.
+  const scoredProbabilityBps = stableProbabilityBps;
+  const scoredEdgeBps = stableProbabilityBps - stablePriceBps;
   const scoredRoi =
     stablePriceBps > 0 ? scoredEdgeBps / stablePriceBps : 0;
 
   const probability = clamp(scoredProbabilityBps / 100, 0, 100);
   const edge = clamp((Math.max(scoredEdgeBps, 0) / 1_500) * 100, 0, 100);
-  const roiQuality = clamp((Math.max(scoredRoi, 0) / 0.45) * 100, 0, 100);
-  const value = clamp(edge * 0.8 + roiQuality * 0.2, 0, 100);
+  const roiQuality = clamp((Math.max(scoredRoi, 0) / 0.5) * 100, 0, 100);
+  const value = clamp(edge * 0.55 + roiQuality * 0.45, 0, 100);
   const reliability = clamp(stableReliabilityBps / 100, 0, 100);
 
   let hitRate = probability;
@@ -155,19 +146,14 @@ export function lynervaScore(input: {
     spread * 0.35 +
     freshness * 0.25;
 
-  // Raw model hit probability belongs in the public score, but it should not
-  // overwhelm price/value. The probability reaching this point has already
-  // been reliability-shrunk, and the model itself calibrates each stat family
-  // separately. That makes a 75% receptions estimate comparable to a 75%
-  // yardage estimate without granting any family a leaderboard quota.
-  //
-  // Value and edge still carry the largest combined weight, while probability
-  // and source reliability reward bets that are both attractive and likely.
+  // Value and price disagreement drive the ranking, while raw calibrated hit
+  // probability and evidence quality keep the score grounded. These weights
+  // are universal across every stat family.
   const score =
-    value * 0.34 +
-    probability * 0.30 +
-    edge * 0.24 +
-    reliability * 0.12;
+    value * 0.40 +
+    probability * 0.25 +
+    edge * 0.20 +
+    reliability * 0.15;
 
   return {
     score: Math.round(clamp(score, 0, 100)),
