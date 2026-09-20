@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev --webpack",
     "build": "next build --webpack",
-    "start": "if [ -n \"$RAILWAY_ENVIRONMENT_NAME\" ] && [ -n \"$TURSO_DATABASE_URL\" ]; then npm run db:migrate:runtime; fi; next start",
+    "start": "if [ -n \"$TURSO_DATABASE_URL\" ]; then npm run db:migrate:runtime; fi; next start",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
