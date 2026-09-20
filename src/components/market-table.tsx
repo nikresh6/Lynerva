@@ -12,7 +12,9 @@ const FAMILY_LABEL: Record<string, string> = {
   passing_yards: "Passing Yards",
   passing_touchdowns: "Passing TDs",
   rushing_yards: "Rushing Yards",
+  rushing_touchdowns: "Rushing TDs",
   receiving_yards: "Receiving Yards",
+  receiving_touchdowns: "Receiving TDs",
   receptions: "Receptions",
   longest_reception: "Longest Reception",
   touchdowns: "Touchdowns",
@@ -28,10 +30,12 @@ function displayMarketTitle(market: MarketOpportunity) {
 
   if (
     canonical.threshold !== null &&
-    ["passing_yards","passing_touchdowns","rushing_yards","receiving_yards","receptions","longest_reception","touchdowns"].includes(canonical.family)
+    ["passing_yards","passing_touchdowns","rushing_yards","rushing_touchdowns","receiving_yards","receiving_touchdowns","receptions","longest_reception","touchdowns"].includes(canonical.family)
   ) {
     if (
-      canonical.family === "touchdowns" &&
+      ["touchdowns", "rushing_touchdowns", "receiving_touchdowns"].includes(
+        canonical.family,
+      ) &&
       canonical.direction === "over" &&
       Number.isInteger(canonical.threshold)
     ) {
