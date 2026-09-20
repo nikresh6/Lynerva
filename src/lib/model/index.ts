@@ -583,7 +583,7 @@ export async function estimateMarket(
     }
 
     probability = clamp(probability + contextAdjustment, 0.001, 0.999);
-    const calibrated = await selfCalibrateProbability(probability);
+    const calibrated = await selfCalibrateProbability(probability, canonical.family);
     probability = calibrated.probability;
 
     const dispersionPenalty =
@@ -668,7 +668,9 @@ export async function estimateMarket(
     }
     if (calibrated.learned) {
       factors.push(
-        `Self-calibration active using ${calibrated.sampleSize} settled predictions in this probability bucket.`,
+        calibrated.familySpecific
+          ? `Stat-family calibration active using ${calibrated.sampleSize} settled ${canonical.family.replaceAll("_", " ")} predictions in this probability bucket.`
+          : `Global self-calibration active using ${calibrated.sampleSize} settled predictions while this stat family builds a larger sample.`,
       );
     }
 
