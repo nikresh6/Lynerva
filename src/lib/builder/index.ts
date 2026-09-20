@@ -726,6 +726,25 @@ function playerStatIdentity(market: MarketOpportunity) {
   return playerStatKey(market);
 }
 
+function playerIdentity(market: MarketOpportunity) {
+  const canonical = market.canonical;
+  if (!canonical) return market.platformMarketId;
+  return [
+    canonical.matchup ?? market.eventTitle.toLowerCase(),
+    canonical.subject.toLowerCase(),
+  ].join("|");
+}
+
+function familyDiversity(combination: BuiltCombination) {
+  if (!combination.legs.length) return 0;
+  const families = new Set(
+    combination.legs.map(
+      (leg) => leg.canonical?.family ?? "unknown",
+    ),
+  );
+  return families.size / combination.legs.length;
+}
+
 function overlapRatio(
   first: BuiltCombination,
   second: BuiltCombination,
@@ -771,6 +790,13 @@ function diversifyCombinations(
                 ),
               )
             : 0;
+          const maxPlayerOverlap = chosen.length
+            ? Math.max(
+                ...chosen.map((picked) =>
+                  overlapRatio(row, picked, playerIdentity),
+                ),
+              )
+            : 0;
           const maxExactOverlap = chosen.length
             ? Math.max(
                 ...chosen.map((picked) =>
@@ -792,17 +818,21 @@ function diversifyCombinations(
           return {
             row,
             maxStatOverlap,
+            maxPlayerOverlap,
             maxExactOverlap,
             score:
               quality -
               1.8 * maxStatOverlap -
-              0.9 * maxExactOverlap,
+              1.25 * maxPlayerOverlap -
+              0.9 * maxExactOverlap +
+              0.18 * familyDiversity(row),
           };
         })
         .filter(
-          ({ maxStatOverlap, maxExactOverlap }) =>
+          ({ maxStatOverlap, maxPlayerOverlap, maxExactOverlap }) =>
             chosen.length === 0 ||
             (maxStatOverlap <= overlapCeiling &&
+              maxPlayerOverlap <= overlapCeiling &&
               maxExactOverlap <= overlapCeiling),
         )
         .toSorted((a, b) => b.score - a.score);
