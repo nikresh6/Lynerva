@@ -319,7 +319,7 @@ function buildFromState(state: SearchState): BuiltCombination {
         0.24 * valueQuality +
         0.12 * balanceScore * 100 +
         0.08 * hitQuality +
-        0.08 * shape.familyDiversity * 100,
+        0.08 * shape.subjectDiversity * 100,
       0,
       100,
     ),
@@ -395,7 +395,7 @@ function combinationScore(
       0.12 * returnDistance -
       2.4 * concentration +
       0.12 * combination.balanceScore +
-      0.12 * shape.familyDiversity +
+      0.12 * shape.subjectDiversity +
       0.1 * shape.normalLegShare +
       0.06 * shape.directionBalance -
       0.55 * ultraSafePenalty
@@ -410,7 +410,7 @@ function combinationScore(
       0.08 * returnDistance -
       1.7 * concentration +
       0.08 * combination.balanceScore +
-      0.14 * shape.familyDiversity +
+      0.14 * shape.subjectDiversity +
       0.12 * shape.normalLegShare +
       0.05 * shape.directionBalance -
       0.4 * ultraSafePenalty
@@ -424,7 +424,7 @@ function combinationScore(
     0.16 * returnDistance -
     2.8 * concentration +
     0.14 * combination.balanceScore +
-    0.16 * shape.familyDiversity +
+    0.16 * shape.subjectDiversity +
     0.13 * shape.normalLegShare +
     0.07 * shape.directionBalance -
     0.6 * ultraSafePenalty
@@ -483,7 +483,7 @@ function stateSearchValue(
     0.12 * returnDistance -
     1.8 * concentration +
     0.1 * balanceScore +
-    0.12 * shape.familyDiversity +
+    0.12 * shape.subjectDiversity +
     0.1 * shape.normalLegShare +
     0.05 * shape.directionBalance -
     0.45 * ultraSafePenalty
