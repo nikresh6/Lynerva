@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { conditionalLivePlayerProbability } from "./live-player-probability";
+import {
+  conditionalLivePlayerProbability,
+  liveGameScriptMultiplier,
+  liveInjuryAvailabilityMultiplier,
+} from "./live-player-probability";
 
 describe("conditionalLivePlayerProbability", () => {
-  it("conditions a receiving-yard under on yards already accumulated", () => {
+  it("conditions a receiving-yard under on current yards and in-game pace", () => {
     const result = conditionalLivePlayerProbability({
       family: "receiving_yards",
       direction: "under",
@@ -14,9 +18,11 @@ describe("conditionalLivePlayerProbability", () => {
     });
 
     expect(result).not.toBeNull();
-    expect(result!.projectedFinal).toBeCloseTo(144, 5);
-    expect(result!.probability).toBeGreaterThan(0.55);
-    expect(result!.probability).toBeLessThan(0.95);
+    expect(result!.projectedFinal).toBeGreaterThan(145);
+    expect(result!.projectedFinal).toBeLessThan(152);
+    expect(result!.paceAdjustedFullGameProjection).toBeGreaterThan(40);
+    expect(result!.probability).toBeGreaterThan(0.45);
+    expect(result!.probability).toBeLessThan(0.9);
   });
 
   it("makes an under nearly impossible once the threshold is already crossed", () => {
@@ -34,7 +40,7 @@ describe("conditionalLivePlayerProbability", () => {
     expect(result!.probability).toBeLessThan(0.1);
   });
 
-  it("uses only the remaining scoring expectation for count props", () => {
+  it("shrinks noisy count-stat pace toward the pregame baseline", () => {
     const result = conditionalLivePlayerProbability({
       family: "passing_touchdowns",
       direction: "over",
@@ -46,8 +52,49 @@ describe("conditionalLivePlayerProbability", () => {
     });
 
     expect(result).not.toBeNull();
-    expect(result!.expectedRemaining).toBeCloseTo(0.6, 5);
-    expect(result!.probability).toBeGreaterThan(0.4);
-    expect(result!.probability).toBeLessThan(0.6);
+    expect(result!.expectedRemaining).toBeGreaterThan(0.45);
+    expect(result!.expectedRemaining).toBeLessThan(0.65);
+    expect(result!.paceWeight).toBeLessThan(0.3);
+  });
+
+  it("cuts remaining production to zero when a player is ruled out", () => {
+    const result = conditionalLivePlayerProbability({
+      family: "receiving_yards",
+      direction: "over",
+      threshold: 100,
+      currentValue: 82,
+      baselineFullGameProjection: 90,
+      fullGameStdDev: 29,
+      remainingFraction: 0.35,
+      remainingRateMultiplier: 0,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.expectedRemaining).toBe(0);
+    expect(result!.projectedFinal).toBe(82);
+    expect(result!.probability).toBeLessThan(0.05);
+  });
+});
+
+describe("live context multipliers", () => {
+  it("treats a confirmed out designation differently from generic questionable", () => {
+    expect(
+      liveInjuryAvailabilityMultiplier("Out", "Ruled out for the game"),
+    ).toBe(0);
+    expect(
+      liveInjuryAvailabilityMultiplier("Questionable", "Questionable"),
+    ).toBe(1);
+    expect(
+      liveInjuryAvailabilityMultiplier(
+        "Questionable",
+        "Questionable to return with an ankle injury",
+      ),
+    ).toBe(0.45);
+  });
+
+  it("uses score margin to shift passing and rushing opportunity", () => {
+    expect(liveGameScriptMultiplier("passing_yards", -14)).toBeGreaterThan(1);
+    expect(liveGameScriptMultiplier("rushing_yards", -14)).toBeLessThan(1);
+    expect(liveGameScriptMultiplier("rushing_yards", 14)).toBeGreaterThan(1);
   });
 });
