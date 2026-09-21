@@ -187,9 +187,9 @@ export function normalizeMarketSearch(value: string) {
     .toLowerCase()
     .replace(/[’']/g, "")
     .replace(/\bmoney\s+line\b/g, "moneyline")
-    .replace(/\bpassing?\s+yds?\b/g, "passing yards")
+    .replace(/\bpassing\s+yds?\b/g, "passing yards")
     .replace(/\bpass\s+yds?\b/g, "passing yards")
-    .replace(/\brushing?\s+yds?\b/g, "rushing yards")
+    .replace(/\brushing\s+yds?\b/g, "rushing yards")
     .replace(/\brush\s+yds?\b/g, "rushing yards")
     .replace(/\breceiving\s+yds?\b/g, "receiving yards")
     .replace(/\brec\s+yds?\b/g, "receiving yards")
@@ -288,6 +288,13 @@ export function parseMarketSearchQuery(query: string): MarketSearchIntent {
     threshold: Number.isFinite(threshold) ? threshold : null,
     terms,
   };
+}
+
+function normalizePlayerIdentity(value: string) {
+  return normalizeMarketSearch(value)
+    .replace(/\b(?:jr|sr|ii|iii|iv)\b/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 function levenshteinWithinOne(first: string, second: string) {
@@ -402,7 +409,7 @@ export function marketMatchesSearchIntent(
     if (canonical.family === "moneyline") {
       if (canonical.subject !== team.code) return false;
     } else if (teamRosterNames) {
-      const subject = normalizeMarketSearch(canonical.subject);
+      const subject = normalizePlayerIdentity(canonical.subject);
       if (!teamRosterNames.has(subject)) return false;
     } else {
       const matchupTeams = canonical.matchup?.split("-") ?? [];
