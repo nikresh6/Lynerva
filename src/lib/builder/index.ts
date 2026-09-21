@@ -288,7 +288,7 @@ function candidatePool(
     perPlayerStat.set(statKey, (perPlayerStat.get(statKey) ?? 0) + 1);
     perGame.set(game, (perGame.get(game) ?? 0) + 1);
     perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
-    if (selected.length >= 480) break;
+    if (selected.length >= 320) break;
   }
   return selected;
 }
@@ -534,7 +534,7 @@ function searchCombinations(
   if (eligible.length === 0) return [];
 
   const targetReturn = Math.sqrt(options.minReturn * options.maxReturn);
-  const beamWidth = resultLimit > 1 ? 3_200 : 4_200;
+  const beamWidth = resultLimit > 1 ? 2_400 : 3_000;
   let frontier: SearchState[] = [
     {
       legs: [],
@@ -547,8 +547,8 @@ function searchCombinations(
   let best: BuiltCombination | null = null;
   const bestByReturnBucket = new Map<number, BuiltCombination[]>();
   const fallbackCandidates = new Map<
-    string,
-    { combination: BuiltCombination; score: number; balanced: boolean }
+    number,
+    Array<{ combination: BuiltCombination; score: number; balanced: boolean }>
   >();
 
   for (let depth = 1; depth <= options.maxLegs; depth += 1) {
@@ -625,14 +625,27 @@ function searchCombinations(
             )
             .toSorted()
             .join("|");
-          const existingFallback = fallbackCandidates.get(fallbackKey);
-          if (!existingFallback || fallbackScore > existingFallback.score) {
-            fallbackCandidates.set(fallbackKey, {
-              combination: built,
-              score: fallbackScore,
-              balanced,
-            });
-          }
+          const fallbackBucket = Math.floor(
+            Math.log(Math.max(grossReturn, 1.001)) / 0.18,
+          );
+          const fallbackRows = fallbackCandidates.get(fallbackBucket) ?? [];
+          const nextFallbackRows = [
+            ...fallbackRows.filter((row) => {
+              const key = row.combination.legs
+                .map(
+                  (leg) =>
+                    leg.canonical?.key ??
+                    `${leg.platform}:${leg.platformMarketId}`,
+                )
+                .toSorted()
+                .join("|");
+              return key !== fallbackKey;
+            }),
+            { combination: built, score: fallbackScore, balanced },
+          ]
+            .toSorted((first, second) => second.score - first.score)
+            .slice(0, 6);
+          fallbackCandidates.set(fallbackBucket, nextFallbackRows);
 
           if (
             grossReturn >= options.minReturn &&
@@ -722,7 +735,7 @@ function searchCombinations(
               stateSearchValue(second, targetReturn, options.objective) -
               stateSearchValue(first, targetReturn, options.objective),
           )
-          .slice(0, resultLimit > 1 ? 88 : 112),
+          .slice(0, resultLimit > 1 ? 64 : 84),
       )
       .toSorted(
         (first, second) =>
@@ -733,6 +746,7 @@ function searchCombinations(
   }
 
   const rankedFallbacks = [...fallbackCandidates.values()]
+    .flat()
     .toSorted((first, second) => second.score - first.score)
     .map(({ combination, balanced }) => ({
       ...combination,
