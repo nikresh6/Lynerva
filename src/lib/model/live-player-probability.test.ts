@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   conditionalLivePlayerProbability,
   liveBlowoutSubstitutionMultiplier,
+  expectedOvertimeOpportunityFraction,
   liveClockManagementMultiplier,
-  liveExpectedOvertimeFraction,
   liveGameScriptMultiplier,
+  liveOvertimeProbability,
   liveInjuryAvailabilityMultiplier,
   livePossessionOpportunityMultiplier,
 } from "./live-player-probability";
@@ -191,10 +192,52 @@ describe("live context multipliers", () => {
     ).toBeGreaterThan(0.8);
   });
 
-  it("adds expected overtime opportunity when a game is tied late", () => {
-    expect(liveExpectedOvertimeFraction(0, 0.03)).toBeGreaterThan(0.04);
-    expect(liveExpectedOvertimeFraction(10, 0.03)).toBe(0);
-    expect(liveExpectedOvertimeFraction(0, 0.5)).toBe(0);
+  it("models overtime probability from real late-game state", () => {
+    const tiedOwnTerritory = liveOvertimeProbability({
+      playerScoreMargin: 0,
+      remainingFraction: 0.01,
+      playerHasPossession: true,
+      possessionYardLine: 25,
+      possessionTerritory: "own",
+      isRedZone: false,
+      down: 1,
+      distance: 10,
+      possessionTimeouts: 1,
+    });
+    const tiedRedZone = liveOvertimeProbability({
+      playerScoreMargin: 0,
+      remainingFraction: 0.01,
+      playerHasPossession: true,
+      possessionYardLine: 15,
+      possessionTerritory: "opponent",
+      isRedZone: true,
+      down: 1,
+      distance: 10,
+      possessionTimeouts: 2,
+    });
+    const trailingThreeInRange = liveOvertimeProbability({
+      playerScoreMargin: -3,
+      remainingFraction: 0.02,
+      playerHasPossession: true,
+      possessionYardLine: 28,
+      possessionTerritory: "opponent",
+      isRedZone: false,
+      down: 2,
+      distance: 5,
+      possessionTimeouts: 2,
+    });
+
+    expect(tiedOwnTerritory).toBeGreaterThan(0.45);
+    expect(tiedRedZone).toBeLessThan(tiedOwnTerritory);
+    expect(trailingThreeInRange).toBeGreaterThan(0.25);
+    expect(
+      liveOvertimeProbability({
+        playerScoreMargin: 10,
+        remainingFraction: 0.02,
+        playerHasPossession: false,
+      }),
+    ).toBe(0);
+    expect(expectedOvertimeOpportunityFraction(tiedOwnTerritory)).toBeGreaterThan(0.04);
   });
 
   it("uses score margin to shift passing and rushing opportunity", () => {
