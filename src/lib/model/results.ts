@@ -6,6 +6,7 @@ import {
   marketListings,
   predictionResults,
   predictions,
+  weeklyScorecardPicks,
 } from "@/db/schema";
 import { fetchKalshiMarketSettlement } from "@/lib/kalshi";
 import { scorePredictionResult } from "./evaluation";
@@ -87,7 +88,51 @@ export async function settleKalshiPredictions() {
     }
   }
 
-  const selected = [...latestByMarket.values()].slice(0, 60);
+  const lockedCandidates = await db
+    .select({
+      id: predictions.id,
+      normalizedMarketId: predictions.normalizedMarketId,
+      predictedProbabilityBps: predictions.predictedProbabilityBps,
+      executablePriceBps: predictions.executablePriceBps,
+      edgeBps: predictions.edgeBps,
+      features: predictions.features,
+      predictedAt: predictions.predictedAt,
+      ticker: marketListings.platformMarketId,
+    })
+    .from(weeklyScorecardPicks)
+    .innerJoin(
+      predictions,
+      eq(predictions.id, weeklyScorecardPicks.predictionId),
+    )
+    .innerJoin(
+      marketListings,
+      eq(marketListings.id, predictions.listingId),
+    )
+    .leftJoin(
+      predictionResults,
+      eq(predictionResults.predictionId, predictions.id),
+    )
+    .where(
+      and(
+        eq(marketListings.platform, "kalshi"),
+        isNull(predictionResults.predictionId),
+        lt(marketListings.closesAt, now),
+      ),
+    );
+
+  const selectedById = new Map<
+    string,
+    (typeof candidates)[number]
+  >();
+  for (const candidate of lockedCandidates) {
+    selectedById.set(candidate.id, candidate);
+  }
+  for (const candidate of [...latestByMarket.values()].slice(0, 60)) {
+    if (!selectedById.has(candidate.id)) {
+      selectedById.set(candidate.id, candidate);
+    }
+  }
+  const selected = [...selectedById.values()];
   const uniqueTickers = [...new Set(selected.map((row) => row.ticker))];
   const settlements = await Promise.allSettled(
     uniqueTickers.map((ticker) => fetchKalshiMarketSettlement(ticker)),
