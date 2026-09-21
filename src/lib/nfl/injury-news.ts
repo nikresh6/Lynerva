@@ -14,9 +14,11 @@ const FETCH_TIMEOUT_MS = 3_500;
 let fantasyProsCache:
   | { storedAt: number; text: string }
   | null = null;
+let fantasyProsInflight: Promise<string> | null = null;
 let espnCache:
   | { storedAt: number; articles: EspnArticle[] }
   | null = null;
+let espnInflight: Promise<EspnArticle[]> | null = null;
 
 const espnArticleSchema = z
   .object({
@@ -83,51 +85,68 @@ async function loadFantasyProsText() {
   ) {
     return fantasyProsCache.text;
   }
+  if (fantasyProsInflight) return fantasyProsInflight;
 
-  const response = await fetch("https://www.fantasypros.com/nfl/injury-news.php", {
-    cache: "no-store",
-    headers: {
-      Accept: "text/html",
-      "User-Agent": "Huddlemark/1.0 injury-news",
-    },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  fantasyProsInflight = (async () => {
+    const response = await fetch(
+      "https://www.fantasypros.com/nfl/injury-news.php",
+      {
+        cache: "no-store",
+        headers: {
+          Accept: "text/html",
+          "User-Agent": "Huddlemark/1.0 injury-news",
+        },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      },
+    );
+    if (!response.ok) {
+      throw new Error("FantasyPros injury news returned " + response.status);
+    }
+
+    const text = decodeHtml(await response.text());
+    fantasyProsCache = { storedAt: Date.now(), text };
+    return text;
+  })().finally(() => {
+    fantasyProsInflight = null;
   });
-  if (!response.ok) {
-    throw new Error("FantasyPros injury news returned " + response.status);
-  }
 
-  const text = decodeHtml(await response.text());
-  fantasyProsCache = { storedAt: Date.now(), text };
-  return text;
+  return fantasyProsInflight;
 }
 
 async function loadEspnArticles() {
   if (espnCache && Date.now() - espnCache.storedAt < CACHE_TTL_MS) {
     return espnCache.articles;
   }
+  if (espnInflight) return espnInflight;
 
-  const response = await fetch(
-    "https://site.api.espn.com/apis/site/v2/sports/football/nfl/news?limit=100",
-    {
-      cache: "no-store",
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "Huddlemark/1.0 injury-news",
+  espnInflight = (async () => {
+    const response = await fetch(
+      "https://site.api.espn.com/apis/site/v2/sports/football/nfl/news?limit=100",
+      {
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "Huddlemark/1.0 injury-news",
+        },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    },
-  );
-  if (!response.ok) {
-    throw new Error("ESPN NFL news returned " + response.status);
-  }
+    );
+    if (!response.ok) {
+      throw new Error("ESPN NFL news returned " + response.status);
+    }
 
-  const parsed = espnNewsSchema.safeParse(await response.json());
-  if (!parsed.success) {
-    throw new Error("ESPN NFL news response shape changed");
-  }
+    const parsed = espnNewsSchema.safeParse(await response.json());
+    if (!parsed.success) {
+      throw new Error("ESPN NFL news response shape changed");
+    }
 
-  espnCache = { storedAt: Date.now(), articles: parsed.data.articles };
-  return parsed.data.articles;
+    espnCache = { storedAt: Date.now(), articles: parsed.data.articles };
+    return parsed.data.articles;
+  })().finally(() => {
+    espnInflight = null;
+  });
+
+  return espnInflight;
 }
 
 function fantasyProsSnippet(text: string, subject: string) {
