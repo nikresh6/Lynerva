@@ -1069,7 +1069,7 @@ export function BuilderWorkbench() {
                   current={linePreference}
                   onClick={setLinePreference}
                   title="Overs only"
-                  description="Every leg must be an over-side O/U prop."
+                  description="Use overs for O/U props. Moneylines and binary props stay available."
                   icon={<ArrowRight className="-rotate-45 size-3.5" />}
                 />
                 <SegmentedButton
@@ -1077,7 +1077,7 @@ export function BuilderWorkbench() {
                   current={linePreference}
                   onClick={setLinePreference}
                   title="Unders only"
-                  description="Every leg must be an under-side O/U prop."
+                  description="Use unders for O/U props. Moneylines and binary props stay available."
                   icon={<ArrowRight className="rotate-45 size-3.5" />}
                 />
               </div>
@@ -1329,7 +1329,8 @@ export function BuilderWorkbench() {
                           </span>
                         </div>
                         <p className="mt-2 text-sm font-semibold tabular">
-                          {row.grossReturn.toFixed(2)}x est.
+                          {(comboQuotes[comboQuoteKey(row.legs) ?? ""]?.grossReturn ?? row.grossReturn).toFixed(2)}x{" "}
+                          {comboQuotes[comboQuoteKey(row.legs) ?? ""] ? "live" : "est."}
                         </p>
                         <div className="mt-1 flex items-center justify-between text-[9px] text-muted">
                           <span>{row.legs.length} legs</span>
@@ -1375,7 +1376,9 @@ export function BuilderWorkbench() {
                     {"$"}{parlayRequest?.stake.toLocaleString()} to about {"$"}{Math.round(payout).toLocaleString()}
                   </p>
                   <p className="mt-1 text-xs text-muted">
-                    Independent-leg estimate, about {"$"}{Math.round(profit).toLocaleString()} profit. Kalshi can price the final combo differently from the product of the single-leg asks.
+                    {currentComboQuote
+                      ? <>Live Kalshi combo quote, about {"$"}{Math.round(profit).toLocaleString()} profit at the current combo ask.</>
+                      : <>Independent-leg estimate, about {"$"}{Math.round(profit).toLocaleString()} profit. Kalshi can price the final combo differently from the product of the single-leg asks.</>}
                   </p>
                 </div>
 
@@ -1407,7 +1410,7 @@ export function BuilderWorkbench() {
                     <p className="text-[10px] text-faint">Market chance</p>
                     <p className="mt-1 text-lg font-semibold tabular">
                       {formatPercent(
-                        Math.round(combination.impliedProbability * 10_000),
+                        Math.round(displayImpliedProbability * 10_000),
                         1,
                       )}
                     </p>
@@ -1543,7 +1546,7 @@ export function BuilderWorkbench() {
                   The builder now scores the whole combination.
                 </strong>{" "}
                 Tap any leg, choose I don't care, Over, or Under, then choose similar, higher, or lower payout. Huddlemark picks the replacement for you from the full modeled board. The builder penalizes repeated players and rejects normal tickets where one longshot carries most of the payout, but it does not force artificial stat-category diversity.
-                {" "}The displayed return is an independent-leg estimate from the current executable single-leg prices. Kalshi combination markets are separately priced, so the checkout quote can differ, especially for same-game legs.
+                {" "}When Kalshi already exposes this exact combo market, Huddlemark uses its live combo ask. Otherwise the displayed return is an independent-leg estimate from the executable single-leg prices, and the eventual checkout quote can differ.
                 {combination.correlationWarning
                   ? " Same-game hit probability is also approximate because the legs can be correlated."
                   : ""}
@@ -1554,7 +1557,7 @@ export function BuilderWorkbench() {
                 </span>
                 <ArrowRight className="size-3.5" />
                 <span className="rounded-full border bg-surface px-2.5 py-1 tabular">
-                  {combination.grossReturn.toFixed(2)}x est.
+                  {displayGrossReturn.toFixed(2)}x {currentComboQuote ? "live" : "est."}
                 </span>
               </div>
             </div>
@@ -1686,7 +1689,7 @@ export function BuilderWorkbench() {
                     current={linePreference}
                     onClick={setLinePreference}
                     title="Overs only"
-                    description="Only over-side O/U props can enter the plan."
+                    description="Use overs for O/U props. Moneylines and binary props remain eligible."
                     icon={<ArrowRight className="-rotate-45 size-3.5" />}
                   />
                   <SegmentedButton
@@ -1694,7 +1697,7 @@ export function BuilderWorkbench() {
                     current={linePreference}
                     onClick={setLinePreference}
                     title="Unders only"
-                    description="Only under-side O/U props can enter the plan."
+                    description="Use unders for O/U props. Moneylines and binary props remain eligible."
                     icon={<ArrowRight className="rotate-45 size-3.5" />}
                   />
                 </div>
@@ -1717,7 +1720,7 @@ export function BuilderWorkbench() {
                   current={portfolioScope}
                   onClick={setPortfolioScope}
                   title="One game"
-                  description="Three focused bets from one matchup."
+                  description="Up to four focused bets from one matchup."
                   icon={<Target className="size-3.5" />}
                 />
               </div>
@@ -1870,11 +1873,9 @@ export function BuilderWorkbench() {
               <div className="mx-auto mb-3 grid size-10 place-items-center rounded-xl border bg-surface-raised">
                 <WalletCards className="size-4 text-muted" />
               </div>
-              <p className="font-medium">No diversified plan fits this target</p>
+              <p className="font-medium">Not enough compatible markets yet</p>
               <p className="mx-auto mt-1 max-w-lg text-xs leading-5 text-muted">
-                Try a lower wanted payout, allow more parlay legs, use either
-                parlay type, or raise the risk limit. Huddlemark will not fill a
-                target with a bad one-leg longshot just to make the math work.
+                The optimizer now relaxes payout and edge preferences before giving up. If this still appears, the current board does not contain enough compatible priced markets for the requested structure.
               </p>
             </div>
           ) : (
@@ -1906,7 +1907,8 @@ export function BuilderWorkbench() {
                       {"$"}{Math.round(portfolioPlan.totalStake).toLocaleString()} spread across {portfolioPlan.positions.length} bets
                     </p>
                     <p className="mt-1 text-xs text-muted">
-                      Target {"$"}{Math.round(portfolioPlan.targetPayout).toLocaleString()}, estimated all-win payout about {"$"}{Math.round(portfolioPlan.allWinPayout).toLocaleString()}.
+                      Target {"$"}{Math.round(portfolioPlan.targetPayout).toLocaleString()}, current all-win payout about {"$"}{Math.round(portfolioDisplay?.allWinPayout ?? portfolioPlan.allWinPayout).toLocaleString()}.
+                      {portfolioDisplay?.exactQuoteCount ? ` ${portfolioDisplay.exactQuoteCount} parlay quote${portfolioDisplay.exactQuoteCount === 1 ? "" : "s"} matched live on Kalshi.` : ""}
                     </p>
                   </div>
 
@@ -1916,13 +1918,13 @@ export function BuilderWorkbench() {
                       <p
                         className={cn(
                           "mt-1 text-lg font-semibold tabular",
-                          portfolioPlan.expectedProfit >= 0
+                          (portfolioDisplay?.expectedProfit ?? portfolioPlan.expectedProfit) >= 0
                             ? "text-positive"
                             : "text-negative",
                         )}
                       >
-                        {portfolioPlan.expectedProfit >= 0 ? "+" : ""}
-                        {"$"}{Math.round(portfolioPlan.expectedProfit)}
+                        {(portfolioDisplay?.expectedProfit ?? portfolioPlan.expectedProfit) >= 0 ? "+" : ""}
+                        {"$"}{Math.round(portfolioDisplay?.expectedProfit ?? portfolioPlan.expectedProfit)}
                       </p>
                     </div>
                     <div className="rounded-xl border bg-surface p-3">
@@ -1960,7 +1962,15 @@ export function BuilderWorkbench() {
               </div>
 
               <div className="grid items-start gap-3 p-3 sm:p-4 lg:grid-cols-2">
-                {portfolioPlan.positions.map((position, index) => (
+                {portfolioPlan.positions.map((position, index) => {
+                  const display =
+                    portfolioDisplay?.byId[position.id] ?? {
+                      grossReturn: position.grossReturn,
+                      expectedProfit: position.expectedProfit,
+                      payoutIfWin: position.payoutIfWin,
+                      exactQuote: false,
+                    };
+                  return (
                   <article
                     key={position.id}
                     className={cn(
@@ -1993,7 +2003,8 @@ export function BuilderWorkbench() {
                           {"$"}{position.stake.toFixed(2)}
                         </p>
                         <p className="mt-0.5 text-[10px] text-muted">
-                          Pays about {"$"}{Math.round(position.payoutIfWin).toLocaleString()} if it wins
+                          Pays about {"$"}{Math.round(display.payoutIfWin).toLocaleString()} if it wins
+                          {position.kind === "parlay" ? (display.exactQuote ? " · live Kalshi combo quote" : " · estimated from leg prices") : ""}
                         </p>
                       </div>
                       <div className="flex shrink-0 items-start gap-2.5">
@@ -2082,9 +2093,9 @@ export function BuilderWorkbench() {
 
                     <div className="mt-3 grid grid-cols-2 gap-2">
                       <div className="rounded-lg border bg-surface p-2.5">
-                        <p className="text-[9px] text-faint">{position.kind === "parlay" ? "Est. return if win" : "Return if win"}</p>
+                        <p className="text-[9px] text-faint">{position.kind === "parlay" ? (display.exactQuote ? "Live combo return" : "Est. return if win") : "Return if win"}</p>
                         <p className="mt-1 text-xs font-semibold tabular">
-                          {position.grossReturn.toFixed(2)}x
+                          {display.grossReturn.toFixed(2)}x
                         </p>
                       </div>
                       <div className="rounded-lg border bg-surface p-2.5">
@@ -2092,18 +2103,19 @@ export function BuilderWorkbench() {
                         <p
                           className={cn(
                             "mt-1 text-xs font-semibold tabular",
-                            position.expectedProfit >= 0
+                            display.expectedProfit >= 0
                               ? "text-positive"
                               : "text-negative",
                           )}
                         >
-                          {position.expectedProfit >= 0 ? "+" : ""}
-                          {"$"}{position.expectedProfit.toFixed(2)}
+                          {display.expectedProfit >= 0 ? "+" : ""}
+                          {"$"}{display.expectedProfit.toFixed(2)}
                         </p>
                       </div>
                     </div>
                   </article>
-                ))}
+                  );
+                })}
               </div>
 
               <div className="border-t bg-surface-raised/55 px-4 py-4 text-[11px] leading-5 text-muted sm:px-5">
