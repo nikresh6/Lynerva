@@ -480,6 +480,10 @@ export function BuilderWorkbench() {
       toleranceBps: swapToleranceBps,
       existingLegs,
       mode: swapMode,
+      singleGame:
+        swapTarget.kind === "portfolio-leg"
+          ? portfolioRequest?.singleGame
+          : false,
       limit: 24,
     });
 
@@ -538,6 +542,7 @@ export function BuilderWorkbench() {
       existingPositions: portfolioPlan.positions.filter(
         (_, index) => index !== swapTarget.positionIndex,
       ),
+      singleGame: portfolioRequest.singleGame,
       limit: 10,
     });
   }, [
