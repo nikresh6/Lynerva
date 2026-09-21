@@ -1,6 +1,6 @@
 import "server-only";
 
-import { desc, eq, gte, sql } from "drizzle-orm";
+import { desc, eq, gte } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   marketEvents,
@@ -173,14 +173,7 @@ export async function persistMarkets(payload: MarketsPayload) {
     await db
       .insert(sourceProjections)
       .values(chunk)
-      .onConflictDoUpdate({
-        target: sourceProjections.id,
-        set: {
-          projectedValue: sql`excluded.projected_value`,
-          capturedAt: sql`excluded.captured_at`,
-          updatedAt: now,
-        },
-      });
+      .onConflictDoNothing({ target: sourceProjections.id });
     sourceProjectionsStored += chunk.length;
   }
 
