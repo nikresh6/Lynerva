@@ -361,6 +361,38 @@ describe("combination builder", () => {
     ).toBe(false);
   });
 
+  it("keeps every ranked parlay inside the requested return band when valid tickets exist", () => {
+    const sameGameMarkets = Array.from({ length: 8 }, (_, index) => ({
+      ...opportunity(
+        `BAND${index}`,
+        "LAR-NYG",
+        5_500,
+        6_500 + index * 80,
+      ),
+      lynervaScore: 72 + index,
+    }));
+
+    const results = buildRankedCombinations(
+      sameGameMarkets,
+      {
+        ...baseOptions,
+        minReturn: 10,
+        maxReturn: 20,
+        maxLegs: 6,
+        mode: "sgp",
+      },
+      6,
+    );
+
+    expect(results.length).toBeGreaterThan(0);
+    expect(
+      results.every(
+        (result) =>
+          result.grossReturn >= 10 && result.grossReturn <= 20,
+      ),
+    ).toBe(true);
+  });
+
   it("returns multiple custom parlays sorted by Lynerva score", () => {
     const markets = Array.from({ length: 8 }, (_, index) => ({
       ...opportunity(
