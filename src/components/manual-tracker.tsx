@@ -199,6 +199,20 @@ function normalizeMarketSearch(value: string) {
     .trim();
 }
 
+type TrackerDirectionPreference = "mixed" | "over" | "under";
+
+function trackerPickDirection(market: MarketOpportunity) {
+  const canonical = market.canonical;
+  if (!canonical) return null;
+  if (canonical.direction === "over") {
+    return market.recommendedSide === "no" ? "under" : "over";
+  }
+  if (canonical.direction === "under") {
+    return market.recommendedSide === "no" ? "over" : "under";
+  }
+  return null;
+}
+
 function marketSearchText(market: MarketOpportunity) {
   const canonical = market.canonical;
   const family = canonical?.family ?? "";
@@ -242,6 +256,8 @@ function MarketPicker({
 }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  const [directionPreference, setDirectionPreference] =
+    useState<TrackerDirectionPreference>("mixed");
   const selected =
     markets.find((market) => market.platformMarketId === selectedMarketId) ??
     null;
@@ -250,6 +266,10 @@ function MarketPicker({
     const tokens = clean ? clean.split(/\s+/).filter(Boolean) : [];
     return markets
       .filter((market) => !excludedIds.includes(market.platformMarketId))
+      .filter((market) => {
+        if (directionPreference === "mixed") return true;
+        return trackerPickDirection(market) === directionPreference;
+      })
       .map((market) => {
         const haystack = marketSearchText(market);
         const subject = normalizeMarketSearch(market.canonical?.subject ?? "");
@@ -292,7 +312,7 @@ function MarketPicker({
       )
       .slice(0, clean ? 80 : 60)
       .map((row) => row.market);
-  }, [clean, excludedIds, markets]);
+  }, [clean, directionPreference, excludedIds, markets]);
   const visibleNames = useMemo(
     () =>
       results
@@ -347,6 +367,30 @@ function MarketPicker({
                   <X className="size-3.5" />
                 </button>
               ) : null}
+            </div>
+            <div className="mt-2 flex items-center gap-1.5">
+              {([
+                ["mixed", "Mixed"],
+                ["over", "Overs only"],
+                ["under", "Unders only"],
+              ] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setDirectionPreference(value)}
+                  className={cn(
+                    "rounded-lg border px-2.5 py-1.5 text-[9px] font-semibold transition-colors",
+                    directionPreference === value
+                      ? "border-accent/40 bg-accent-bg text-accent"
+                      : "bg-background text-muted hover:text-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+              <span className="ml-auto text-[8px] text-faint">
+                O/U props only
+              </span>
             </div>
           </div>
           <div className="scrollbar-subtle max-h-[390px] overflow-y-auto p-1.5">
