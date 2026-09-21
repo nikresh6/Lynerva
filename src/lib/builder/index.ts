@@ -766,19 +766,9 @@ function searchCombinations(
       ],
     }));
 
-  // A return range is a real constraint. Only use a payout fallback when the
-  // search found zero in-range balanced tickets, and even then keep it close
-  // to the requested band. Returning 2x or 600x alternatives for a 10x-20x
-  // request makes the control meaningless.
-  const closeFallbacks = rankedFallbacks.filter(
-    (combination) =>
-      combination.grossReturn >= options.minReturn * 0.8 &&
-      combination.grossReturn <= options.maxReturn * 1.25,
-  );
-
   if (!best) {
     return selectDistinctCombinations(
-      closeFallbacks,
+      rankedFallbacks,
       Math.max(1, resultLimit),
     );
   }
@@ -832,9 +822,21 @@ function searchCombinations(
     if (unique.size >= diversityPoolLimit) break;
   }
 
-  // Do not pad an otherwise valid ranked list with out-of-band
-  // fallbacks just to reach the requested card count. Fewer valid cards are
-  // better than violating the user's return constraints.
+  if (unique.size < diversityPoolLimit) {
+    for (const fallback of rankedFallbacks) {
+      const key = fallback.legs
+        .map(
+          (leg) =>
+            leg.canonical?.key ??
+            `${leg.platform}:${leg.platformMarketId}`,
+        )
+        .toSorted()
+        .join("|");
+      if (!unique.has(key)) unique.set(key, fallback);
+      if (unique.size >= diversityPoolLimit) break;
+    }
+  }
+
   return selectDistinctCombinations(
     [...unique.values()],
     Math.max(1, resultLimit),
@@ -1031,12 +1033,18 @@ export function buildRankedCombinations(
     opportunities,
     options,
     Math.max(24, Math.min(limit * 10, 96)),
-  ).toSorted(
-    (first, second) =>
-      second.lynervaScore - first.lynervaScore ||
-      second.expectedValueMultiplier - first.expectedValueMultiplier ||
-      second.estimatedProbability - first.estimatedProbability,
-  );
+  )
+    .filter(
+      (combination) =>
+        combination.grossReturn >= options.minReturn &&
+        combination.grossReturn <= options.maxReturn,
+    )
+    .toSorted(
+      (first, second) =>
+        second.lynervaScore - first.lynervaScore ||
+        second.expectedValueMultiplier - first.expectedValueMultiplier ||
+        second.estimatedProbability - first.estimatedProbability,
+    );
 
   let selected = selectDistinctCombinations(
     candidates,
@@ -1060,6 +1068,10 @@ export function buildRankedCombinations(
         freshBoard,
         options,
         Math.max(12, Math.min(limit * 4, 48)),
+      ).filter(
+        (combination) =>
+          combination.grossReturn >= options.minReturn &&
+          combination.grossReturn <= options.maxReturn,
       );
       augmented.push(...alternates);
       selected = selectDistinctCombinations(
