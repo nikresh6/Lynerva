@@ -473,17 +473,52 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
       const model = models[index];
       const market = item.market;
       const live = item.liveGame?.state === "in";
+
+      const injuryPlayBps =
+        !live ? model.components?.injuryPlayProbabilityBps ?? null : null;
+      const currentFairYesBps =
+        market.yesBidBps !== null && market.yesAskBps !== null
+          ? Math.round((market.yesBidBps + market.yesAskBps) / 2)
+          : market.lastPriceBps ??
+            market.yesAskBps ??
+            market.yesBidBps ??
+            model.probabilityBps;
+      const dnpAdjustedProbabilityBps =
+        injuryPlayBps !== null &&
+        model.probabilityBps !== null &&
+        currentFairYesBps !== null
+          ? Math.round(
+              (injuryPlayBps / 10_000) * model.probabilityBps +
+                (1 - injuryPlayBps / 10_000) * currentFairYesBps,
+            )
+          : model.probabilityBps;
+      const pricedModel =
+        injuryPlayBps !== null && model.components
+          ? {
+              ...model,
+              components: {
+                ...model.components,
+                injuryDnpSettlementBps: currentFairYesBps,
+              },
+            }
+          : model;
+
+      // Kalshi generally settles a true DNP at an Exchange-determined scalar
+      // fair price rather than treating it as an automatic binary loss. The
+      // injury model therefore prices the play branch from football usage and
+      // uses the current fair market value as a neutral estimate for the DNP
+      // branch. Once the player participates, actual accumulated stats govern.
       // KXNFLGAME lists one YES contract per team. For moneylines, price
       // that explicit team outcome only; the NO side is just the opponent's
       // duplicated moneyline and would create confusing duplicate picks.
       const side =
         item.canonical.family === "moneyline"
           ? moneylineYesSide({
-              probabilityBps: model.probabilityBps,
+              probabilityBps: dnpAdjustedProbabilityBps,
               yesAskBps: market.yesAskBps,
             })
           : bestExecutableSide({
-              probabilityBps: model.probabilityBps,
+              probabilityBps: dnpAdjustedProbabilityBps,
               yesAskBps: market.yesAskBps,
               noAskBps: market.noAskBps,
             });
@@ -522,7 +557,7 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
         ...market,
         isLive: live,
         canonical: item.canonical,
-        model,
+        model: pricedModel,
         recommendedSide: side.side,
         recommendedProbabilityBps: side.probabilityBps,
         executablePriceBps: side.priceBps,
