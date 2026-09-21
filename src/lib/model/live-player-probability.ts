@@ -232,27 +232,135 @@ export function liveBlowoutSubstitutionMultiplier(
   );
 }
 
-export function liveExpectedOvertimeFraction(
-  playerScoreMargin: number | null,
-  remainingFraction: number,
-) {
+export interface LiveOvertimeContext {
+  playerScoreMargin: number | null;
+  remainingFraction: number;
+  playerHasPossession: boolean | null;
+  possessionYardLine?: number | null;
+  possessionTerritory?: "own" | "opponent" | "midfield" | null;
+  isRedZone?: boolean | null;
+  down?: number | null;
+  distance?: number | null;
+  possessionTimeouts?: number | null;
+}
+
+function lateDriveScoringThreat(input: LiveOvertimeContext) {
+  let threat = 0.22;
+
+  if (input.isRedZone) {
+    threat = 0.9;
+  } else if (input.possessionTerritory === "opponent") {
+    const yardLine = input.possessionYardLine ?? 45;
+    threat =
+      yardLine <= 20
+        ? 0.88
+        : yardLine <= 35
+          ? 0.72
+          : yardLine <= 45
+            ? 0.52
+            : 0.42;
+  } else if (input.possessionTerritory === "midfield") {
+    threat = 0.4;
+  } else if (input.possessionTerritory === "own") {
+    const yardLine = input.possessionYardLine ?? 25;
+    threat =
+      yardLine >= 45
+        ? 0.34
+        : yardLine >= 35
+          ? 0.27
+          : yardLine >= 20
+            ? 0.18
+            : 0.12;
+  }
+
+  if (input.down === 4) {
+    threat *=
+      input.distance !== null &&
+      input.distance !== undefined &&
+      input.distance <= 2
+        ? 0.82
+        : 0.6;
+  } else if (input.down === 3) {
+    threat *=
+      input.distance !== null &&
+      input.distance !== undefined &&
+      input.distance >= 8
+        ? 0.8
+        : 0.92;
+  }
+
+  const timeouts = input.possessionTimeouts;
+  if (timeouts === 0) threat *= 0.78;
+  else if (timeouts === 1) threat *= 0.9;
+  else if (timeouts !== null && timeouts !== undefined && timeouts >= 2) {
+    threat *= 1.08;
+  }
+
+  return clamp(threat, 0.04, 0.96);
+}
+
+export function liveOvertimeProbability(input: LiveOvertimeContext) {
   if (
-    playerScoreMargin === null ||
-    remainingFraction > 0.14 ||
-    Math.abs(playerScoreMargin) > 7
+    input.playerScoreMargin === null ||
+    input.remainingFraction > 0.18 ||
+    Math.abs(input.playerScoreMargin) > 8
   ) {
     return 0;
   }
 
-  const margin = Math.abs(playerScoreMargin);
-  const closeness =
-    margin === 0 ? 1 : margin <= 3 ? 0.48 : margin <= 6 ? 0.18 : 0.08;
-  const late = clamp((0.14 - remainingFraction) / 0.12, 0, 1);
+  const secondsRemaining = clamp(input.remainingFraction * 3600, 0, 648);
+  const late = clamp(1 - secondsRemaining / 650, 0, 1);
+  const margin = Math.abs(input.playerScoreMargin);
+  const threat = lateDriveScoringThreat(input);
 
-  // This is expected extra opportunity, not an overtime probability. It adds a
-  // modest fraction of a game when the score is close enough that regulation
-  // may not be the true end of the player's opportunity.
-  return 0.058 * closeness * (0.55 + 0.45 * late);
+  const possessionMargin =
+    input.playerHasPossession === null
+      ? null
+      : input.playerHasPossession
+        ? input.playerScoreMargin
+        : -input.playerScoreMargin;
+
+  let probability = 0;
+
+  if (margin === 0) {
+    const survival = 0.07 + 0.76 * Math.pow(late, 1.35);
+    probability = survival * (1 - 0.72 * threat * (0.35 + 0.65 * late));
+  } else if (possessionMargin !== null && possessionMargin < 0) {
+    const tieScoreFit =
+      margin === 3
+        ? 0.8
+        : margin === 7
+          ? 0.62
+          : margin <= 2
+            ? 0.34
+            : margin <= 6
+              ? 0.42
+              : 0.2;
+    probability =
+      tieScoreFit *
+      threat *
+      (0.42 + 0.58 * late) *
+      (secondsRemaining <= 15 ? 0.72 : 1);
+  } else if (possessionMargin !== null && possessionMargin > 0) {
+    const comebackFit =
+      margin === 3 ? 0.22 : margin === 7 ? 0.12 : margin <= 6 ? 0.1 : 0.04;
+    probability =
+      comebackFit *
+      (1 - 0.55 * threat) *
+      (0.35 + 0.65 * (1 - late));
+  } else {
+    const marginFit =
+      margin === 3 ? 0.34 : margin === 7 ? 0.22 : margin <= 6 ? 0.16 : 0.07;
+    probability = marginFit * (0.45 + 0.55 * late);
+  }
+
+  return clamp(probability, 0, 0.84);
+}
+
+export function expectedOvertimeOpportunityFraction(
+  overtimeProbability: number,
+) {
+  return clamp(overtimeProbability, 0, 1) * (5.5 / 60);
 }
 
 function remainingVolatilityExponent(family: MarketFamily) {
