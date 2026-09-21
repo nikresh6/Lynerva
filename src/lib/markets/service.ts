@@ -496,6 +496,7 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
         injuryPlayBps !== null && model.components
           ? {
               ...model,
+              probabilityBps: dnpAdjustedProbabilityBps,
               factors: [
                 ...model.factors,
                 currentFairYesBps !== null
