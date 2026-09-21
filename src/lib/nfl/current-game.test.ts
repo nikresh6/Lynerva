@@ -14,8 +14,8 @@ function game(state: LiveNflGame["state"]): LiveNflGame {
     status: state === "post" ? "Final" : "3rd Quarter",
     period: state === "pre" ? 0 : 3,
     clock: state === "pre" ? "0:00" : "10:00",
-    home: { team: "BUF", score: state === "pre" ? 0 : 27 },
-    away: { team: "DET", score: state === "pre" ? 0 : 10 },
+    home: { team: "BUF", score: state === "pre" ? 0 : 27, timeouts: 2 },
+    away: { team: "DET", score: state === "pre" ? 0 : 10, timeouts: 1 },
     possession: null,
     updatedAt: "2026-09-18T02:00:00.000Z",
   };
