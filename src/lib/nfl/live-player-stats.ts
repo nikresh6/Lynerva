@@ -270,12 +270,20 @@ function findPlayerInjury(payload: EspnSummary, subject: string) {
     return {
       status: null as string | null,
       detail: null as string | null,
+      bodyPart: null as string | null,
+      returnDate: null as string | null,
     };
   }
 
   return {
     status: injury.status ?? injury.type?.description ?? null,
     detail: injuryText(injury) || null,
+    bodyPart:
+      injury.details?.type ??
+      injury.type?.description ??
+      injury.type?.name ??
+      null,
+    returnDate: injury.details?.returnDate ?? null,
   };
 }
 
@@ -433,6 +441,20 @@ async function loadSummary(gameId: string) {
 
   summaryInflight.set(gameId, promise);
   return promise;
+}
+
+export async function getEspnPlayerInjuryState(
+  gameId: string,
+  subject: string,
+) {
+  try {
+    const injury = findPlayerInjury(await loadSummary(gameId), subject);
+    if (!injury.status && !injury.detail && !injury.bodyPart) return null;
+    return injury;
+  } catch (error) {
+    console.error("ESPN injury state unavailable for " + subject, error);
+    return null;
+  }
 }
 
 export async function getLivePlayerState(
