@@ -26,6 +26,9 @@ export interface ProjectionPoint {
   source: ProjectionSource;
   value: number;
   fetchedAt: string;
+  position?: "QB" | "RB" | "WR" | "TE";
+  firstObservedAt?: string;
+  lastChangedAt?: string | null;
 }
 
 interface ProjectionStats {
@@ -43,9 +46,9 @@ interface ProjectionStats {
 
 type ProjectionMap = Map<string, ProjectionStats>;
 
-const PAGE_TTL_MS = 20 * 60_000;
+const PAGE_TTL_MS = 5 * 60_000;
 const FAILURE_TTL_MS = 30_000;
-const CONSENSUS_TTL_MS = 20 * 60_000;
+const CONSENSUS_TTL_MS = 5 * 60_000;
 const SOURCE_TIMEOUT_MS = 2_200;
 const SOURCE_LAST_GOOD_TTL_MS = 45 * 60_000;
 
@@ -75,9 +78,65 @@ const consensusCache = new Map<
       dispersion: number | null;
       sourceWeights: Record<string, number> | null;
       weightWeek: number | null;
+      position: "QB" | "RB" | "WR" | "TE" | null;
     }>;
   }
 >();
+
+const projectionObservationCache = new Map<
+  string,
+  {
+    firstObservedAt: string;
+    lastChangedAt: string | null;
+    value: number;
+  }
+>();
+
+function observeProjectionPoint(input: {
+  source: ProjectionSource;
+  subject: string;
+  family: CanonicalMarket["family"];
+  season: number;
+  week: number;
+  value: number;
+  position?: "QB" | "RB" | "WR" | "TE";
+}): ProjectionPoint {
+  const now = new Date().toISOString();
+  const key = [
+    input.source,
+    normalizePerson(input.subject),
+    input.family,
+    input.season,
+    input.week,
+  ].join(":");
+  const previous = projectionObservationCache.get(key);
+  const changed =
+    previous &&
+    Math.abs(previous.value - input.value) >=
+      Math.max(0.1, Math.abs(previous.value) * 0.01);
+
+  const observation = previous
+    ? {
+        firstObservedAt: previous.firstObservedAt,
+        lastChangedAt: changed ? now : previous.lastChangedAt,
+        value: input.value,
+      }
+    : {
+        firstObservedAt: now,
+        lastChangedAt: null,
+        value: input.value,
+      };
+  projectionObservationCache.set(key, observation);
+
+  return {
+    source: input.source,
+    value: input.value,
+    fetchedAt: now,
+    position: input.position,
+    firstObservedAt: observation.firstObservedAt,
+    lastChangedAt: observation.lastChangedAt,
+  };
+}
 
 function normalizePerson(value: string) {
   return value
@@ -1366,11 +1425,15 @@ async function sourceProjection(
   const value = sourceValue(found ?? undefined, market.family);
   if (value === null || !Number.isFinite(value) || value < 0) return null;
 
-  return {
+  return observeProjectionPoint({
     source,
+    subject: market.subject,
+    family: market.family,
+    season,
+    week,
     value,
-    fetchedAt: new Date().toISOString(),
-  };
+    position: found?.position,
+  });
 }
 
 function plausibleProjection(
@@ -1440,6 +1503,7 @@ async function buildConsensus(
       dispersion: null,
       sourceWeights: learned?.weights ?? null,
       weightWeek: learned?.effectiveWeek ?? null,
+      position: null,
     };
   }
 
@@ -1461,12 +1525,26 @@ async function buildConsensus(
     0,
   );
 
+  const positionWeights = new Map<string, number>();
+  for (const item of availableWeights) {
+    if (!item.point.position) continue;
+    positionWeights.set(
+      item.point.position,
+      (positionWeights.get(item.point.position) ?? 0) + item.weight,
+    );
+  }
+  const position =
+    [...positionWeights.entries()].toSorted(
+      (first, second) => second[1] - first[1],
+    )[0]?.[0] ?? null;
+
   return {
     projection,
     points,
     dispersion: points.length > 1 ? Math.sqrt(variance) : null,
     sourceWeights: learned?.weights ?? null,
     weightWeek: learned?.effectiveWeek ?? null,
+    position: position as "QB" | "RB" | "WR" | "TE" | null,
   };
 }
 
