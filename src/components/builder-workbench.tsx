@@ -199,6 +199,7 @@ function builderScoreLabel(score: number | null | undefined) {
 function portfolioRoleLabel(
   role:
     | "core_straight"
+    | "hedge_straight"
     | "value_straight"
     | "aggressive_straight"
     | "core_parlay"
@@ -207,6 +208,7 @@ function portfolioRoleLabel(
   parlayMode: "multi_game" | "sgp" | null,
 ) {
   if (role === "core_straight") return "Core straight";
+  if (role === "hedge_straight") return "Hedge straight";
   if (role === "value_straight") return "Value straight";
   if (role === "aggressive_straight") return "Aggressive straight";
   if (role === "core_parlay") {
@@ -461,7 +463,7 @@ export function BuilderWorkbench() {
       maxLegs: portfolioRequest.maxLegs,
       subjectTeams: portfolioRequest.subjectTeams,
       singleGame: portfolioRequest.singleGame,
-      maxPositions: portfolioRequest.singleGame ? 3 : undefined,
+      maxPositions: portfolioRequest.singleGame ? 4 : undefined,
     });
   }, [portfolioRequest]);
   const portfolioPlan = customPortfolioPlan ?? generatedPortfolioPlan;
@@ -1619,7 +1621,7 @@ export function BuilderWorkbench() {
                     ))}
                   </select>
                   <p className="mt-1.5 text-[9px] leading-4 text-faint">
-                    One-game plans use at most three bets. The same player cannot
+                    One-game plans use at most four bets. The same player cannot
                     appear twice unless the overlap is a yardage bet paired with
                     a touchdown bet.
                   </p>
@@ -1706,7 +1708,7 @@ export function BuilderWorkbench() {
           <div className="flex flex-col gap-2 border-t bg-surface-raised/45 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
             <p className="text-[10px] leading-4 text-muted">
               {portfolioScope === "single"
-                ? "One-game mode caps the plan at three bets and avoids repeated players, except yardage plus touchdown."
+                ? "One-game mode caps the plan at four bets and avoids repeated players, except yardage plus touchdown."
                 : "Set the amount, target, and risk first. The plan is calculated only after you click Build."}
             </p>
             <button
@@ -1773,7 +1775,7 @@ export function BuilderWorkbench() {
                       </span>
                       {portfolioRequest?.singleGame ? (
                         <span className="rounded-full border border-accent/30 bg-accent-bg px-2.5 py-1 text-[10px] font-medium text-accent">
-                          {portfolioRequest.matchup?.replace("-", " vs ")} · 3-bet max
+                          {portfolioRequest.matchup?.replace("-", " vs ")} · 4-bet max
                         </span>
                       ) : null}
                       {portfolioRequest?.linePreference !== "mixed" ? (
@@ -1993,7 +1995,7 @@ export function BuilderWorkbench() {
                   The plan optimizes the mix, not just the biggest payout.
                 </strong>{" "}
                 {portfolioRequest?.singleGame
-                  ? "One-game mode keeps the plan to at most three bets and avoids repeating the same player across positions, except when the overlap is specifically yardage plus touchdown."
+                  ? "One-game mode keeps the plan to at most four bets and avoids repeating the same player across positions, except when the overlap is specifically yardage plus touchdown."
                   : "It uses a barbell mix: a safer core, 50% to 70% style value straights, a smaller aggressive straight, core and upside parlays, and a tiny Hail Mary allocation when your target calls for it. Higher payout targets increase upside exposure without forcing every dollar of potential return into the same parlay."}
               </div>
             </>
