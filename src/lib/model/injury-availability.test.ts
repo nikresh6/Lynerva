@@ -19,6 +19,35 @@ describe("pregame injury availability", () => {
     expect(estimate!.risk).toBe("high");
   });
 
+  it("uses late news that says a questionable player is trending toward sitting", () => {
+    const baseline = estimateInjuryAvailability({
+      status: "Questionable",
+      bodyPart: "Hip",
+    });
+    const withNews = estimateInjuryAvailability({
+      status: "Questionable",
+      bodyPart: "Hip",
+      news: "Adam Schefter reports the player is trending toward not playing tonight.",
+      sources: ["ESPN", "FantasyPros News"],
+    });
+
+    expect(baseline).not.toBeNull();
+    expect(withNews).not.toBeNull();
+    expect(withNews!.playProbability).toBeLessThan(baseline!.playProbability);
+    expect(withNews!.risk).toBe("high");
+  });
+
+  it("treats an inactive news report as zero availability", () => {
+    const estimate = estimateInjuryAvailability({
+      status: "Questionable",
+      news: "The player is officially inactive for Week 2 and will not play.",
+    });
+
+    expect(estimate).not.toBeNull();
+    expect(estimate!.playProbability).toBe(0);
+    expect(estimate!.risk).toBe("out");
+  });
+
   it("keeps a probable full participant close to normal availability", () => {
     const estimate = estimateInjuryAvailability({
       status: "Probable",
