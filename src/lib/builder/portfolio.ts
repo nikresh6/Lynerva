@@ -474,26 +474,34 @@ function parlayCandidates(
   const candidates: Candidate[] = [];
   const seen = new Set<string>();
 
-  for (const mode of modes) {
-    const built = buildCombinationCandidates(
-      opportunities,
-      {
-        minReturn: 1.3,
-        maxReturn: 400,
-        maxLegs: options.maxLegs,
-        platform: options.platform,
-        live: options.live,
-        mode,
-        objective,
-      },
-      96,
-    );
+  const returnBands = [
+    { minReturn: 1.3, maxReturn: 6, limit: 48 },
+    { minReturn: 4.5, maxReturn: 20, limit: 48 },
+    { minReturn: 25, maxReturn: 150, limit: 40 },
+  ] as const;
 
-    for (const combination of built) {
-      const candidate = parlayCandidate(combination, mode);
-      if (seen.has(candidate.id)) continue;
-      seen.add(candidate.id);
-      candidates.push(candidate);
+  for (const mode of modes) {
+    for (const band of returnBands) {
+      const built = buildCombinationCandidates(
+        opportunities,
+        {
+          minReturn: band.minReturn,
+          maxReturn: band.maxReturn,
+          maxLegs: options.maxLegs,
+          platform: options.platform,
+          live: options.live,
+          mode,
+          objective,
+        },
+        band.limit,
+      );
+
+      for (const combination of built) {
+        const candidate = parlayCandidate(combination, mode);
+        if (seen.has(candidate.id)) continue;
+        seen.add(candidate.id);
+        candidates.push(candidate);
+      }
     }
   }
 
