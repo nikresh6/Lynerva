@@ -237,18 +237,30 @@ function playerTeam(payload: EspnSummary, subject: string) {
   return null;
 }
 
-function injuryText(injury: InjuryItem) {
-  return [
-    injury.status,
-    injury.detail,
-    injury.type?.name,
-    injury.type?.description,
-    injury.type?.abbreviation,
-    injury.details?.type,
-    injury.details?.detail,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+function statusLikeInjuryValue(value: string | null | undefined) {
+  if (!value) return false;
+  return /^(?:q|d|o|p|questionable|doubtful|out|probable|active|inactive|injury_status_[a-z_]+)$/i.test(
+    value.trim(),
+  );
+}
+
+function cleanInjuryDetail(injury: InjuryItem) {
+  const status = injury.status ?? injury.type?.description ?? "";
+  const bodyPart =
+    injury.details?.type && !statusLikeInjuryValue(injury.details.type)
+      ? injury.details.type
+      : null;
+  const candidates = [injury.details?.detail, injury.detail]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value))
+    .filter((value) => !statusLikeInjuryValue(value))
+    .filter((value) => value.toLowerCase() !== status.toLowerCase())
+    .filter(
+      (value) =>
+        !bodyPart || value.toLowerCase() !== bodyPart.toLowerCase(),
+    );
+
+  return [...new Set(candidates)].join(" · ") || null;
 }
 
 function findPlayerInjury(payload: EspnSummary, subject: string) {
@@ -275,14 +287,21 @@ function findPlayerInjury(payload: EspnSummary, subject: string) {
     };
   }
 
+  const status = injury.status ?? injury.type?.description ?? null;
+  const bodyPartCandidates = [
+    injury.details?.type,
+    injury.type?.name,
+    injury.type?.description,
+  ];
+  const bodyPart =
+    bodyPartCandidates.find(
+      (value) => value && !statusLikeInjuryValue(value),
+    ) ?? null;
+
   return {
-    status: injury.status ?? injury.type?.description ?? null,
-    detail: injuryText(injury) || null,
-    bodyPart:
-      injury.details?.type ??
-      injury.type?.description ??
-      injury.type?.name ??
-      null,
+    status,
+    detail: cleanInjuryDetail(injury),
+    bodyPart,
     returnDate: injury.details?.returnDate ?? null,
   };
 }
