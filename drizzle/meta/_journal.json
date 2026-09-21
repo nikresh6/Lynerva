@@ -15,6 +15,13 @@
       "when": 1789760000000,
       "tag": "0001_learning_loop",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789950000000,
+      "tag": "0002_locked_scorecards",
+      "breakpoints": true
     }
   ]
 }
