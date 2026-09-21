@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ChevronDown,
   CircleDollarSign,
+  MinusCircle,
   Plus,
   Search,
   Trash2,
@@ -1437,9 +1438,6 @@ export function ManualTracker() {
                 bet.status === "open" &&
                 bet.isParlay &&
                 bet.legMarketIds.length > 0;
-              const liveControls =
-                bet.status === "open" &&
-                (bet.isLive || Boolean(current?.isLive));
               const pl = profit(bet);
               const straightChances = !bet.isParlay
                 ? straightProbabilitySnapshot(bet, current)
@@ -1684,8 +1682,8 @@ export function ManualTracker() {
                     </button>
                   ) : null}
 
-                  {liveControls ? (
-                    <div className="mt-3 grid grid-cols-3 gap-2">
+                  {bet.status === "open" ? (
+                    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                       <button
                         type="button"
                         onClick={() => updateStatus(bet.id, "win")}
@@ -1704,6 +1702,14 @@ export function ManualTracker() {
                       </button>
                       <button
                         type="button"
+                        onClick={() => updateStatus(bet.id, "push")}
+                        className="inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-warning/25 bg-warning-bg text-[10px] font-semibold text-warning"
+                      >
+                        <MinusCircle size={12} />
+                        Push
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => {
                           setCashoutBetId(bet.id);
                           setCashoutAmount("");
@@ -1713,27 +1719,6 @@ export function ManualTracker() {
                         <CircleDollarSign size={12} />
                         Cashed
                       </button>
-                    </div>
-                  ) : bet.status === "open" ? (
-                    <div className="mt-3 flex items-center justify-between gap-3">
-                      <span className="text-[9px] text-faint">
-                        Settle when the market closes
-                      </span>
-                      <select
-                        value={bet.status}
-                        onChange={(event) =>
-                          updateStatus(
-                            bet.id,
-                            event.target.value as TrackerStatus,
-                          )
-                        }
-                        className="h-8 rounded-lg border bg-background px-2 text-[10px]"
-                      >
-                        <option value="open">Open</option>
-                        <option value="win">Won</option>
-                        <option value="loss">Lost</option>
-                        <option value="push">Push / void</option>
-                      </select>
                     </div>
                   ) : null}
                 </article>
