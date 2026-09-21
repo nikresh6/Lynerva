@@ -7,10 +7,13 @@ import {
   ChevronRight,
   FlaskConical,
   Layers3,
+  RefreshCw,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   Target,
   WalletCards,
+  X,
   Zap,
 } from "lucide-react";
 import {
@@ -18,9 +21,20 @@ import {
   buildTopScoredCombinations,
   type BuilderMode,
   type BuilderObjective,
+  type BuiltCombination,
 } from "@/lib/builder";
 import {
+  findMarketReplacements,
+  findPortfolioBetReplacements,
+  rebuildCombinationFromLegs,
+  replacePortfolioLeg,
+  replacePortfolioPosition,
+  type ReplacementDirection,
+} from "@/lib/builder/customize";
+import {
   buildPortfolioPlan,
+  type PortfolioPlan,
+  type PortfolioPosition,
   type PortfolioRisk,
 } from "@/lib/builder/portfolio";
 import { isBuilderEligibleOpportunity } from "@/lib/markets/eligibility";
@@ -205,6 +219,56 @@ function portfolioRoleLabel(
   return parlayMode === "sgp" ? "Hail Mary SGP" : "Hail Mary parlay";
 }
 
+type BuilderSwapTarget =
+  | {
+      kind: "parlay-leg";
+      legIndex: number;
+      market: MarketOpportunity;
+    }
+  | {
+      kind: "portfolio-leg";
+      positionIndex: number;
+      legIndex: number;
+      market: MarketOpportunity;
+    }
+  | {
+      kind: "portfolio-bet";
+      positionIndex: number;
+    };
+
+function replacementDirectionLabel(direction: ReplacementDirection) {
+  if (direction === "same") return "Same side";
+  if (direction === "over") return "Over";
+  if (direction === "under") return "Under";
+  if (direction === "moneyline") return "Moneyline";
+  return "Any";
+}
+
+function replacementPriceLabel(toleranceBps: number) {
+  if (toleranceBps <= 500) return "Very close";
+  if (toleranceBps <= 1000) return "Close";
+  if (toleranceBps <= 2000) return "Flexible";
+  return "Any odds";
+}
+
+function builderPickDirectionForUi(
+  market: MarketOpportunity,
+): ReplacementDirection {
+  const canonical = market.canonical;
+  if (canonical?.family === "moneyline") return "moneyline";
+  const direction =
+    market.recommendedSide === "no"
+      ? canonical?.direction === "over"
+        ? "under"
+        : canonical?.direction === "under"
+          ? "over"
+          : canonical?.direction
+      : canonical?.direction;
+  return direction === "over" || direction === "under"
+    ? direction
+    : "any";
+}
+
 export function BuilderWorkbench() {
   const { opportunities, loading } = useMarketData();
   const currentMarkets = useMemo(
@@ -279,6 +343,14 @@ export function BuilderWorkbench() {
     useState<PortfolioRequest | null>(null);
   const [selectedMarket, setSelectedMarket] =
     useState<MarketOpportunity | null>(null);
+  const [customCombination, setCustomCombination] =
+    useState<BuiltCombination | null>(null);
+  const [customPortfolioPlan, setCustomPortfolioPlan] =
+    useState<PortfolioPlan | null>(null);
+  const [swapTarget, setSwapTarget] = useState<BuilderSwapTarget | null>(null);
+  const [swapDirection, setSwapDirection] =
+    useState<ReplacementDirection>("same");
+  const [swapToleranceBps, setSwapToleranceBps] = useState(1000);
   const [rankingMode, setRankingMode] = useState(false);
   const [activeParlayIndex, setActiveParlayIndex] = useState(0);
   const [processing, setProcessing] = useState<
@@ -330,10 +402,11 @@ export function BuilderWorkbench() {
     );
   }, [parlayRequest, rankingMode]);
 
-  const combination =
+  const baseCombination =
     combinations[activeParlayIndex] ?? combinations[0] ?? null;
+  const combination = customCombination ?? baseCombination;
 
-  const portfolioPlan = useMemo(() => {
+  const generatedPortfolioPlan = useMemo(() => {
     if (!portfolioRequest) return null;
     return buildPortfolioPlan(portfolioRequest.markets, {
       amount: portfolioRequest.amount,
@@ -346,6 +419,7 @@ export function BuilderWorkbench() {
       subjectTeams: portfolioRequest.subjectTeams,
     });
   }, [portfolioRequest]);
+  const portfolioPlan = customPortfolioPlan ?? generatedPortfolioPlan;
 
   const resultPlayerNames = useMemo(
     () =>
@@ -358,6 +432,73 @@ export function BuilderWorkbench() {
     [combination, portfolioPlan],
   );
   const playerVisuals = usePlayerVisuals(resultPlayerNames);
+
+  const swapMarketOptions = useMemo(() => {
+    if (!swapTarget || swapTarget.kind === "portfolio-bet") return [];
+
+    const target = swapTarget.market;
+    const existingLegs =
+      swapTarget.kind === "parlay-leg"
+        ? (combination?.legs ?? []).filter(
+            (_, index) => index !== swapTarget.legIndex,
+          )
+        : (
+            portfolioPlan?.positions[swapTarget.positionIndex]?.legs ?? []
+          ).filter((_, index) => index !== swapTarget.legIndex);
+
+    const swapMode =
+      swapTarget.kind === "parlay-leg"
+        ? parlayRequest?.mode ?? "any"
+        : portfolioPlan?.positions[swapTarget.positionIndex]?.parlayMode ??
+          "any";
+
+    return findMarketReplacements(currentMarkets, target, {
+      direction: swapDirection,
+      toleranceBps: swapToleranceBps,
+      existingLegs,
+      mode: swapMode,
+      limit: 12,
+    });
+  }, [
+    swapTarget,
+    swapDirection,
+    swapToleranceBps,
+    currentMarkets,
+    combination,
+    portfolioPlan,
+    parlayRequest,
+  ]);
+
+  const swapBetOptions = useMemo(() => {
+    if (
+      !swapTarget ||
+      swapTarget.kind !== "portfolio-bet" ||
+      !portfolioPlan ||
+      !portfolioRequest
+    ) {
+      return [];
+    }
+    const position = portfolioPlan.positions[swapTarget.positionIndex];
+    if (!position) return [];
+
+    return findPortfolioBetReplacements(currentMarkets, position, {
+      direction: swapDirection,
+      toleranceBps: swapToleranceBps,
+      mode: portfolioRequest.mode,
+      live: portfolioRequest.live,
+      existingPositions: portfolioPlan.positions.filter(
+        (_, index) => index !== swapTarget.positionIndex,
+      ),
+      limit: 10,
+    });
+  }, [
+    swapTarget,
+    swapDirection,
+    swapToleranceBps,
+    currentMarkets,
+    portfolioPlan,
+    portfolioRequest,
+  ]);
 
   const payout =
     combination && parlayRequest
@@ -387,6 +528,8 @@ export function BuilderWorkbench() {
     runWithProgress("parlay", () => {
       setRankingMode(false);
       setActiveParlayIndex(0);
+      setCustomCombination(null);
+      setSwapTarget(null);
       setParlayRequest({
         markets: currentMarkets,
         minReturn: minReturnNumber,
@@ -406,6 +549,8 @@ export function BuilderWorkbench() {
     runWithProgress("weekly", () => {
       setRankingMode(true);
       setActiveParlayIndex(0);
+      setCustomCombination(null);
+      setSwapTarget(null);
       setParlayRequest({
         markets: currentMarkets,
         minReturn: 1.3,
@@ -424,6 +569,8 @@ export function BuilderWorkbench() {
   function buildPortfolio() {
     if (!canBuildPortfolio || processing) return;
     runWithProgress("portfolio", () => {
+      setCustomPortfolioPlan(null);
+      setSwapTarget(null);
       setPortfolioRequest({
         markets: currentMarkets,
         amount: planAmountNumber,
@@ -436,6 +583,78 @@ export function BuilderWorkbench() {
         subjectTeams: optimizerSubjectTeams,
       });
     });
+  }
+
+  function openParlayLegSwap(index: number, market: MarketOpportunity) {
+    setSwapDirection("same");
+    setSwapToleranceBps(1000);
+    setSwapTarget({ kind: "parlay-leg", legIndex: index, market });
+  }
+
+  function openPortfolioLegSwap(
+    positionIndex: number,
+    legIndex: number,
+    market: MarketOpportunity,
+  ) {
+    setSwapDirection("same");
+    setSwapToleranceBps(1000);
+    setSwapTarget({
+      kind: "portfolio-leg",
+      positionIndex,
+      legIndex,
+      market,
+    });
+  }
+
+  function openPortfolioBetSwap(positionIndex: number) {
+    setSwapDirection("any");
+    setSwapToleranceBps(1000);
+    setSwapTarget({ kind: "portfolio-bet", positionIndex });
+  }
+
+  function applyMarketSwap(replacement: MarketOpportunity) {
+    if (!swapTarget || swapTarget.kind === "portfolio-bet") return;
+
+    if (swapTarget.kind === "parlay-leg") {
+      if (!combination) return;
+      const legs = [...combination.legs];
+      legs[swapTarget.legIndex] = replacement;
+      const rebuilt = rebuildCombinationFromLegs(legs);
+      if (rebuilt) setCustomCombination(rebuilt);
+    } else if (portfolioPlan) {
+      setCustomPortfolioPlan(
+        replacePortfolioLeg(
+          portfolioPlan,
+          swapTarget.positionIndex,
+          swapTarget.legIndex,
+          replacement,
+        ),
+      );
+    }
+
+    setSwapTarget(null);
+  }
+
+  function applyPortfolioBetSwap(
+    replacement:
+      | { kind: "straight"; market: MarketOpportunity }
+      | { kind: "parlay"; combination: BuiltCombination },
+  ) {
+    if (
+      !swapTarget ||
+      swapTarget.kind !== "portfolio-bet" ||
+      !portfolioPlan
+    ) {
+      return;
+    }
+    setCustomPortfolioPlan(
+      replacePortfolioPosition(
+        portfolioPlan,
+        swapTarget.positionIndex,
+        replacement,
+      ),
+    );
+    setSwapTarget(null);
   }
 
   return (
@@ -832,7 +1051,11 @@ export function BuilderWorkbench() {
                           .map((leg) => `${leg.platform}:${leg.platformMarketId}`)
                           .join("|")}
                         type="button"
-                        onClick={() => setActiveParlayIndex(index)}
+                        onClick={() => {
+                          setActiveParlayIndex(index);
+                          setCustomCombination(null);
+                          setSwapTarget(null);
+                        }}
                         className={cn(
                           "min-w-[164px] snap-start rounded-xl border px-3 py-2.5 text-left transition-all sm:min-w-[180px]",
                           active
@@ -975,7 +1198,7 @@ export function BuilderWorkbench() {
                   >
                     <button
                       type="button"
-                      onClick={() => setSelectedMarket(leg)}
+                      onClick={() => openParlayLegSwap(index, leg)}
                       className="group w-full p-4 text-left sm:p-4.5"
                     >
                       <div className="flex items-start gap-3">
@@ -1037,12 +1260,25 @@ export function BuilderWorkbench() {
                         </div>
                       </div>
 
-                      <div className="mt-3 flex items-center justify-end gap-1 text-[10px] font-medium text-muted transition-colors group-hover:text-foreground">
-                        <FlaskConical size={11} />
-                        Open Bet Lab
+                      <div className="mt-3 flex items-center justify-end gap-1 text-[10px] font-medium text-accent">
+                        <RefreshCw size={11} />
+                        Click to replace this leg
                         <ChevronRight size={11} />
                       </div>
                     </button>
+                    <div className="flex items-center justify-between border-t bg-background/45 px-4 py-2">
+                      <span className="text-[9px] text-faint">
+                        Swap keeps the odds close by default.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedMarket(leg)}
+                        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[9px] font-semibold text-muted transition-colors hover:bg-surface hover:text-foreground"
+                      >
+                        <FlaskConical size={10} />
+                        Bet Lab
+                      </button>
+                    </div>
                   </li>
                 );
               })}
@@ -1053,7 +1289,7 @@ export function BuilderWorkbench() {
                 <strong className="font-semibold text-foreground">
                   The builder now scores the whole combination.
                 </strong>{" "}
-                It weighs hit rate, expected value, target payout, and how much
+                Tap any leg to replace it with another model-backed bet at similar odds, then choose Any, Same side, Over, Under, or Moneyline if you want to steer the swap. It weighs hit rate, expected value, target payout, and how much
                 each leg contributes to the final odds. For larger parlays,
                 ordinary builds are rejected when one leg carries most of the
                 payout. A true longshot only gets through when the reliability-adjusted
@@ -1407,6 +1643,14 @@ export function BuilderWorkbench() {
                           <span className="text-[9px] text-faint">
                             Bet {index + 1}
                           </span>
+                          <button
+                            type="button"
+                            onClick={() => openPortfolioBetSwap(index)}
+                            className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-[9px] font-semibold text-accent transition-colors hover:bg-accent-bg"
+                          >
+                            <RefreshCw size={9} />
+                            Replace bet
+                          </button>
                         </div>
                         <p className="mt-2 text-xl font-semibold tabular">
                           {"$"}{position.stake.toFixed(2)}
@@ -1445,12 +1689,17 @@ export function BuilderWorkbench() {
 
                     <div className="mt-4 space-y-2">
                       {position.legs.map((leg, legIndex) => (
-                        <button
+                        <div
                           key={`${position.id}:${leg.platformMarketId}`}
-                          type="button"
-                          onClick={() => setSelectedMarket(leg)}
-                          className="group flex w-full items-center gap-2.5 rounded-xl border bg-surface/80 px-2.5 py-2.5 text-left transition-all hover:border-strong hover:bg-surface"
+                          className="group flex w-full items-center gap-2 rounded-xl border bg-surface/80 p-1.5 transition-all hover:border-strong hover:bg-surface"
                         >
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openPortfolioLegSwap(index, legIndex, leg)
+                            }
+                            className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1 py-1 text-left"
+                          >
                           <SubjectVisual
                             market={leg}
                             visual={playerVisuals[leg.canonical?.subject ?? ""]}
@@ -1475,12 +1724,22 @@ export function BuilderWorkbench() {
                             <span className="block text-[10px] font-medium tabular">
                               {formatPercent(leg.executablePriceBps)}
                             </span>
-                            <span className="mt-1 inline-flex items-center gap-0.5 text-[8px] text-muted group-hover:text-foreground">
-                              <FlaskConical size={9} />
-                              Lab
+                            <span className="mt-1 inline-flex items-center gap-0.5 text-[8px] text-accent">
+                              <RefreshCw size={9} />
+                              Replace
                             </span>
                           </div>
-                        </button>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedMarket(leg)}
+                            className="grid size-8 shrink-0 place-items-center rounded-lg border bg-background text-muted transition-colors hover:text-foreground"
+                            aria-label="Open Bet Lab"
+                            title="Open Bet Lab"
+                          >
+                            <FlaskConical size={11} />
+                          </button>
+                        </div>
                       ))}
                     </div>
 
@@ -1524,6 +1783,234 @@ export function BuilderWorkbench() {
           )}
         </section>
       </div>
+      ) : null}
+
+      {swapTarget ? (
+        <div
+          className="fixed inset-0 z-[90] flex items-end justify-center bg-black/55 p-3 backdrop-blur-sm sm:items-center sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Replace builder selection"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setSwapTarget(null);
+          }}
+        >
+          <div className="max-h-[82vh] w-full max-w-3xl overflow-y-auto rounded-3xl border bg-surface shadow-2xl">
+            <div className="sticky top-0 z-10 border-b bg-surface/95 px-4 py-4 backdrop-blur-xl sm:px-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.1em] text-accent">
+                    <SlidersHorizontal className="size-3.5" />
+                    Smart replacement
+                  </div>
+                  <h3 className="mt-1 text-lg font-semibold">
+                    {swapTarget.kind === "portfolio-bet"
+                      ? "Replace this bet"
+                      : "Replace this leg"}
+                  </h3>
+                  <p className="mt-1 text-[10px] leading-4 text-muted">
+                    Huddlemark keeps the price close to the original, then ranks
+                    the available replacements by model score, edge, reliability,
+                    and odds distance.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSwapTarget(null)}
+                  className="grid size-9 shrink-0 place-items-center rounded-xl border bg-background text-muted hover:text-foreground"
+                  aria-label="Close replacement picker"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                <div>
+                  <p className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-faint">
+                    Bet direction
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(["any", "same", "over", "under", "moneyline"] as ReplacementDirection[]).map(
+                      (direction) => (
+                        <button
+                          key={direction}
+                          type="button"
+                          onClick={() => setSwapDirection(direction)}
+                          className={cn(
+                            "rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold transition-colors",
+                            swapDirection === direction
+                              ? "border-accent/40 bg-accent-bg text-accent"
+                              : "bg-background text-muted hover:text-foreground",
+                          )}
+                        >
+                          {replacementDirectionLabel(direction)}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                </div>
+                <label className="min-w-40">
+                  <p className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-faint">
+                    Odds similarity
+                  </p>
+                  <select
+                    value={swapToleranceBps}
+                    onChange={(event) =>
+                      setSwapToleranceBps(Number(event.target.value))
+                    }
+                    className="control-surface h-9 w-full rounded-lg px-2.5 text-[10px] outline-none focus:border-accent"
+                  >
+                    <option value={500}>Very close · ±5 pts</option>
+                    <option value={1000}>Close · ±10 pts</option>
+                    <option value={2000}>Flexible · ±20 pts</option>
+                    <option value={10000}>Any odds</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <div className="p-3 sm:p-4">
+              <div className="mb-3 flex items-center justify-between gap-3 px-1">
+                <p className="text-[10px] text-muted">
+                  {swapTarget.kind === "portfolio-bet"
+                    ? swapBetOptions.length
+                    : swapMarketOptions.length}{" "}
+                  replacement{(swapTarget.kind === "portfolio-bet"
+                    ? swapBetOptions.length
+                    : swapMarketOptions.length) === 1 ? "" : "s"} found
+                </p>
+                <span className="text-[9px] text-faint">
+                  {replacementDirectionLabel(swapDirection)} ·{" "}
+                  {replacementPriceLabel(swapToleranceBps)}
+                </span>
+              </div>
+
+              {swapTarget.kind === "portfolio-bet" ? (
+                swapBetOptions.length ? (
+                  <div className="space-y-2">
+                    {swapBetOptions.map((option, optionIndex) => {
+                      const legs =
+                        option.kind === "straight"
+                          ? [option.market]
+                          : option.combination.legs;
+                      const grossReturn =
+                        option.kind === "straight"
+                          ? 10_000 /
+                            Math.max(option.market.executablePriceBps ?? 1, 1)
+                          : option.combination.grossReturn;
+                      const score =
+                        option.kind === "straight"
+                          ? option.market.lynervaScore
+                          : option.combination.lynervaScore;
+                      return (
+                        <button
+                          key={`${option.kind}:${legs
+                            .map((leg) => leg.platformMarketId)
+                            .join("|")}`}
+                          type="button"
+                          onClick={() => applyPortfolioBetSwap(option)}
+                          className="flex w-full items-center gap-3 rounded-2xl border bg-background p-3 text-left transition-all hover:border-accent/35 hover:bg-accent-bg/20"
+                        >
+                          <span className="grid size-8 shrink-0 place-items-center rounded-xl border bg-surface text-[10px] font-bold">
+                            {optionIndex + 1}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-semibold">
+                              {option.kind === "straight"
+                                ? builderPickLabel(option.market)
+                                : `${legs.length}-leg ${option.combination.grossReturn.toFixed(2)}x parlay`}
+                            </p>
+                            <p className="mt-1 truncate text-[9px] text-faint">
+                              {option.kind === "straight"
+                                ? option.market.canonical?.matchup ??
+                                  option.market.eventTitle
+                                : legs
+                                    .map((leg) => builderPickLabel(leg))
+                                    .join(" · ")}
+                            </p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="text-xs font-semibold tabular">
+                              {grossReturn.toFixed(2)}x
+                            </p>
+                            <p className="mt-0.5 text-[9px] text-muted">
+                              Score {score ?? "n/a"}
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border bg-background p-8 text-center">
+                    <p className="text-sm font-semibold">No similar bet found</p>
+                    <p className="mt-1 text-[10px] leading-4 text-muted">
+                      Try Any direction or widen the odds similarity range.
+                    </p>
+                  </div>
+                )
+              ) : swapMarketOptions.length ? (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {swapMarketOptions.map((market) => (
+                    <button
+                      key={`${market.platform}:${market.platformMarketId}`}
+                      type="button"
+                      onClick={() => applyMarketSwap(market)}
+                      className="rounded-2xl border bg-background p-3 text-left transition-all hover:border-accent/35 hover:bg-accent-bg/20"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <PlatformMark platform={market.platform} />
+                            <span className="rounded-full border bg-surface px-2 py-0.5 text-[8px] font-semibold">
+                              {replacementDirectionLabel(
+                                builderPickDirectionForUi(market),
+                              )}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-xs font-semibold leading-5">
+                            {builderPickLabel(market)}
+                          </p>
+                          <p className="mt-1 truncate text-[9px] text-faint">
+                            {market.canonical?.matchup ?? market.eventTitle}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="text-sm font-semibold tabular">
+                            {formatPercent(market.executablePriceBps)}
+                          </p>
+                          <p className="mt-0.5 text-[9px] text-positive">
+                            Model {formatPercent(market.recommendedProbabilityBps)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between border-t pt-2 text-[9px]">
+                        <span className="text-muted">
+                          Score {market.lynervaScore ?? "n/a"}
+                        </span>
+                        <span className="font-semibold text-positive">
+                          {formatEdge(
+                            (market.recommendedProbabilityBps ?? 0) -
+                              (market.executablePriceBps ?? 0),
+                          )}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-2xl border bg-background p-8 text-center">
+                  <p className="text-sm font-semibold">
+                    No replacement fits those filters
+                  </p>
+                  <p className="mt-1 text-[10px] leading-4 text-muted">
+                    Widen the odds range or switch the direction to Any.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {selectedMarket ? (
