@@ -338,6 +338,113 @@ async function gradeNewSourceProjections(season: number) {
   return grades.length;
 }
 
+export interface SourceLearningActualRow {
+  week: number;
+  playerName: string;
+  passingYards: number | null;
+  passingTouchdowns: number | null;
+  passingInterceptions: number | null;
+  rushingYards: number | null;
+  rushingTouchdowns: number | null;
+  receivingYards: number | null;
+  receptions: number | null;
+  receivingTouchdowns: number | null;
+}
+
+async function gradeSourceProjectionsFromActualRows(
+  season: number,
+  actualRows: SourceLearningActualRow[],
+) {
+  if (!actualRows.length) return 0;
+  const db = getDb();
+  const ungraded = await db
+    .select({
+      id: sourceProjections.id,
+      week: sourceProjections.week,
+      playerKey: sourceProjections.playerKey,
+      statistic: sourceProjections.statistic,
+      projectedValue: sourceProjections.projectedValue,
+    })
+    .from(sourceProjections)
+    .leftJoin(
+      sourceProjectionGrades,
+      eq(sourceProjectionGrades.projectionId, sourceProjections.id),
+    )
+    .where(
+      and(
+        eq(sourceProjections.season, season),
+        isNull(sourceProjectionGrades.projectionId),
+      ),
+    );
+
+  const actualByKey = new Map<string, SourceLearningActualRow>();
+  for (const row of actualRows) {
+    actualByKey.set(
+      `${row.week}:${normalizeLearningPlayer(row.playerName)}`,
+      row,
+    );
+  }
+
+  const grades = [];
+  for (const projection of ungraded) {
+    if (!LEARNABLE_STATISTICS.has(projection.statistic)) continue;
+    const actualRow = actualByKey.get(
+      `${projection.week}:${projection.playerKey}`,
+    );
+    if (!actualRow) continue;
+    const actualValue = actualForStatistic(projection.statistic, actualRow);
+    if (actualValue === null) continue;
+    const error = projection.projectedValue - actualValue;
+    grades.push({
+      projectionId: projection.id,
+      actualValue,
+      absoluteError: Math.abs(error),
+      squaredError: error ** 2,
+      gradedAt: new Date(),
+    });
+  }
+
+  for (let index = 0; index < grades.length; index += 100) {
+    const chunk = grades.slice(index, index + 100);
+    if (!chunk.length) continue;
+    await db
+      .insert(sourceProjectionGrades)
+      .values(chunk)
+      .onConflictDoNothing({
+        target: sourceProjectionGrades.projectionId,
+      });
+  }
+
+  return grades.length;
+}
+
+export async function runSourceLearningFromActuals(
+  season: number,
+  actualRows: SourceLearningActualRow[],
+) {
+  try {
+    await ensureSourceLearningSchema();
+    const graded = await gradeSourceProjectionsFromActualRows(
+      season,
+      actualRows,
+    );
+    const weights = await recomputeSourceWeights(season);
+    return {
+      graded,
+      effectiveWeek: weights.effectiveWeek,
+      weightsStored: weights.weightsStored,
+    };
+  } catch (error) {
+    console.error("ESPN source grading failed", error);
+    return {
+      graded: 0,
+      effectiveWeek: null,
+      weightsStored: 0,
+      error: error instanceof Error ? error.message : "Unknown learning error",
+    };
+  }
+}
+
 async function recomputeSourceWeights(season: number) {
   const db = getDb();
   const rows = await db
