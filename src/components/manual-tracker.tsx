@@ -246,18 +246,20 @@ function MarketPicker({
   selectedMarketId,
   excludedIds,
   mode,
+  directionPreference,
+  onDirectionPreference,
   onPick,
 }: {
   markets: MarketOpportunity[];
   selectedMarketId: string;
   excludedIds: string[];
   mode: "straight" | "parlay";
+  directionPreference: TrackerDirectionPreference;
+  onDirectionPreference: (value: TrackerDirectionPreference) => void;
   onPick: (marketId: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
-  const [directionPreference, setDirectionPreference] =
-    useState<TrackerDirectionPreference>("mixed");
   const selected =
     markets.find((market) => market.platformMarketId === selectedMarketId) ??
     null;
@@ -377,7 +379,7 @@ function MarketPicker({
                 <button
                   key={value}
                   type="button"
-                  onClick={() => setDirectionPreference(value)}
+                  onClick={() => onDirectionPreference(value)}
                   className={cn(
                     "rounded-lg border px-2.5 py-1.5 text-[9px] font-semibold transition-colors",
                     directionPreference === value
@@ -870,6 +872,8 @@ export function ManualTracker() {
   const [description, setDescription] = useState("");
   const [stake, setStake] = useState("");
   const [status, setStatus] = useState<TrackerStatus>("open");
+  const [directionPreference, setDirectionPreference] =
+    useState<TrackerDirectionPreference>("mixed");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [selectedMarketId, setSelectedMarketId] = useState("");
   const [betType, setBetType] = useState<"straight" | "parlay">("straight");
@@ -1405,6 +1409,8 @@ export function ManualTracker() {
                 selectedMarketId={selectedMarketId}
                 excludedIds={betType === "parlay" ? parlayLegMarketIds : []}
                 mode={betType}
+                directionPreference={directionPreference}
+                onDirectionPreference={setDirectionPreference}
                 onPick={pickMarket}
               />
               {betType === "straight" && selectedMarket ? (
@@ -1443,6 +1449,25 @@ export function ManualTracker() {
               >
                 <option value="straight">Straight</option>
                 <option value="parlay">Parlay</option>
+              </select>
+            </label>
+
+            <label>
+              <span className="mb-1.5 block text-[10px] font-medium text-muted">
+                Line preference
+              </span>
+              <select
+                value={directionPreference}
+                onChange={(event) =>
+                  setDirectionPreference(
+                    event.target.value as TrackerDirectionPreference,
+                  )
+                }
+                className={inputClass}
+              >
+                <option value="mixed">Mixed</option>
+                <option value="over">Overs only</option>
+                <option value="under">Unders only</option>
               </select>
             </label>
 
