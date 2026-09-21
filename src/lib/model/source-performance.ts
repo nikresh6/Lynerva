@@ -2,6 +2,7 @@ import "server-only";
 
 import { and, count, desc, eq, max } from "drizzle-orm";
 import { getDb } from "@/db";
+import { clamp } from "@/lib/utils";
 import {
   sourceProjectionGrades,
   sourceProjections,
@@ -65,12 +66,22 @@ export type ProjectionPerformanceRow = {
   source: string;
   statistic: string;
   sampleSize: number;
+  meanAbsoluteError: number;
   medianAbsoluteError: number;
   p90AbsoluteError: number;
   recentMedianAbsoluteError: number;
   robustError: number;
   rmse: number;
   bias: number;
+  learnedTarget: number;
+  confidence: number;
+  examples: Array<{
+    playerName: string;
+    week: number;
+    projectedValue: number;
+    actualValue: number;
+    absoluteError: number;
+  }>;
   weight: number | null;
   previousWeight: number | null;
   weightChange: number | null;
@@ -103,6 +114,8 @@ export async function getProjectionSourcePerformance(season = 2026) {
         .select({
           source: sourceProjections.source,
           statistic: sourceProjections.statistic,
+          playerName: sourceProjections.playerName,
+          week: sourceProjections.week,
           projectedValue: sourceProjections.projectedValue,
           actualValue: sourceProjectionGrades.actualValue,
           absoluteError: sourceProjectionGrades.absoluteError,
@@ -232,7 +245,14 @@ export async function getProjectionSourcePerformance(season = 2026) {
         abs: number[];
         squared: number[];
         signed: number[];
-        recent: Array<{ error: number; gradedAt: number }>;
+        recent: Array<{
+          error: number;
+          gradedAt: number;
+          playerName: string;
+          week: number;
+          projectedValue: number;
+          actualValue: number;
+        }>;
       }
     >();
 
@@ -261,11 +281,15 @@ export async function getProjectionSourcePerformance(season = 2026) {
       group.recent.push({
         error: row.absoluteError,
         gradedAt: row.gradedAt.getTime(),
+        playerName: row.playerName,
+        week: row.week,
+        projectedValue: row.projectedValue,
+        actualValue: row.actualValue,
       });
       groups.set(key, group);
     }
 
-    const rows: ProjectionPerformanceRow[] = [...groups.values()].map(
+    const baseRows = [...groups.values()].map(
       (group) => {
         const abs = group.abs.toSorted((a, b) => a - b);
         const weightKey = `${group.statistic}:${group.source}`;
@@ -291,6 +315,9 @@ export async function getProjectionSourcePerformance(season = 2026) {
           source: group.source,
           statistic: group.statistic,
           sampleSize,
+          meanAbsoluteError:
+            group.abs.reduce((sum, value) => sum + value, 0) /
+            Math.max(sampleSize, 1),
           medianAbsoluteError,
           p90AbsoluteError,
           recentMedianAbsoluteError,
@@ -302,6 +329,16 @@ export async function getProjectionSourcePerformance(season = 2026) {
           bias:
             group.signed.reduce((sum, value) => sum + value, 0) /
             Math.max(sampleSize, 1),
+          examples: group.recent
+            .toSorted((a, b) => b.gradedAt - a.gradedAt)
+            .slice(0, 3)
+            .map((example) => ({
+              playerName: example.playerName,
+              week: example.week,
+              projectedValue: example.projectedValue,
+              actualValue: example.actualValue,
+              absoluteError: example.error,
+            })),
           weight: weight?.weight ?? null,
           previousWeight,
           weightChange:
@@ -312,6 +349,25 @@ export async function getProjectionSourcePerformance(season = 2026) {
         };
       },
     );
+
+    const performanceTotals = new Map<string, number>();
+    for (const row of baseRows) {
+      const strength = 1 / Math.max(row.robustError, 0.25);
+      performanceTotals.set(
+        row.statistic,
+        (performanceTotals.get(row.statistic) ?? 0) + strength,
+      );
+    }
+
+    const rows: ProjectionPerformanceRow[] = baseRows.map((row) => {
+      const strength = 1 / Math.max(row.robustError, 0.25);
+      const total = performanceTotals.get(row.statistic) ?? strength;
+      return {
+        ...row,
+        learnedTarget: total > 0 ? strength / total : 1 / 6,
+        confidence: clamp((row.sampleSize - 20) / 180, 0, 0.75),
+      };
+    });
 
     return {
       season,
