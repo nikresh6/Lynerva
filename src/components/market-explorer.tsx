@@ -2,9 +2,14 @@
 
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Search, SlidersHorizontal, X } from "lucide-react";
-import { findNflTeamsInQuery, getNflTeam, resolveNflTeamQuery } from "@/lib/nfl/teams";
+import { getNflTeam } from "@/lib/nfl/teams";
 import { isPricedOpportunity } from "@/lib/markets/eligibility";
 import { filterAndSortMarkets } from "@/lib/markets/filters";
+import {
+  marketFamilyLabel,
+  marketMatchesSearchIntent,
+  parseMarketSearchQuery,
+} from "@/lib/markets/search";
 import type {
   MarketFamily,
   MarketFilters,
@@ -208,26 +213,32 @@ export function MarketExplorer({
     }
   }, [forceStatus]);
 
-  const resolvedTeam = useMemo(
-    () => resolveNflTeamQuery(deferredQuery),
+  const searchIntent = useMemo(
+    () => parseMarketSearchQuery(deferredQuery),
     [deferredQuery],
   );
-  const queryTeams = useMemo(
-    () => findNflTeamsInQuery(deferredQuery),
-    [deferredQuery],
-  );
+  const resolvedTeam =
+    searchIntent.teams.length === 1 ? searchIntent.teams[0]! : null;
   const inferredGame = useMemo(() => {
-    if (queryTeams.length < 2) return null;
-    return queryTeams
+    if (searchIntent.teams.length < 2) return null;
+    return searchIntent.teams
       .slice(0, 2)
       .map((team) => team.code)
       .toSorted()
       .join("-");
-  }, [queryTeams]);
+  }, [searchIntent.teams]);
   const activeGame = urlGame ?? inferredGame;
+  const searchMoneylineOnly =
+    searchIntent.families.length === 1 &&
+    searchIntent.families[0] === "moneyline";
+  const needsTeamRoster =
+    Boolean(resolvedTeam) &&
+    !activeGame &&
+    filters.family !== "moneyline" &&
+    !searchMoneylineOnly;
 
   useEffect(() => {
-    if (!resolvedTeam || activeGame) {
+    if (!resolvedTeam || activeGame || !needsTeamRoster) {
       setTeamRosterNames(null);
       setTeamRosterLoading(false);
       return;
@@ -261,53 +272,52 @@ export function MarketExplorer({
       });
 
     return () => controller.abort();
-  }, [activeGame, resolvedTeam?.code]);
+  }, [activeGame, needsTeamRoster, resolvedTeam?.code]);
 
   const visible = useMemo(() => {
     const activeFilters: MarketFilters = {
       ...filters,
-      query: resolvedTeam || activeGame ? "" : deferredQuery,
+      // Search intent is handled below instead of requiring a literal phrase
+      // to appear in provider market titles.
+      query: "",
       status: forceStatus ?? filters.status,
     };
 
-    // The default board remains recommendation-only, but selecting Moneyline
-    // is also a market browser: show both team outcomes for every priced game
-    // so a normal weekly slate is roughly 32 team moneylines, not only the
-    // subset where Lynerva currently has positive edge.
-    const browseAllMoneylines = activeFilters.family === "moneyline";
+    // The untouched board remains recommendation-only. Selecting Moneyline or
+    // entering an explicit search turns Markets into a browser so a requested
+    // team/player contract is not hidden simply because its edge is <= 0.
+    const browseAllMoneylines =
+      activeFilters.family === "moneyline" || searchMoneylineOnly;
+    const browseExplicitSearch = Boolean(searchIntent.normalized);
     let eligible = opportunities.filter(
       (market) =>
         isPricedOpportunity(market) &&
-        (browseAllMoneylines || (market.edgeBps ?? 0) > 0),
+        (browseAllMoneylines ||
+          browseExplicitSearch ||
+          (market.edgeBps ?? 0) > 0),
     );
 
     if (activeGame) {
       eligible = eligible.filter(
         (market) => market.canonical?.matchup === activeGame,
       );
-    } else if (resolvedTeam && teamRosterNames) {
-      eligible = eligible.filter((market) => {
-        const canonical = market.canonical;
-        if (!canonical) return false;
-        if (canonical.family === "moneyline") {
-          return (
-            canonical.subject === resolvedTeam.code ||
-            canonical.matchup?.split("-").includes(resolvedTeam.code) === true
-          );
-        }
-        return teamRosterNames.has(normalizePlayerName(canonical.subject));
-      });
+    }
+
+    if (searchIntent.normalized) {
+      eligible = eligible.filter((market) =>
+        marketMatchesSearchIntent(market, searchIntent, teamRosterNames),
+      );
     }
 
     const sorted = filterAndSortMarkets(eligible, activeFilters);
     return sorted.slice(0, topOnly ? 1_500 : 1_500);
   }, [
     activeGame,
-    deferredQuery,
     filters,
     forceStatus,
     opportunities,
-    resolvedTeam,
+    searchIntent,
+    searchMoneylineOnly,
     teamRosterNames,
     topOnly,
   ]);
@@ -346,7 +356,7 @@ export function MarketExplorer({
             <input
               value={filters.query}
               onChange={(event) => update("query", event.target.value)}
-              placeholder="Player, team, or game…"
+              placeholder='Try "KC moneyline", "Mahomes pass yds", or "Chase over 80"…'
               className="h-10 w-full rounded-lg border bg-surface pl-9 pr-3 text-xs outline-none placeholder:text-faint focus:border-accent"
             />
           </label>
@@ -431,7 +441,11 @@ export function MarketExplorer({
                   <span className="text-[11px] font-medium">
                     {teamRosterLoading
                       ? `Loading ${resolvedTeam.name} players…`
-                      : `${resolvedTeam.fullName} player props`}
+                      : searchMoneylineOnly || filters.family === "moneyline"
+                        ? `${resolvedTeam.fullName} moneyline`
+                        : searchIntent.families.length === 1
+                          ? `${resolvedTeam.fullName} ${marketFamilyLabel(searchIntent.families[0]!)}`
+                          : `${resolvedTeam.fullName} markets`}
                   </span>
                 </>
               ) : null}
@@ -502,7 +516,16 @@ export function MarketExplorer({
       {(loading && opportunities.length === 0) || teamRosterLoading ? (
         <LoadingTable />
       ) : (
-        <MarketTable markets={visible} emptyMessage={emptyMessage} />
+        <MarketTable
+          markets={visible}
+          emptyMessage={
+            filters.query.trim()
+              ? `No markets match “${filters.query.trim()}”. Try a team, player, stat, or simpler shorthand.`
+              : filters.family === "moneyline"
+                ? "No current NFL moneylines match these filters."
+                : emptyMessage
+          }
+        />
       )}
     </>
   );
