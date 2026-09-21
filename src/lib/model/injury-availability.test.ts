@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { estimateInjuryAvailability } from "./injury-availability";
+import {
+  blendConditionalWithDnpFairValueBps,
+  estimateInjuryAvailability,
+} from "./injury-availability";
 
 describe("pregame injury availability", () => {
   it("heavily discounts a questionable game-time decision who missed practice", () => {
@@ -38,5 +41,31 @@ describe("pregame injury availability", () => {
     expect(estimate!.playProbability).toBe(0);
     expect(estimate!.finishProbabilityIfActive).toBe(0);
     expect(estimate!.risk).toBe("out");
+  });
+
+  it("ignores veteran-rest-only practice listings", () => {
+    expect(
+      estimateInjuryAvailability({
+        practiceParticipation: "Did Not Participate",
+        practiceDescription: "Veteran rest, not injury related",
+      }),
+    ).toBeNull();
+  });
+
+  it("blends conditional football value with Kalshi's DNP fair-value branch", () => {
+    expect(
+      blendConditionalWithDnpFairValueBps({
+        conditionalProbabilityBps: 7800,
+        playProbabilityBps: 5000,
+        dnpFairValueBps: 5000,
+      }),
+    ).toBe(6400);
+    expect(
+      blendConditionalWithDnpFairValueBps({
+        conditionalProbabilityBps: 7800,
+        playProbabilityBps: 10_000,
+        dnpFairValueBps: 5000,
+      }),
+    ).toBe(7800);
   });
 });
