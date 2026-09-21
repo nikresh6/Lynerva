@@ -497,6 +497,16 @@ function parlayCandidates(
       );
 
       for (const combination of built) {
+        // buildCombinationCandidates can return a best-available fallback
+        // outside the requested band. Do not relabel that fallback as a Hail
+        // Mary or upside ticket.
+        if (
+          combination.grossReturn < band.minReturn ||
+          combination.grossReturn > band.maxReturn
+        ) {
+          continue;
+        }
+
         const candidate = parlayCandidate(combination, mode);
         if (seen.has(candidate.id)) continue;
         seen.add(candidate.id);
@@ -715,6 +725,27 @@ function selectPortfolioCandidates(
     });
   }
 
+  // For genuinely high return targets, reserve one real longshot before
+  // ordinary parlays consume all of the distinct exposure. It remains a tiny
+  // bankroll sleeve, but must actually be 25x+ rather than a relaxed fallback
+  // wearing a Hail Mary label.
+  if (targetReturn >= 5 || risk === "higher") {
+    addBest(
+      parlays,
+      1,
+      {
+        probabilityMax: 0.12,
+        returnMin: 25,
+        returnMax: 150,
+        returnTarget: clamp(targetReturn * 8, 25, 80),
+        legCountMin: 4,
+        legCountMax: 8,
+        role: "hail_mary",
+      },
+      false,
+    );
+  }
+
   // Core parlays are built from ordinary legs, roughly the 45%-78% range,
   // so payout comes from several plausible outcomes rather than one 8% leg.
   addBest(parlays, 2, {
@@ -746,18 +777,6 @@ function selectPortfolioCandidates(
       legProbabilityMin: 0.3,
       legProbabilityMax: 0.75,
       role: "upside_parlay",
-    });
-  }
-
-  if (targetReturn >= 5 || risk === "higher") {
-    addBest(parlays, 1, {
-      probabilityMax: 0.12,
-      returnMin: 25,
-      returnMax: 150,
-      returnTarget: clamp(targetReturn * 8, 25, 80),
-      legCountMin: 4,
-      legCountMax: 8,
-      role: "hail_mary",
     });
   }
 
@@ -926,15 +945,23 @@ function targetShares(
 
   let bounds = candidates.map((candidate) => {
     const preferred = shareBounds(candidate.role, risk, targetReturn);
+    const highTargetRiskMinimum =
+      targetReturn >= 4 &&
+      (candidate.role === "value_straight" ||
+        candidate.role === "aggressive_straight")
+        ? 0.04
+        : 0;
     const hailMinimum =
       candidate.role === "hail_mary" && targetReturn >= 5
         ? Math.min(preferred.max, 0.005)
         : 0;
 
     return {
-      // Roles describe the position. They are not bankroll quotas. Only a tiny
-      // Hail Mary seed is retained for genuinely high targets.
-      min: hailMinimum,
+      // Roles describe the position rather than fixed quotas. For a genuinely
+      // high requested return, however, keep a modest amount of capital in
+      // lower-probability straight value instead of solving the whole target
+      // with only parlays.
+      min: Math.max(highTargetRiskMinimum, hailMinimum),
       max:
         candidate.role === "hail_mary"
           ? preferred.max
