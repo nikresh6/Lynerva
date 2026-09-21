@@ -9,7 +9,7 @@ export interface InjuryNewsSignal {
 }
 
 const CACHE_TTL_MS = 2 * 60_000;
-const FETCH_TIMEOUT_MS = 3_500;
+const FETCH_TIMEOUT_MS = 2_500;
 
 let fantasyProsCache:
   | { storedAt: number; text: string }
