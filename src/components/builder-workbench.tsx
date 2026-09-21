@@ -451,13 +451,38 @@ export function BuilderWorkbench() {
         : portfolioPlan?.positions[swapTarget.positionIndex]?.parlayMode ??
           "any";
 
-    return findMarketReplacements(currentMarkets, target, {
+    const replacements = findMarketReplacements(currentMarkets, target, {
       direction: swapDirection,
       toleranceBps: swapToleranceBps,
       existingLegs,
       mode: swapMode,
-      limit: 12,
+      limit: 24,
     });
+
+    if (swapTarget.kind !== "portfolio-leg" || !portfolioPlan) {
+      return replacements.slice(0, 12);
+    }
+
+    const usedElsewhere = new Set(
+      portfolioPlan.positions
+        .filter((_, index) => index !== swapTarget.positionIndex)
+        .flatMap((position) => position.legs)
+        .map(
+          (leg) =>
+            leg.canonical?.key ??
+            `${leg.platform}:${leg.platformMarketId}:${leg.recommendedSide}`,
+        ),
+    );
+
+    return replacements
+      .filter(
+        (market) =>
+          !usedElsewhere.has(
+            market.canonical?.key ??
+              `${market.platform}:${market.platformMarketId}:${market.recommendedSide}`,
+          ),
+      )
+      .slice(0, 12);
   }, [
     swapTarget,
     swapDirection,
