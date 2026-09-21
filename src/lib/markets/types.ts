@@ -108,6 +108,7 @@ export interface ModelEstimate {
     liveCurrentValue?: number | null;
     liveProjectedFinal?: number | null;
     liveRemainingFraction?: number | null;
+    liveOvertimeProbabilityBps?: number | null;
   };
 }
 
