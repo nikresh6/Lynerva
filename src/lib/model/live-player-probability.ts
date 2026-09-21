@@ -116,12 +116,143 @@ export function livePossessionOpportunityMultiplier(
 
   // Possession becomes increasingly important late. A player whose offense has
   // the ball can immediately add production, while a player on the sideline
-  // first needs a change of possession. Keep this adjustment modest because we
-  // do not yet model timeouts, down, distance, or exact field position.
+  // first needs a change of possession.
   const lateGameStrength = clamp((0.2 - remaining) / 0.18, 0, 1);
   return playerTeam === possessionTeam
     ? 1 + 0.35 * lateGameStrength
     : 1 - 0.3 * lateGameStrength;
+}
+
+export function liveClockManagementMultiplier(
+  family: MarketFamily,
+  playerScoreMargin: number | null,
+  remainingFraction: number,
+  playerHasPossession: boolean | null,
+  opponentTimeouts: number | null | undefined,
+) {
+  if (playerScoreMargin === null || remainingFraction >= 0.35) return 1;
+
+  const remaining = clamp(remainingFraction, 0, 1);
+  const late = clamp((0.35 - remaining) / 0.32, 0, 1);
+  const possessionStrength =
+    playerHasPossession === true ? 1 : playerHasPossession === false ? 0.7 : 0.82;
+  const timeoutStrength =
+    opponentTimeouts === 0
+      ? 1.25
+      : opponentTimeouts === 1
+        ? 1.12
+        : opponentTimeouts === 2
+          ? 1
+          : 0.9;
+
+  if (playerScoreMargin >= 3) {
+    if (passingScriptFamilies.has(family)) {
+      const leadStrength = clamp(playerScoreMargin / 17, 0.35, 1);
+      return clamp(
+        1 - 0.48 * late * possessionStrength * timeoutStrength * leadStrength,
+        0.46,
+        1,
+      );
+    }
+
+    if (rushingScriptFamilies.has(family)) {
+      // A close lead creates clock-killing carries. Very large leads are
+      // handled separately by the substitution-risk layer.
+      const closeLead = 1 - clamp((playerScoreMargin - 10) / 14, 0, 1);
+      return clamp(
+        1 + 0.2 * late * possessionStrength * timeoutStrength * closeLead,
+        1,
+        1.22,
+      );
+    }
+  }
+
+  if (playerScoreMargin <= -3) {
+    if (passingScriptFamilies.has(family)) {
+      const deficitStrength = clamp(Math.abs(playerScoreMargin) / 17, 0.35, 1);
+      return clamp(
+        1 + 0.34 * late * possessionStrength * deficitStrength,
+        1,
+        1.34,
+      );
+    }
+
+    if (rushingScriptFamilies.has(family)) {
+      const deficitStrength = clamp(Math.abs(playerScoreMargin) / 17, 0.35, 1);
+      return clamp(1 - 0.3 * late * deficitStrength, 0.7, 1);
+    }
+  }
+
+  return 1;
+}
+
+function starterUsageReference(family: MarketFamily) {
+  if (family === "passing_yards") return 180;
+  if (family === "passing_touchdowns" || family === "passing_interceptions") {
+    return 1.2;
+  }
+  if (family === "rushing_yards") return 45;
+  if (family === "receiving_yards") return 45;
+  if (family === "receptions") return 3.5;
+  if (family === "longest_reception") return 18;
+  return 0.35;
+}
+
+export function liveBlowoutSubstitutionMultiplier(
+  family: MarketFamily,
+  playerScoreMargin: number | null,
+  remainingFraction: number,
+  baselineFullGameProjection: number,
+) {
+  if (
+    playerScoreMargin === null ||
+    Math.abs(playerScoreMargin) < 17 ||
+    remainingFraction >= 0.32
+  ) {
+    return 1;
+  }
+
+  const scoreSeverity = clamp((Math.abs(playerScoreMargin) - 14) / 21, 0, 1);
+  const timeSeverity = clamp((0.32 - remainingFraction) / 0.28, 0, 1);
+  const roleLikelihood = clamp(
+    baselineFullGameProjection / starterUsageReference(family),
+    0.2,
+    1,
+  );
+  const risk = scoreSeverity * timeSeverity * roleLikelihood;
+
+  // Teams with a secure lead are more likely to protect established starters.
+  // Trailing teams can keep starters in for hurry-up or garbage-time production,
+  // so their benching penalty is deliberately smaller until the game is extreme.
+  const maxPenalty = playerScoreMargin > 0 ? 0.78 : 0.5;
+  return clamp(
+    1 - maxPenalty * risk,
+    playerScoreMargin > 0 ? 0.22 : 0.5,
+    1,
+  );
+}
+
+export function liveExpectedOvertimeFraction(
+  playerScoreMargin: number | null,
+  remainingFraction: number,
+) {
+  if (
+    playerScoreMargin === null ||
+    remainingFraction > 0.14 ||
+    Math.abs(playerScoreMargin) > 7
+  ) {
+    return 0;
+  }
+
+  const margin = Math.abs(playerScoreMargin);
+  const closeness =
+    margin === 0 ? 1 : margin <= 3 ? 0.48 : margin <= 6 ? 0.18 : 0.08;
+  const late = clamp((0.14 - remainingFraction) / 0.12, 0, 1);
+
+  // This is expected extra opportunity, not an overtime probability. It adds a
+  // modest fraction of a game when the score is close enough that regulation
+  // may not be the true end of the player's opportunity.
+  return 0.058 * closeness * (0.55 + 0.45 * late);
 }
 
 function remainingVolatilityExponent(family: MarketFamily) {
@@ -187,11 +318,17 @@ export function conditionalLivePlayerProbability(input: {
   baselineFullGameProjection: number;
   fullGameStdDev: number;
   remainingFraction: number;
+  opportunityRemainingFraction?: number;
   remainingRateMultiplier?: number;
 }): LivePlayerConditionalEstimate | null {
   const remaining = clamp(input.remainingFraction, 0.001, 1);
   const current = Math.max(0, input.currentValue);
   const baseline = Math.max(0, input.baselineFullGameProjection);
+  const opportunityRemaining = clamp(
+    input.opportunityRemainingFraction ?? remaining,
+    remaining,
+    1,
+  );
   const remainingRateMultiplier = clamp(
     input.remainingRateMultiplier ?? 1,
     0,
@@ -225,7 +362,8 @@ export function conditionalLivePlayerProbability(input: {
         Math.max(pace.projection, baseline),
         Math.max(1, input.fullGameStdDev),
       );
-    const opportunityFraction = remaining * remainingRateMultiplier;
+    const opportunityFraction =
+      opportunityRemaining * remainingRateMultiplier;
     const remainingOver =
       1 - Math.pow(1 - clamp(fullGameOver, 0.001, 0.999), opportunityFraction);
     return {
@@ -240,7 +378,7 @@ export function conditionalLivePlayerProbability(input: {
   }
 
   const expectedRemaining =
-    pace.projection * remaining * remainingRateMultiplier;
+    pace.projection * opportunityRemaining * remainingRateMultiplier;
   const projectedFinal = current + expectedRemaining;
   let overProbability: number;
 
@@ -257,7 +395,7 @@ export function conditionalLivePlayerProbability(input: {
         ? input.threshold - 0.5
         : input.threshold;
     const effectiveRemaining = Math.max(
-      remaining * remainingRateMultiplier,
+      opportunityRemaining * remainingRateMultiplier,
       0,
     );
     const volatilityExponent = remainingVolatilityExponent(input.family);
