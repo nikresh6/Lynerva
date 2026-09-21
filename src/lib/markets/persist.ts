@@ -45,6 +45,7 @@ export async function persistMarkets(payload: MarketsPayload) {
       listingId: predictions.listingId,
       predictedProbabilityBps: predictions.predictedProbabilityBps,
       executablePriceBps: predictions.executablePriceBps,
+      features: predictions.features,
       predictedAt: predictions.predictedAt,
     })
     .from(predictions)
@@ -346,6 +347,7 @@ export async function persistMarkets(payload: MarketsPayload) {
         Math.abs(
           latestPrediction.executablePriceBps - opportunity.executablePriceBps,
         ) >= 100 ||
+        typeof latestPrediction.features.lynervaScore !== "number" ||
         now.getTime() - latestPrediction.predictedAt.getTime() >= 2 * 60 * 60_000;
 
       if (!predictionChanged) continue;
@@ -367,6 +369,7 @@ export async function persistMarkets(payload: MarketsPayload) {
           recommendedProbabilityBps,
           modelYesProbabilityBps: opportunity.model.probabilityBps,
           probabilityPerspective: "recommended_side",
+          lynervaScore: opportunity.lynervaScore ?? null,
           projectionSeason: opportunity.model.components?.projectionSeason ?? null,
           projectionWeek: opportunity.model.components?.projectionWeek ?? null,
           matchup: opportunity.canonical?.matchup ?? null,
@@ -388,6 +391,9 @@ export async function persistMarkets(payload: MarketsPayload) {
         listingId,
         predictedProbabilityBps: recommendedProbabilityBps,
         executablePriceBps: opportunity.executablePriceBps,
+        features: {
+          lynervaScore: opportunity.lynervaScore ?? null,
+        },
         predictedAt: now,
       });
       predictionsStored += 1;
