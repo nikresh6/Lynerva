@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MarketOpportunity } from "@/lib/markets/types";
 import {
   builderPickDirection,
+  findBestMarketReplacement,
   findMarketReplacements,
   rebuildCombinationFromLegs,
 } from "./customize";
@@ -149,6 +150,69 @@ describe("builder customization", () => {
     );
 
     expect(replacements.map((row) => row.platformMarketId)).toEqual(["CLOSE"]);
+  });
+
+  it("automatically chooses the best similar-odds replacement", () => {
+    const target = opportunity({
+      id: "TARGET2",
+      matchup: "LAR-NYG",
+      price: 5_000,
+      model: 5_800,
+    });
+    const close = opportunity({
+      id: "CLOSE-BEST",
+      matchup: "KC-LV",
+      price: 5_200,
+      model: 6_300,
+    });
+    const far = opportunity({
+      id: "FAR-BETTER-SCORE",
+      matchup: "BUF-MIA",
+      price: 7_500,
+      model: 9_000,
+    });
+    far.lynervaScore = 90;
+
+    const replacement = findBestMarketReplacement(
+      [target, close, far],
+      target,
+      {
+        direction: "any",
+        oddsPreference: "similar",
+        mode: "multi_game",
+      },
+    );
+
+    expect(replacement?.platformMarketId).toBe("CLOSE-BEST");
+  });
+
+  it("can still return the best available replacement without positive edge", () => {
+    const target = opportunity({
+      id: "TARGET3",
+      matchup: "LAR-NYG",
+      price: 5_000,
+      model: 5_800,
+    });
+    const fallback = opportunity({
+      id: "FALLBACK",
+      matchup: "KC-LV",
+      price: 5_100,
+      model: 5_000,
+    });
+    fallback.edgeBps = -100;
+    fallback.expectedRoi = -100 / 5_100;
+
+    const replacement = findBestMarketReplacement(
+      [target, fallback],
+      target,
+      {
+        direction: "over",
+        oddsPreference: "similar",
+        mode: "multi_game",
+      },
+    );
+
+    expect(replacement?.platformMarketId).toBe("FALLBACK");
   });
 
   it("recalculates parlay economics after a leg swap", () => {
