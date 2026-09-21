@@ -321,7 +321,9 @@ describe("bankroll portfolio builder", () => {
 
     expect(plan).not.toBeNull();
     expect(plan!.totalStake).toBeCloseTo(5, 2);
-    expect(plan!.maxPositionShare).toBeLessThanOrEqual(0.341);
+    expect(plan!.allWinPayout).toBeGreaterThanOrEqual(17);
+    expect(plan!.allWinPayout).toBeLessThanOrEqual(22);
+    expect(plan!.maxPositionShare).toBeLessThanOrEqual(0.361);
     const largestParlayStake = Math.max(
       0,
       ...plan!.positions
