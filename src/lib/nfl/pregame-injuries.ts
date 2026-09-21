@@ -78,7 +78,7 @@ async function loadSleeperPlayers() {
           "User-Agent": "Huddlemark/1.0 market-research",
         },
         cache: "no-store",
-        signal: AbortSignal.timeout(5_000),
+        signal: AbortSignal.timeout(2_500),
       },
     );
     if (!response.ok) {
