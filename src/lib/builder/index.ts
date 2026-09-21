@@ -119,69 +119,27 @@ function oddsContributionShares(legs: RankedCandidate[]) {
 }
 
 function maxAllowedOddsContribution(legCount: number) {
-  if (legCount <= 2) return 0.72;
-  if (legCount === 3) return 0.58;
-  if (legCount === 4) return 0.48;
-  if (legCount === 5) return 0.42;
-  return 0.38;
+  // No single leg should be the hidden lottery ticket carrying the payout.
+  // A 50% + 50% + 8% build, for example, is rejected even if that 8% leg has
+  // a large modeled edge. The payout should be distributed across the ticket.
+  if (legCount <= 2) return 0.64;
+  if (legCount === 3) return 0.52;
+  if (legCount === 4) return 0.43;
+  if (legCount === 5) return 0.37;
+  return 0.34;
 }
 
 function preferredOddsContribution(legCount: number) {
-  if (legCount <= 2) return 0.6;
-  if (legCount === 3) return 0.48;
-  if (legCount === 4) return 0.39;
-  if (legCount === 5) return 0.34;
-  return 0.3;
-}
-
-function hasExceptionalLongshotValue(legs: RankedCandidate[]) {
-  const totalContribution = legs.reduce(
-    (sum, leg) => sum - Math.log(Math.max(leg.price, 0.001)),
-    0,
-  );
-  const largest = legs
-    .map((leg) => ({
-      leg,
-      share:
-        -Math.log(Math.max(leg.price, 0.001)) /
-        Math.max(totalContribution, 0.0001),
-    }))
-    .toSorted((a, b) => b.share - a.share)[0];
-
-  if (!largest) return false;
-
-  const reliability = clamp(
-    largest.leg.market.model.reliabilityBps / 10_000,
-    0,
-    1,
-  );
-
-  return (
-    largest.leg.valueMultiplier >= 1.8 &&
-    largest.leg.edge >= 0.12 &&
-    reliability >= 0.7
-  );
+  if (legCount <= 2) return 0.54;
+  if (legCount === 3) return 0.4;
+  if (legCount === 4) return 0.32;
+  if (legCount === 5) return 0.27;
+  return 0.23;
 }
 
 function isAcceptablePayoutShape(legs: RankedCandidate[]) {
   const { maxShare } = oddsContributionShares(legs);
-  const normalLimit = maxAllowedOddsContribution(legs.length);
-
-  if (maxShare <= normalLimit) return true;
-  if (!hasExceptionalLongshotValue(legs)) return false;
-
-  // Exceptional value can justify one payout-heavy leg in a short parlay,
-  // but it should not dominate a four-plus-leg build. At that point the user
-  // asked for a parlay, not three safe legs plus one disguised lottery ticket.
-  const exceptionalCeiling =
-    legs.length <= 2
-      ? 0.9
-      : legs.length === 3
-        ? 0.72
-        : legs.length === 4
-          ? 0.52
-          : 0.46;
-  return maxShare <= exceptionalCeiling;
+  return maxShare <= maxAllowedOddsContribution(legs.length);
 }
 
 function familyKey(market: MarketOpportunity) {
@@ -249,7 +207,7 @@ function candidatePool(
       ) {
         return [];
       }
-      if ((market.edgeBps ?? 0) <= 0 || market.freshness === "stale") {
+      if (market.freshness === "stale") {
         return [];
       }
       if (
@@ -267,20 +225,25 @@ function candidatePool(
       const valueMultiplier = adjustedProbability / price;
       const edge = adjustedProbability - price;
 
-      if (valueMultiplier <= 1) return [];
+      // Positive value is strongly preferred, but not mandatory. The builder
+      // should still return the best available ticket when a user's exact
+      // game/side/payout request leaves no positive-edge combination.
+      if (valueMultiplier < 0.72) return [];
 
       // Prefer real parlay legs over stacks of nearly certain contracts, but do
       // not exclude a strong favorite when the model sees genuine value.
       const normalLegFit = clamp(1 - Math.abs(price - 0.62) / 0.38, 0, 1);
       const reliability = clamp(market.model.reliabilityBps / 10_000, 0, 1);
       const publicScore = clamp((market.lynervaScore ?? 50) / 100, 0, 1);
+      const positiveValueBonus = valueMultiplier > 1 ? 0.22 : 0;
       const searchScore =
-        0.86 * Math.log(valueMultiplier) +
+        0.92 * Math.log(Math.max(valueMultiplier, 0.5)) +
         0.24 * Math.log(adjustedProbability) +
         0.42 * publicScore +
         0.12 * reliability +
-        0.10 * edge +
-        0.08 * normalLegFit;
+        0.18 * edge +
+        0.08 * normalLegFit +
+        positiveValueBonus;
 
       return [
         {
@@ -311,21 +274,21 @@ function candidatePool(
 
   for (const candidate of ranked) {
     const statKey = playerStatKey(candidate.market);
-    if ((perPlayerStat.get(statKey) ?? 0) >= 1) continue;
+    if ((perPlayerStat.get(statKey) ?? 0) >= 4) continue;
 
     const game = gameKey(candidate.market);
-    if ((perGame.get(game) ?? 0) >= 40) continue;
+    if ((perGame.get(game) ?? 0) >= 120) continue;
 
     const subject =
       candidate.market.canonical?.subject.toLowerCase() ??
       candidate.market.platformMarketId;
-    if ((perSubject.get(subject) ?? 0) >= 7) continue;
+    if ((perSubject.get(subject) ?? 0) >= 18) continue;
 
     selected.push(candidate);
-    perPlayerStat.set(statKey, 1);
+    perPlayerStat.set(statKey, (perPlayerStat.get(statKey) ?? 0) + 1);
     perGame.set(game, (perGame.get(game) ?? 0) + 1);
     perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
-    if (selected.length >= 220) break;
+    if (selected.length >= 480) break;
   }
   return selected;
 }
@@ -361,6 +324,15 @@ function buildFromState(state: SearchState): BuiltCombination {
       100,
     ),
   );
+  const nonPositiveValueLegs = state.legs.filter(
+    (leg) => leg.valueMultiplier <= 1,
+  ).length;
+  const relaxedConstraints =
+    nonPositiveValueLegs > 0
+      ? [
+          `Best available build uses ${nonPositiveValueLegs} leg${nonPositiveValueLegs === 1 ? "" : "s"} without a positive modeled edge.`,
+        ]
+      : [];
 
   return {
     legs: markets,
@@ -373,7 +345,7 @@ function buildFromState(state: SearchState): BuiltCombination {
     expectedProfitOn100: (expectedValueMultiplier - 1) * 100,
     correlationWarning: new Set(keys).size !== keys.length,
     executableAsSingleContract: false,
-    relaxedConstraints: [],
+    relaxedConstraints,
     maxOddsContributionShare: maxShare,
     balanceScore,
     lynervaScore,
@@ -574,6 +546,10 @@ function searchCombinations(
   ];
   let best: BuiltCombination | null = null;
   const bestByReturnBucket = new Map<number, BuiltCombination[]>();
+  const fallbackCandidates = new Map<
+    string,
+    { combination: BuiltCombination; score: number; balanced: boolean }
+  >();
 
   for (let depth = 1; depth <= options.maxLegs; depth += 1) {
     const next: SearchState[] = [];
@@ -620,9 +596,6 @@ function searchCombinations(
         if (priceProduct <= 0) continue;
 
         const grossReturn = 1 / priceProduct;
-        if (grossReturn > options.maxReturn) {
-          continue;
-        }
 
         const nextState: SearchState = {
           legs: [...state.legs, candidate],
@@ -634,74 +607,97 @@ function searchCombinations(
             state.rawModelProbabilityProduct * candidate.modelProbability,
         };
 
-        if (
-          nextState.legs.length >= 2 &&
-          grossReturn >= options.minReturn &&
-          grossReturn <= options.maxReturn &&
-          isAcceptablePayoutShape(nextState.legs)
-        ) {
+        if (nextState.legs.length >= 2) {
           const built = buildFromState(nextState);
-
-          if (
-            isBetterCombination(
-              built,
-              best,
-              targetReturn,
-              options.objective,
+          const balanced = isAcceptablePayoutShape(nextState.legs);
+          const returnDistance = Math.abs(
+            Math.log(Math.max(grossReturn, 1.001) / targetReturn),
+          );
+          const fallbackScore =
+            combinationScore(built, targetReturn, options.objective) -
+            2.4 * returnDistance -
+            (balanced ? 0 : 3.5);
+          const fallbackKey = built.legs
+            .map(
+              (leg) =>
+                leg.canonical?.key ??
+                `${leg.platform}:${leg.platformMarketId}`,
             )
-          ) {
-            best = built;
+            .toSorted()
+            .join("|");
+          const existingFallback = fallbackCandidates.get(fallbackKey);
+          if (!existingFallback || fallbackScore > existingFallback.score) {
+            fallbackCandidates.set(fallbackKey, {
+              combination: built,
+              score: fallbackScore,
+              balanced,
+            });
           }
 
-          if (resultLimit > 1) {
-            const bucket = Math.floor(Math.log(grossReturn) / 0.24);
-            const bucketTarget = Math.exp((bucket + 0.5) * 0.24);
-            const rows = bestByReturnBucket.get(bucket) ?? [];
-            const key = built.legs
-              .map(
-                (leg) =>
-                  leg.canonical?.key ??
-                  `${leg.platform}:${leg.platformMarketId}`,
+          if (
+            grossReturn >= options.minReturn &&
+            grossReturn <= options.maxReturn &&
+            balanced
+          ) {
+            if (
+              isBetterCombination(
+                built,
+                best,
+                targetReturn,
+                options.objective,
               )
-              .toSorted()
-              .join("|");
+            ) {
+              best = built;
+            }
 
-            const nextRows = [
-              ...rows.filter((row) => {
-                const rowKey = row.legs
-                  .map(
-                    (leg) =>
-                      leg.canonical?.key ??
-                      `${leg.platform}:${leg.platformMarketId}`,
-                  )
-                  .toSorted()
-                  .join("|");
-                return rowKey !== key;
-              }),
-              built,
-            ]
-              .toSorted(
-                (first, second) =>
-                  combinationScore(
-                    second,
-                    bucketTarget,
-                    options.objective,
-                  ) -
-                  combinationScore(
-                    first,
-                    bucketTarget,
-                    options.objective,
-                  ),
-              )
-              .slice(0, 3);
+            if (resultLimit > 1) {
+              const bucket = Math.floor(Math.log(grossReturn) / 0.24);
+              const bucketTarget = Math.exp((bucket + 0.5) * 0.24);
+              const rows = bestByReturnBucket.get(bucket) ?? [];
 
-            bestByReturnBucket.set(bucket, nextRows);
+              const nextRows = [
+                ...rows.filter((row) => {
+                  const rowKey = row.legs
+                    .map(
+                      (leg) =>
+                        leg.canonical?.key ??
+                        `${leg.platform}:${leg.platformMarketId}`,
+                    )
+                    .toSorted()
+                    .join("|");
+                  return rowKey !== fallbackKey;
+                }),
+                built,
+              ]
+                .toSorted(
+                  (first, second) =>
+                    combinationScore(
+                      second,
+                      bucketTarget,
+                      options.objective,
+                    ) -
+                    combinationScore(
+                      first,
+                      bucketTarget,
+                      options.objective,
+                    ),
+                )
+                .slice(0, 5);
+
+              bestByReturnBucket.set(bucket, nextRows);
+            }
           }
         }
 
+        // Return only increases as legs are added. Once a partial ticket is
+        // already above the requested ceiling, keep it as a possible
+        // best-available fallback but do not make it even longer.
         const searchCeiling =
           resultLimit > 1 ? options.maxReturn : options.minReturn;
-        if (depth < options.maxLegs && grossReturn < searchCeiling) {
+        if (
+          depth < options.maxLegs &&
+          grossReturn < searchCeiling
+        ) {
           next.push(nextState);
         }
       }
@@ -736,7 +732,32 @@ function searchCombinations(
       .slice(0, beamWidth);
   }
 
-  if (!best) return [];
+  const rankedFallbacks = [...fallbackCandidates.values()]
+    .toSorted((first, second) => second.score - first.score)
+    .map(({ combination, balanced }) => ({
+      ...combination,
+      relaxedConstraints: [
+        ...combination.relaxedConstraints,
+        ...(combination.grossReturn < options.minReturn ||
+        combination.grossReturn > options.maxReturn
+          ? [
+              "No balanced combination landed inside the requested payout band, so this is the closest available payout shape.",
+            ]
+          : []),
+        ...(!balanced
+          ? [
+              "No fully balanced payout shape was available, so this fallback has more payout concentration than preferred.",
+            ]
+          : []),
+      ],
+    }));
+
+  if (!best) {
+    return selectDistinctCombinations(
+      rankedFallbacks,
+      Math.max(1, resultLimit),
+    );
+  }
   if (resultLimit <= 1) return [best];
 
   const unique = new Map<string, BuiltCombination>();
@@ -778,7 +799,25 @@ function searchCombinations(
     if (unique.size >= resultLimit) break;
   }
 
-  return [...unique.values()];
+  if (unique.size < resultLimit) {
+    for (const fallback of rankedFallbacks) {
+      const key = fallback.legs
+        .map(
+          (leg) =>
+            leg.canonical?.key ??
+            `${leg.platform}:${leg.platformMarketId}`,
+        )
+        .toSorted()
+        .join("|");
+      if (!unique.has(key)) unique.set(key, fallback);
+      if (unique.size >= resultLimit) break;
+    }
+  }
+
+  return selectDistinctCombinations(
+    [...unique.values()],
+    Math.max(1, resultLimit),
+  );
 }
 
 export function buildCombination(
@@ -855,14 +894,16 @@ function isMeaningfullyDistinct(
 ) {
   return selected.every((row) => {
     const smallerLegCount = Math.min(candidate.legs.length, row.legs.length);
-    if (smallerLegCount <= 2) return true;
     const sharedExact = maximumSharedExactLegs(candidate, row);
 
-    // One swapped leg is not a new option. A four-leg build may share at most
-    // two exact legs with another four-leg build; larger builds stay under
-    // roughly half exact overlap as well.
+    // Displayed alternatives should be genuinely different tickets. For a
+    // two-leg build, sharing either exact leg is already half the ticket.
     const maxSharedExact =
-      smallerLegCount === 3 ? 1 : Math.floor(smallerLegCount / 2);
+      smallerLegCount <= 2
+        ? 0
+        : smallerLegCount === 3
+          ? 1
+          : Math.max(1, Math.floor((smallerLegCount - 1) / 2));
     if (sharedExact > maxSharedExact) return false;
 
     // Also reject a near-identical player thesis even when the exact lines
@@ -874,7 +915,7 @@ function isMeaningfullyDistinct(
         market.canonical?.subject.toLowerCase() ??
         combinationIdentity(market),
     );
-    return subjectOverlap <= 0.67;
+    return subjectOverlap <= 0.6;
   });
 }
 
@@ -909,11 +950,38 @@ function selectDistinctCombinations(
       // same four legs with one swap is not a new option.
       const duplicateThesisPenalty =
         maxExactOverlap > 0.5 ? 28 + (maxExactOverlap - 0.5) * 80 : 0;
+      const exactExposure = candidate.legs.reduce(
+        (sum, leg) =>
+          sum +
+          selected.filter((row) =>
+            row.legs.some(
+              (existing) =>
+                combinationIdentity(existing) === combinationIdentity(leg),
+            ),
+          ).length,
+        0,
+      );
+      const subjectExposure = candidate.legs.reduce((sum, leg) => {
+        const subject =
+          leg.canonical?.subject.toLowerCase() ?? combinationIdentity(leg);
+        return (
+          sum +
+          selected.filter((row) =>
+            row.legs.some(
+              (existing) =>
+                (existing.canonical?.subject.toLowerCase() ??
+                  combinationIdentity(existing)) === subject,
+            ),
+          ).length
+        );
+      }, 0);
       const utility =
         candidate.lynervaScore +
         candidate.expectedProfitOn100 * 0.08 -
         maxSimilarity * 24 -
-        duplicateThesisPenalty;
+        duplicateThesisPenalty -
+        exactExposure * 10 -
+        subjectExposure * 4;
 
       if (utility > bestUtility) {
         bestUtility = utility;
