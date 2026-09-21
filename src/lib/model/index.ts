@@ -485,9 +485,6 @@ async function estimateGameMarket(
       learnedSourceWeightWeek: null,
       learnedCalibrationSample: calibrated.sampleSize,
       learnedCalibrationActive: calibrated.learned,
-      liveCurrentValue: liveStat,
-      liveProjectedFinal: liveConditional?.projectedFinal ?? null,
-      liveRemainingFraction: liveConditional ? remainingFraction : null,
     },
   };
 }
@@ -934,6 +931,9 @@ export async function estimateMarket(
         learnedSourceWeightWeek: external.weightWeek,
         learnedCalibrationSample: calibrated.sampleSize,
         learnedCalibrationActive: calibrated.learned,
+        liveCurrentValue: liveStat,
+        liveProjectedFinal: liveConditional?.projectedFinal ?? null,
+        liveRemainingFraction: liveConditional ? remainingFraction : null,
       },
     };
   } catch (error) {

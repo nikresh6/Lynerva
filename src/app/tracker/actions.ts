@@ -109,7 +109,6 @@ export async function deletePosition(id: string) {
     .where(
       and(eq(userPositions.id, id), eq(userPositions.userId, currentUser.id)),
     );
-  revalidatePath("/tracker");
 }
 
 
@@ -201,7 +200,6 @@ export async function syncManualTrackerBets(input: unknown) {
       );
   }
 
-  revalidatePath("/tracker");
   return { ok: true, message: "Tracker synced." };
 }
 

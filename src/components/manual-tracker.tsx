@@ -489,7 +489,7 @@ function productProbabilityBps(
   ) {
     return null;
   }
-  const product = values.reduce(
+  const product = values.reduce<number>(
     (running, value) => running * ((value ?? 0) / 10_000),
     1,
   );
