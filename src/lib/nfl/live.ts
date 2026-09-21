@@ -9,7 +9,7 @@ const competitorSchema = z
     homeAway: z.enum(["home", "away"]),
     score: z.string().optional().default("0"),
     possession: z.boolean().optional().default(false),
-    timeouts: z.number().optional(),
+    timeouts: z.coerce.number().optional(),
     team: z.object({
       abbreviation: z.string(),
       displayName: z.string(),
