@@ -456,7 +456,7 @@ export function SourceDashboard({
                             </div>
                           </div>
                           <p className="mt-3 text-[9px] leading-4 text-faint">
-                            Accuracy strength is 1 ÷ typical miss. The source is then shrunk toward an equal share until it has enough graded rows. Learning confidence starts at 0% through 20 grades and tops out at 75% around 200 grades.
+                            Accuracy strength is 1 ÷ typical miss. The source is then shrunk toward an equal share until it has enough graded rows. Learning confidence starts at 0% through 20 grades and reaches its 75% cap at 155 graded rows.
                           </p>
                         </div>
                       </div>
