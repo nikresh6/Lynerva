@@ -323,7 +323,7 @@ export function liveOvertimeProbability(input: LiveOvertimeContext) {
   let probability = 0;
 
   if (margin === 0) {
-    const survival = 0.07 + 0.76 * Math.pow(late, 1.35);
+    const survival = 0.04 + 0.68 * Math.pow(late, 1.5);
     probability = survival * (1 - 0.72 * threat * (0.35 + 0.65 * late));
   } else if (possessionMargin !== null && possessionMargin < 0) {
     const tieScoreFit =
