@@ -224,8 +224,18 @@ export function estimateInjuryAvailability(
           ? "medium"
           : "low";
 
+  const resolvedStatus = ruledOut
+    ? "Out"
+    : doubtful
+      ? "Doubtful"
+      : questionable
+        ? "Questionable"
+        : probable
+          ? "Probable"
+          : status;
+
   return {
-    status,
+    status: resolvedStatus,
     detail: signals.detail?.trim() || signals.notes?.trim() || null,
     bodyPart: signals.bodyPart?.trim() || null,
     practiceParticipation: signals.practiceParticipation?.trim() || null,
