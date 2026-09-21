@@ -1190,7 +1190,7 @@ export function BuilderWorkbench() {
                           </span>
                         </div>
                         <p className="mt-2 text-sm font-semibold tabular">
-                          {row.grossReturn.toFixed(2)}x
+                          {row.grossReturn.toFixed(2)}x est.
                         </p>
                         <div className="mt-1 flex items-center justify-between text-[9px] text-muted">
                           <span>{row.legs.length} legs</span>
@@ -1236,8 +1236,7 @@ export function BuilderWorkbench() {
                     {"$"}{parlayRequest?.stake.toLocaleString()} to about {"$"}{Math.round(payout).toLocaleString()}
                   </p>
                   <p className="mt-1 text-xs text-muted">
-                    About {"$"}{Math.round(profit).toLocaleString()} profit at the
-                    current market prices.
+                    Independent-leg estimate, about {"$"}{Math.round(profit).toLocaleString()} profit. Kalshi can price the final combo differently from the product of the single-leg asks.
                   </p>
                 </div>
 
@@ -1404,13 +1403,10 @@ export function BuilderWorkbench() {
                 <strong className="font-semibold text-foreground">
                   The builder now scores the whole combination.
                 </strong>{" "}
-                Tap any leg to replace it with another model-backed bet at similar odds, then choose Any, Same side, Over, Under, or Moneyline if you want to steer the swap. It weighs hit rate, expected value, target payout, and how much
-                each leg contributes to the final odds. For larger parlays,
-                ordinary builds are rejected when one leg carries most of the
-                payout. A true longshot only gets through when the reliability-adjusted
-                model edge is exceptional.
+                Tap any leg, choose I don't care, Over, or Under, then choose similar, higher, or lower payout. Huddlemark picks the replacement for you from the full modeled board. The builder penalizes repeated players and rejects normal tickets where one longshot carries most of the payout, but it does not force artificial stat-category diversity.
+                {" "}The displayed return is an independent-leg estimate from the current executable single-leg prices. Kalshi combination markets are separately priced, so the checkout quote can differ, especially for same-game legs.
                 {combination.correlationWarning
-                  ? " Same-game legs may be correlated, so the displayed combined chance is only an approximation."
+                  ? " Same-game hit probability is also approximate because the legs can be correlated."
                   : ""}
               </div>
               <div className="flex items-center gap-2 text-[10px] font-medium text-muted">
@@ -1419,7 +1415,7 @@ export function BuilderWorkbench() {
                 </span>
                 <ArrowRight className="size-3.5" />
                 <span className="rounded-full border bg-surface px-2.5 py-1 tabular">
-                  {combination.grossReturn.toFixed(2)}x
+                  {combination.grossReturn.toFixed(2)}x est.
                 </span>
               </div>
             </div>
@@ -1771,7 +1767,7 @@ export function BuilderWorkbench() {
                       {"$"}{Math.round(portfolioPlan.totalStake).toLocaleString()} spread across {portfolioPlan.positions.length} bets
                     </p>
                     <p className="mt-1 text-xs text-muted">
-                      Target {"$"}{Math.round(portfolioPlan.targetPayout).toLocaleString()}, all-win payout about {"$"}{Math.round(portfolioPlan.allWinPayout).toLocaleString()}.
+                      Target {"$"}{Math.round(portfolioPlan.targetPayout).toLocaleString()}, estimated all-win payout about {"$"}{Math.round(portfolioPlan.allWinPayout).toLocaleString()}.
                     </p>
                   </div>
 
@@ -1947,7 +1943,7 @@ export function BuilderWorkbench() {
 
                     <div className="mt-3 grid grid-cols-2 gap-2">
                       <div className="rounded-lg border bg-surface p-2.5">
-                        <p className="text-[9px] text-faint">Return if win</p>
+                        <p className="text-[9px] text-faint">{position.kind === "parlay" ? "Est. return if win" : "Return if win"}</p>
                         <p className="mt-1 text-xs font-semibold tabular">
                           {position.grossReturn.toFixed(2)}x
                         </p>
@@ -1977,7 +1973,7 @@ export function BuilderWorkbench() {
                 </strong>{" "}
                 {portfolioRequest?.singleGame
                   ? "One-game mode keeps the plan to at most four bets and avoids repeating the same player across positions, except when the overlap is specifically yardage plus touchdown."
-                  : "It uses a barbell mix: a safer core, 50% to 70% style value straights, a smaller aggressive straight, core and upside parlays, and a tiny Hail Mary allocation when your target calls for it. Higher payout targets increase upside exposure without forcing every dollar of potential return into the same parlay."}
+                  : "It now spreads capital across core straights, a hedge when the board offers a real offset, value straights, balanced core parlays, longer value parlays, and a small Hail Mary sleeve when the target calls for it. The payout target changes the mix, but no ordinary parlay is allowed to swallow most of the bankroll."}
               </div>
             </>
           )}
