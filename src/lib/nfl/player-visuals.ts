@@ -58,6 +58,7 @@ async function loadRoster() {
     `https://github.com/nflverse/nflverse-data/releases/download/rosters/roster_${season}.csv`;
   const response = await fetch(url, {
     next: { revalidate: 60 * 60 * 24 },
+    signal: AbortSignal.timeout(2_500),
   });
   if (!response.ok) {
     throw new Error(`nflverse roster request failed: ${response.status}`);
