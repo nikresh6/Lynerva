@@ -321,6 +321,8 @@ export function BuilderWorkbench() {
     mode: BuilderMode;
     maxLegs: number;
     subjectTeams: Record<string, string | null>;
+    singleGame: boolean;
+    matchup: string | null;
   };
 
   const [minReturnInput, setMinReturnInput] = useState("3");
@@ -336,6 +338,9 @@ export function BuilderWorkbench() {
   const [targetPayoutInput, setTargetPayoutInput] = useState("250");
   const [portfolioRisk, setPortfolioRisk] =
     useState<PortfolioRisk>("balanced");
+  const [portfolioScope, setPortfolioScope] =
+    useState<"all" | "single">("all");
+  const [portfolioMatchup, setPortfolioMatchup] = useState("");
   const [parlayRequest, setParlayRequest] =
     useState<ParlayRequest | null>(null);
   const [portfolioRequest, setPortfolioRequest] =
@@ -361,6 +366,17 @@ export function BuilderWorkbench() {
   const stakeNumber = Number(stakeInput);
   const planAmountNumber = Number(planAmountInput);
   const targetPayoutNumber = Number(targetPayoutInput);
+  const availablePortfolioMatchups = useMemo(
+    () =>
+      [...new Set(
+        currentMarkets
+          .map((market) => market.canonical?.matchup ?? "")
+          .filter(Boolean),
+      )].toSorted(),
+    [currentMarkets],
+  );
+  const effectivePortfolioMatchup =
+    portfolioMatchup || availablePortfolioMatchups[0] || "";
 
   const canBuildParlay =
     Number.isFinite(minReturnNumber) &&
@@ -375,7 +391,8 @@ export function BuilderWorkbench() {
     Number.isFinite(planAmountNumber) &&
     Number.isFinite(targetPayoutNumber) &&
     planAmountNumber > 0 &&
-    targetPayoutNumber > planAmountNumber;
+    targetPayoutNumber > planAmountNumber &&
+    (portfolioScope === "all" || Boolean(effectivePortfolioMatchup));
 
   const draftTargetReturn = canBuildPortfolio
     ? targetPayoutNumber / planAmountNumber
@@ -416,6 +433,8 @@ export function BuilderWorkbench() {
       mode: portfolioRequest.mode,
       maxLegs: portfolioRequest.maxLegs,
       subjectTeams: portfolioRequest.subjectTeams,
+      singleGame: portfolioRequest.singleGame,
+      maxPositions: portfolioRequest.singleGame ? 3 : undefined,
     });
   }, [portfolioRequest]);
   const portfolioPlan = customPortfolioPlan ?? generatedPortfolioPlan;
@@ -451,7 +470,12 @@ export function BuilderWorkbench() {
         : portfolioPlan?.positions[swapTarget.positionIndex]?.parlayMode ??
           "any";
 
-    const replacements = findMarketReplacements(currentMarkets, target, {
+    const replacementMarkets =
+      swapTarget.kind === "portfolio-leg" && portfolioRequest
+        ? portfolioRequest.markets
+        : currentMarkets;
+
+    const replacements = findMarketReplacements(replacementMarkets, target, {
       direction: swapDirection,
       toleranceBps: swapToleranceBps,
       existingLegs,
@@ -491,6 +515,7 @@ export function BuilderWorkbench() {
     combination,
     portfolioPlan,
     parlayRequest,
+    portfolioRequest,
   ]);
 
   const swapBetOptions = useMemo(() => {
@@ -505,7 +530,7 @@ export function BuilderWorkbench() {
     const position = portfolioPlan.positions[swapTarget.positionIndex];
     if (!position) return [];
 
-    return findPortfolioBetReplacements(currentMarkets, position, {
+    return findPortfolioBetReplacements(portfolioRequest.markets, position, {
       direction: swapDirection,
       toleranceBps: swapToleranceBps,
       mode: portfolioRequest.mode,
@@ -595,16 +620,24 @@ export function BuilderWorkbench() {
     runWithProgress("portfolio", () => {
       setCustomPortfolioPlan(null);
       setSwapTarget(null);
+      const singleGame = portfolioScope === "single";
+      const scopedMarkets = singleGame
+        ? currentMarkets.filter(
+            (market) => market.canonical?.matchup === effectivePortfolioMatchup,
+          )
+        : currentMarkets;
       setPortfolioRequest({
-        markets: currentMarkets,
+        markets: scopedMarkets,
         amount: planAmountNumber,
         targetPayout: targetPayoutNumber,
         risk: portfolioRisk,
         platform,
         live,
-        mode,
+        mode: singleGame ? "sgp" : mode,
         maxLegs,
         subjectTeams: optimizerSubjectTeams,
+        singleGame,
+        matchup: singleGame ? effectivePortfolioMatchup : null,
       });
     });
   }
@@ -1446,33 +1479,77 @@ export function BuilderWorkbench() {
             </div>
 
             <div>
-              <FieldLabel>Parlay type</FieldLabel>
-              <div className="grid grid-cols-3 gap-2">
+              <FieldLabel>Portfolio scope</FieldLabel>
+              <div className="grid grid-cols-2 gap-2">
                 <SegmentedButton
-                  value="multi_game"
-                  current={mode}
-                  onClick={setMode}
-                  title="Cross-game"
-                  description="Use parlays across separate matchups."
+                  value="all"
+                  current={portfolioScope}
+                  onClick={setPortfolioScope}
+                  title="All games"
+                  description="Diversify across the full slate."
                   icon={<Layers3 className="size-3.5" />}
                 />
                 <SegmentedButton
-                  value="sgp"
-                  current={mode}
-                  onClick={setMode}
-                  title="Same game"
-                  description="Use same-game parlays from one matchup."
+                  value="single"
+                  current={portfolioScope}
+                  onClick={setPortfolioScope}
+                  title="One game"
+                  description="Three focused bets from one matchup."
                   icon={<Target className="size-3.5" />}
                 />
-                <SegmentedButton
-                  value="any"
-                  current={mode}
-                  onClick={setMode}
-                  title="Either"
-                  description="Let Huddlemark compare both parlay structures."
-                  icon={<Sparkles className="size-3.5" />}
-                />
               </div>
+
+              {portfolioScope === "single" ? (
+                <label className="mt-3 block">
+                  <FieldLabel>Game</FieldLabel>
+                  <select
+                    value={effectivePortfolioMatchup}
+                    onChange={(event) => setPortfolioMatchup(event.target.value)}
+                    className="control-surface h-11 w-full rounded-xl px-3 text-xs outline-none focus:border-accent"
+                  >
+                    {availablePortfolioMatchups.map((matchup) => (
+                      <option key={matchup} value={matchup}>
+                        {matchup.replace("-", " vs ")}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1.5 text-[9px] leading-4 text-faint">
+                    One-game plans use at most three bets. The same player cannot
+                    appear twice unless the overlap is a yardage bet paired with
+                    a touchdown bet.
+                  </p>
+                </label>
+              ) : (
+                <div className="mt-5">
+                  <FieldLabel>Parlay type</FieldLabel>
+                  <div className="grid grid-cols-3 gap-2">
+                    <SegmentedButton
+                      value="multi_game"
+                      current={mode}
+                      onClick={setMode}
+                      title="Cross-game"
+                      description="Use parlays across separate matchups."
+                      icon={<Layers3 className="size-3.5" />}
+                    />
+                    <SegmentedButton
+                      value="sgp"
+                      current={mode}
+                      onClick={setMode}
+                      title="Same game"
+                      description="Use same-game parlays from one matchup."
+                      icon={<Target className="size-3.5" />}
+                    />
+                    <SegmentedButton
+                      value="any"
+                      current={mode}
+                      onClick={setMode}
+                      title="Either"
+                      description="Let Huddlemark compare both parlay structures."
+                      icon={<Sparkles className="size-3.5" />}
+                    />
+                  </div>
+                </div>
+              )}
 
               <div className="mt-5 grid grid-cols-2 gap-3">
                 <div>
@@ -1523,8 +1600,9 @@ export function BuilderWorkbench() {
 
           <div className="flex flex-col gap-2 border-t bg-surface-raised/45 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
             <p className="text-[10px] leading-4 text-muted">
-              Set the amount, target, and risk first. The plan is calculated
-              only after you click Build.
+              {portfolioScope === "single"
+                ? "One-game mode caps the plan at three bets and avoids repeated players, except yardage plus touchdown."
+                : "Set the amount, target, and risk first. The plan is calculated only after you click Build."}
             </p>
             <button
               type="button"
@@ -1588,6 +1666,11 @@ export function BuilderWorkbench() {
                       <span className="rounded-full border bg-surface px-2.5 py-1 text-[10px] font-medium capitalize text-muted">
                         {portfolioRequest?.risk} risk
                       </span>
+                      {portfolioRequest?.singleGame ? (
+                        <span className="rounded-full border border-accent/30 bg-accent-bg px-2.5 py-1 text-[10px] font-medium text-accent">
+                          {portfolioRequest.matchup?.replace("-", " vs ")} · 3-bet max
+                        </span>
+                      ) : null}
                     </div>
                     <p className="mt-3 text-2xl font-semibold tracking-[-0.035em] tabular sm:text-3xl">
                       {"$"}{Math.round(portfolioPlan.totalStake).toLocaleString()} spread across {portfolioPlan.positions.length} bets
@@ -1797,11 +1880,9 @@ export function BuilderWorkbench() {
                 <strong className="font-semibold text-foreground">
                   The plan optimizes the mix, not just the biggest payout.
                 </strong>{" "}
-                It now uses a barbell mix: a safer core, 50% to 70% style
-                value straights, a smaller aggressive straight, core and upside
-                parlays, and a tiny Hail Mary allocation when your target calls
-                for it. Higher payout targets increase upside exposure without
-                forcing every dollar of potential return into the same parlay.
+                {portfolioRequest?.singleGame
+                  ? "One-game mode keeps the plan to at most three bets and avoids repeating the same player across positions, except when the overlap is specifically yardage plus touchdown."
+                  : "It uses a barbell mix: a safer core, 50% to 70% style value straights, a smaller aggressive straight, core and upside parlays, and a tiny Hail Mary allocation when your target calls for it. Higher payout targets increase upside exposure without forcing every dollar of potential return into the same parlay."}
               </div>
             </>
           )}
