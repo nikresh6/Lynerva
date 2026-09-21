@@ -1084,7 +1084,10 @@ export function buildTopScoredCombinations(
     {
       minReturn: 1.3,
       maxReturn: 500,
-      maxLegs: 10,
+      // The no-filter board should surface several distinct, readable tickets
+      // rather than one optimizer-selected ten-leg ticket that consumes the
+      // entire market universe and leaves no genuinely different alternative.
+      maxLegs: 6,
       platform: "kalshi",
       live: "pregame",
       mode: "any",
