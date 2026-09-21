@@ -30,6 +30,7 @@ const sleeperPlayersSchema = z.record(z.string(), sleeperPlayerSchema);
 type SleeperPlayer = z.infer<typeof sleeperPlayerSchema>;
 
 const SLEEPER_TTL_MS = 6 * 60 * 60_000;
+const AVAILABILITY_TTL_MS = 90_000;
 let sleeperCache:
   | {
       storedAt: number;
@@ -37,6 +38,13 @@ let sleeperCache:
     }
   | null = null;
 let sleeperInflight: Promise<Map<string, SleeperPlayer>> | null = null;
+const availabilityCache = new Map<
+  string,
+  {
+    expiresAt: number;
+    promise: Promise<PregamePlayerAvailability | null>;
+  }
+>();
 
 function normalizePerson(value: string) {
   return value
@@ -69,7 +77,7 @@ async function loadSleeperPlayers() {
           Accept: "application/json",
           "User-Agent": "Huddlemark/1.0 market-research",
         },
-        next: { revalidate: 21_600 },
+        cache: "no-store",
         signal: AbortSignal.timeout(5_000),
       },
     );
@@ -136,7 +144,7 @@ export interface PregamePlayerAvailability extends InjuryAvailabilityEstimate {
   newsText: string | null;
 }
 
-export async function getPregamePlayerAvailability(input: {
+async function computePregamePlayerAvailability(input: {
   subject: string;
   espnGameId?: string | null;
 }): Promise<PregamePlayerAvailability | null> {
@@ -176,4 +184,22 @@ export async function getPregamePlayerAvailability(input: {
     newsPublishedAt: news?.publishedAt ?? null,
     newsText: news?.text ?? null,
   };
+}
+
+export function getPregamePlayerAvailability(input: {
+  subject: string;
+  espnGameId?: string | null;
+}): Promise<PregamePlayerAvailability | null> {
+  const key =
+    normalizePerson(input.subject) + ":" + (input.espnGameId ?? "no-game");
+  const cached = availabilityCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+
+  const promise = computePregamePlayerAvailability(input);
+  availabilityCache.set(key, {
+    expiresAt: Date.now() + AVAILABILITY_TTL_MS,
+    promise,
+  });
+  promise.catch(() => availabilityCache.delete(key));
+  return promise;
 }
