@@ -127,6 +127,17 @@ function builderPickLabel(market: MarketOpportunity) {
                       ? "anytime TDs"
                       : canonical.family.replaceAll("_", " ");
 
+  if (pickDirection === "yes") {
+    return canonical.family === "touchdowns"
+      ? `${canonical.subject}: Anytime TD`
+      : `${canonical.subject}: Yes ${label}`;
+  }
+  if (pickDirection === "no") {
+    return canonical.family === "touchdowns"
+      ? `${canonical.subject}: No touchdown`
+      : `${canonical.subject}: No ${label}`;
+  }
+
   return `${canonical.subject}: ${pickDirection === "over" ? "Over" : "Under"} ${threshold} ${label}`;
 }
 
