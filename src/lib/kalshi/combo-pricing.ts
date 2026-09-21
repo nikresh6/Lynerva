@@ -5,7 +5,7 @@ import { dollarsToBps, fetchValidated } from "@/lib/providers/http";
 
 const KALSHI_BASE = "https://external-api.kalshi.com/trade-api/v2";
 const PAGE_LIMIT = 200;
-const MAX_PAGES = 8;
+const MAX_PAGES = 3;
 const CACHE_MS = 30_000;
 
 const selectedLegSchema = z
