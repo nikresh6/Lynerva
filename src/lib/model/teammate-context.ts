@@ -164,7 +164,7 @@ function weightedUnpricedFraction(input: {
   );
 }
 
-export async function getTeammateContextAdjustment(input: {
+async function computeTeammateContextAdjustment(input: {
   market: CanonicalMarket;
   season: number;
   week: number;
@@ -312,4 +312,47 @@ export async function getTeammateContextAdjustment(input: {
     notes,
     affectedBy,
   };
+}
+
+const contextCache = new Map<
+  string,
+  {
+    expiresAt: number;
+    promise: Promise<TeammateContextAdjustment | null>;
+  }
+>();
+
+export function getTeammateContextAdjustment(
+  input: Parameters<typeof computeTeammateContextAdjustment>[0],
+) {
+  const pointSignature = input.projectionPoints
+    .map(
+      (point) =>
+        point.source +
+        ":" +
+        point.value.toFixed(2) +
+        ":" +
+        (point.lastChangedAt ?? point.firstObservedAt ?? ""),
+    )
+    .join("|");
+  const key = [
+    normalizePerson(input.market.subject),
+    input.market.family,
+    input.season,
+    input.week,
+    input.baselineProjection.toFixed(2),
+    input.espnGameId ?? "",
+    pointSignature,
+  ].join(":");
+
+  const cached = contextCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+
+  const promise = computeTeammateContextAdjustment(input);
+  contextCache.set(key, {
+    expiresAt: Date.now() + 90_000,
+    promise,
+  });
+  promise.catch(() => contextCache.delete(key));
+  return promise;
 }
