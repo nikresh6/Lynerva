@@ -18,6 +18,8 @@ export type ReplacementDirection =
   | "under"
   | "moneyline";
 
+export type ReplacementOddsPreference = "similar" | "higher" | "lower";
+
 export interface MarketReplacementOptions {
   direction: ReplacementDirection;
   toleranceBps: number;
@@ -181,8 +183,7 @@ export function findMarketReplacements(
         market.recommendedProbabilityBps === null ||
         market.executablePriceBps <= 0 ||
         market.executablePriceBps >= 10_000 ||
-        market.freshness === "stale" ||
-        (market.edgeBps ?? 0) <= 0
+        market.freshness === "stale"
       ) {
         return false;
       }
@@ -210,8 +211,13 @@ export function findMarketReplacements(
       const score = market.lynervaScore ?? 50;
       const edge = (market.edgeBps ?? 0) / 100;
       const reliability = market.model.reliabilityBps / 100;
+      const positiveEdgeBonus = edge > 0 ? 8 : 0;
       const utility =
-        score + 0.38 * edge + 0.05 * reliability - 0.72 * priceDistance;
+        score +
+        0.42 * edge +
+        0.05 * reliability -
+        0.72 * priceDistance +
+        positiveEdgeBonus;
       return { market, utility, priceDistance };
     })
     .toSorted(
@@ -222,6 +228,64 @@ export function findMarketReplacements(
     )
     .slice(0, limit)
     .map((row) => row.market);
+}
+
+function oddsPreferenceUtility(
+  candidatePriceBps: number,
+  targetPriceBps: number,
+  preference: ReplacementOddsPreference,
+) {
+  const delta = candidatePriceBps - targetPriceBps;
+  const distance = Math.abs(delta) / 100;
+
+  if (preference === "similar") {
+    return -0.9 * distance;
+  }
+
+  if (preference === "higher") {
+    // Higher betting odds means a lower contract price and more payout.
+    return delta < 0 ? 12 - 0.18 * distance : -24 - 0.4 * distance;
+  }
+
+  // Lower betting odds means a higher contract price and less payout.
+  return delta > 0 ? 12 - 0.18 * distance : -24 - 0.4 * distance;
+}
+
+export function findBestMarketReplacement(
+  markets: MarketOpportunity[],
+  target: MarketOpportunity,
+  options: Omit<MarketReplacementOptions, "toleranceBps" | "limit"> & {
+    oddsPreference: ReplacementOddsPreference;
+  },
+) {
+  const targetPrice = target.executablePriceBps ?? 5_000;
+  const candidates = findMarketReplacements(markets, target, {
+    ...options,
+    toleranceBps: 10_000,
+    limit: 80,
+  });
+
+  return (
+    candidates
+      .map((market) => {
+        const price = market.executablePriceBps ?? targetPrice;
+        const score = market.lynervaScore ?? 50;
+        const edge = (market.edgeBps ?? 0) / 100;
+        const reliability = market.model.reliabilityBps / 100;
+        const valueBonus = edge > 0 ? 9 : 0;
+        return {
+          market,
+          utility:
+            score +
+            edge * 0.45 +
+            reliability * 0.04 +
+            valueBonus +
+            oddsPreferenceUtility(price, targetPrice, options.oddsPreference),
+        };
+      })
+      .toSorted((first, second) => second.utility - first.utility)[0]?.market ??
+    null
+  );
 }
 
 function oddsShape(legs: MarketOpportunity[]) {
@@ -564,6 +628,71 @@ export function findPortfolioBetReplacements(
     kind: "parlay" as const,
     combination,
   }));
+}
+
+export function findBestPortfolioBetReplacement(
+  markets: MarketOpportunity[],
+  position: PortfolioPosition,
+  options: {
+    direction: ReplacementDirection;
+    oddsPreference: ReplacementOddsPreference;
+    mode: BuilderMode;
+    live: "all" | "pregame" | "live";
+    existingPositions: PortfolioPosition[];
+    singleGame?: boolean;
+  },
+) {
+  const candidates = findPortfolioBetReplacements(markets, position, {
+    direction: options.direction,
+    toleranceBps: 10_000,
+    mode: options.mode,
+    live: options.live,
+    existingPositions: options.existingPositions,
+    singleGame: options.singleGame,
+    limit: 60,
+  });
+
+  const targetReturn = Math.max(position.grossReturn, 1.001);
+  return (
+    candidates
+      .map((candidate) => {
+        const grossReturn =
+          candidate.kind === "straight"
+            ? 10_000 / Math.max(candidate.market.executablePriceBps ?? 1, 1)
+            : candidate.combination.grossReturn;
+        const score =
+          candidate.kind === "straight"
+            ? candidate.market.lynervaScore ?? 50
+            : candidate.combination.lynervaScore;
+        const ev =
+          candidate.kind === "straight"
+            ? ((candidate.market.recommendedProbabilityBps ?? 0) /
+                Math.max(candidate.market.executablePriceBps ?? 1, 1))
+            : candidate.combination.expectedValueMultiplier;
+        const returnDelta = grossReturn - targetReturn;
+        const distance = Math.abs(Math.log(grossReturn / targetReturn));
+        const oddsUtility =
+          options.oddsPreference === "similar"
+            ? -18 * distance
+            : options.oddsPreference === "higher"
+              ? returnDelta > 0
+                ? 10 - 5 * distance
+                : -20 - 8 * distance
+              : returnDelta < 0
+                ? 10 - 5 * distance
+                : -20 - 8 * distance;
+
+        return {
+          candidate,
+          utility:
+            score +
+            Math.log(Math.max(ev, 0.5)) * 18 +
+            oddsUtility,
+        };
+      })
+      .toSorted((first, second) => second.utility - first.utility)[0]
+      ?.candidate ?? null
+  );
 }
 
 export function portfolioRoleForReplacement(
