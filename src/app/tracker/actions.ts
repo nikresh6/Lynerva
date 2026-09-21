@@ -109,6 +109,7 @@ export async function deletePosition(id: string) {
     .where(
       and(eq(userPositions.id, id), eq(userPositions.userId, currentUser.id)),
     );
+  revalidatePath("/tracker");
 }
 
 
@@ -210,5 +211,4 @@ export async function deleteManualTrackerBet(id: string) {
     .where(
       and(eq(userPositions.id, id), eq(userPositions.userId, currentUser.id)),
     );
-  revalidatePath("/tracker");
 }
