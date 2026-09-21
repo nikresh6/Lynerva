@@ -250,6 +250,16 @@ function replacementPriceLabel(toleranceBps: number) {
   return "Any odds";
 }
 
+type BuilderLinePreference = "mixed" | "over" | "under";
+
+function builderLinePreferenceMatches(
+  market: MarketOpportunity,
+  preference: BuilderLinePreference,
+) {
+  if (preference === "mixed") return true;
+  return builderPickDirectionForUi(market) === preference;
+}
+
 function builderPickDirectionForUi(
   market: MarketOpportunity,
 ): ReplacementDirection {
@@ -270,9 +280,18 @@ function builderPickDirectionForUi(
 
 export function BuilderWorkbench() {
   const { opportunities, loading } = useMarketData();
-  const currentMarkets = useMemo(
+  const [linePreference, setLinePreference] =
+    useState<BuilderLinePreference>("mixed");
+  const eligibleMarkets = useMemo(
     () => opportunities.filter(isBuilderEligibleOpportunity),
     [opportunities],
+  );
+  const currentMarkets = useMemo(
+    () =>
+      eligibleMarkets.filter((market) =>
+        builderLinePreferenceMatches(market, linePreference),
+      ),
+    [eligibleMarkets, linePreference],
   );
   const optimizerPlayerNames = useMemo(
     () =>
@@ -309,6 +328,7 @@ export function BuilderWorkbench() {
     mode: BuilderMode;
     objective: BuilderObjective;
     stake: number;
+    linePreference: BuilderLinePreference;
   };
 
   type PortfolioRequest = {
@@ -323,6 +343,7 @@ export function BuilderWorkbench() {
     subjectTeams: Record<string, string | null>;
     singleGame: boolean;
     matchup: string | null;
+    linePreference: BuilderLinePreference;
   };
 
   const [minReturnInput, setMinReturnInput] = useState("3");
@@ -481,7 +502,9 @@ export function BuilderWorkbench() {
     const replacementMarkets =
       swapTarget.kind === "portfolio-leg" && portfolioRequest
         ? portfolioRequest.markets
-        : currentMarkets;
+        : swapTarget.kind === "parlay-leg" && parlayRequest
+          ? parlayRequest.markets
+          : currentMarkets;
 
     const replacements = findMarketReplacements(replacementMarkets, target, {
       direction: swapDirection,
@@ -602,6 +625,7 @@ export function BuilderWorkbench() {
         mode,
         objective,
         stake: stakeNumber,
+        linePreference,
       });
     });
   }
@@ -624,6 +648,7 @@ export function BuilderWorkbench() {
         objective: "balanced",
         stake:
           Number.isFinite(stakeNumber) && stakeNumber > 0 ? stakeNumber : 100,
+        linePreference,
       });
     });
   }
@@ -651,6 +676,7 @@ export function BuilderWorkbench() {
         subjectTeams: optimizerSubjectTeams,
         singleGame,
         matchup: singleGame ? effectivePortfolioMatchup : null,
+        linePreference,
       });
     });
   }
@@ -831,8 +857,8 @@ export function BuilderWorkbench() {
                   : "Show me the best parlays of the week"}
               </span>
               <span className="mt-0.5 block text-[10px] leading-4 text-muted">
-                No filters. Huddlemark searches every eligible pregame market and
-                ranks the strongest combinations by parlay score.
+                Huddlemark searches every eligible pregame market that matches
+                your line preference and ranks the strongest combinations by parlay score.
               </span>
             </span>
             <ChevronRight className="size-4 shrink-0 text-muted transition-transform group-hover:translate-x-0.5" />
@@ -895,6 +921,36 @@ export function BuilderWorkbench() {
                   title="Max EV"
                   description="Lean harder toward underpriced combinations."
                   icon={<Zap className="size-3.5" />}
+                />
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <FieldLabel>Line preference</FieldLabel>
+              <div className="grid grid-cols-3 gap-2">
+                <SegmentedButton
+                  value="mixed"
+                  current={linePreference}
+                  onClick={setLinePreference}
+                  title="Mixed"
+                  description="Allow overs, unders, and other eligible markets."
+                  icon={<Sparkles className="size-3.5" />}
+                />
+                <SegmentedButton
+                  value="over"
+                  current={linePreference}
+                  onClick={setLinePreference}
+                  title="Overs only"
+                  description="Every leg must be an over-side O/U prop."
+                  icon={<ArrowRight className="-rotate-45 size-3.5" />}
+                />
+                <SegmentedButton
+                  value="under"
+                  current={linePreference}
+                  onClick={setLinePreference}
+                  title="Unders only"
+                  description="Every leg must be an under-side O/U prop."
+                  icon={<ArrowRight className="rotate-45 size-3.5" />}
                 />
               </div>
             </div>
@@ -1489,6 +1545,36 @@ export function BuilderWorkbench() {
                   />
                 </div>
               </div>
+
+              <div className="mt-5">
+                <FieldLabel>Line preference</FieldLabel>
+                <div className="grid grid-cols-3 gap-2">
+                  <SegmentedButton
+                    value="mixed"
+                    current={linePreference}
+                    onClick={setLinePreference}
+                    title="Mixed"
+                    description="Use the strongest eligible lines."
+                    icon={<Sparkles className="size-3.5" />}
+                  />
+                  <SegmentedButton
+                    value="over"
+                    current={linePreference}
+                    onClick={setLinePreference}
+                    title="Overs only"
+                    description="Only over-side O/U props can enter the plan."
+                    icon={<ArrowRight className="-rotate-45 size-3.5" />}
+                  />
+                  <SegmentedButton
+                    value="under"
+                    current={linePreference}
+                    onClick={setLinePreference}
+                    title="Unders only"
+                    description="Only under-side O/U props can enter the plan."
+                    icon={<ArrowRight className="rotate-45 size-3.5" />}
+                  />
+                </div>
+              </div>
             </div>
 
             <div>
@@ -1682,6 +1768,13 @@ export function BuilderWorkbench() {
                       {portfolioRequest?.singleGame ? (
                         <span className="rounded-full border border-accent/30 bg-accent-bg px-2.5 py-1 text-[10px] font-medium text-accent">
                           {portfolioRequest.matchup?.replace("-", " vs ")} · 3-bet max
+                        </span>
+                      ) : null}
+                      {portfolioRequest?.linePreference !== "mixed" ? (
+                        <span className="rounded-full border border-accent/30 bg-accent-bg px-2.5 py-1 text-[10px] font-medium text-accent">
+                          {portfolioRequest?.linePreference === "over"
+                            ? "Overs only"
+                            : "Unders only"}
                         </span>
                       ) : null}
                     </div>
