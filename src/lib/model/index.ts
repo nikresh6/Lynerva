@@ -12,6 +12,7 @@ import {
   conditionalLivePlayerProbability,
   liveGameScriptMultiplier,
   liveInjuryAvailabilityMultiplier,
+  livePossessionOpportunityMultiplier,
 } from "./live-player-probability";
 import { getExternalProjectionConsensus } from "./external-projections";
 import { getEspnGameProbability } from "./game-projections";
@@ -24,7 +25,7 @@ import type {
   ModelEstimate,
 } from "@/lib/markets/types";
 
-const MODEL_VERSION = "hybrid-consensus-learning-v8";
+const MODEL_VERSION = "hybrid-consensus-learning-v9";
 
 const emptyEvidence: HistoricalEvidence = {
   last5Hits: null,
@@ -720,7 +721,13 @@ export async function estimateMarket(
       canonical.family,
       scoreMargin,
     );
-    const remainingRateMultiplier = injuryMultiplier * gameScriptMultiplier;
+    const possessionMultiplier = livePossessionOpportunityMultiplier(
+      remainingFraction,
+      livePlayerState?.team,
+      liveGame?.possession,
+    );
+    const remainingRateMultiplier =
+      injuryMultiplier * gameScriptMultiplier * possessionMultiplier;
     const liveConditional =
       liveStat !== null && baselineProjection !== null
         ? conditionalLivePlayerProbability({
@@ -905,6 +912,16 @@ export async function estimateMarket(
         "Live game script adjusted remaining opportunity by " +
           ((gameScriptMultiplier - 1) * 100).toFixed(0) +
           "% from the player's score margin.",
+      );
+    }
+    if (liveConditional && possessionMultiplier !== 1) {
+      factors.push(
+        "Late-game possession adjusted remaining opportunity by " +
+          ((possessionMultiplier - 1) * 100).toFixed(0) +
+          "% because " +
+          (liveGame?.possession === livePlayerState?.team
+            ? "the player's offense currently has the ball."
+            : "the player's offense is currently off the field."),
       );
     }
     if (
