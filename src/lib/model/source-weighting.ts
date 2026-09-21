@@ -111,8 +111,8 @@ export function calculateSourceWeights(
       metric.performance !== null && performanceTotal > 0
         ? metric.performance / performanceTotal
         : prior;
-    // Small samples stay close to equal weights. At 200+ graded observations,
-    // source performance can drive up to 75% of the weight.
+    // Small samples stay close to equal weights. The learned component ramps
+    // from 0% after 20 rows to its 75% cap at 155 graded observations.
     const confidence = clamp((metric.sampleSize - 20) / 180, 0, 0.75);
     return {
       ...metric,
