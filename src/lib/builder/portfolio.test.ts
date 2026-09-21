@@ -77,6 +77,35 @@ function opportunity(
   };
 }
 
+function playerProp(
+  id: string,
+  subject: string,
+  family:
+    | "passing_yards"
+    | "rushing_yards"
+    | "receiving_yards"
+    | "receptions"
+    | "touchdowns",
+  price: number,
+  model: number,
+): MarketOpportunity {
+  const market = opportunity(id, "LAR-NYG", price, model);
+  return {
+    ...market,
+    marketTitle: `${subject} ${family}`,
+    canonical: {
+      ...market.canonical!,
+      key: id,
+      family,
+      statistic: family,
+      direction: family === "touchdowns" ? "yes" : "over",
+      threshold: family === "touchdowns" ? 0.5 : 50,
+      subject,
+      matchup: "LAR-NYG",
+    },
+  };
+}
+
 const markets = [
   opportunity("A", "KC-BUF", 6_600, 7_400),
   opportunity("B", "DAL-PHI", 6_300, 7_200),
@@ -279,5 +308,58 @@ describe("bankroll portfolio builder", () => {
     expect(plan).not.toBeNull();
     expect(plan!.parlayStakeShare).toBeLessThanOrEqual(0.421);
     expect(plan!.straightStakeShare).toBeGreaterThan(plan!.parlayStakeShare);
+  });
+
+  it("caps one-game portfolios at three bets without repeated players except yards plus TD", () => {
+    const oneGameMarkets = [
+      playerProp("PUKA-YDS", "Puka Nacua", "receiving_yards", 5_800, 6_900),
+      playerProp("PUKA-TD", "Puka Nacua", "touchdowns", 3_800, 4_900),
+      playerProp("PUKA-REC", "Puka Nacua", "receptions", 5_400, 6_500),
+      playerProp("STAFFORD-PASS", "Matthew Stafford", "passing_yards", 6_100, 7_100),
+      playerProp("KYREN-RUSH", "Kyren Williams", "rushing_yards", 5_700, 6_700),
+      playerProp("KYREN-TD", "Kyren Williams", "touchdowns", 4_500, 5_500),
+      playerProp("NABERS-YDS", "Malik Nabers", "receiving_yards", 5_300, 6_400),
+      playerProp("DART-PASS", "Jaxson Dart", "passing_yards", 5_500, 6_600),
+    ];
+
+    const plan = buildPortfolioPlan(oneGameMarkets, {
+      amount: 100,
+      targetPayout: 250,
+      risk: "balanced",
+      platform: "either",
+      live: "pregame",
+      mode: "sgp",
+      maxLegs: 4,
+      singleGame: true,
+      maxPositions: 3,
+    });
+
+    expect(plan).not.toBeNull();
+    expect(plan!.positions.length).toBeLessThanOrEqual(3);
+
+    const legs = plan!.positions.flatMap((position) => position.legs);
+    for (let firstIndex = 0; firstIndex < legs.length; firstIndex += 1) {
+      for (let secondIndex = firstIndex + 1; secondIndex < legs.length; secondIndex += 1) {
+        const first = legs[firstIndex]!;
+        const second = legs[secondIndex]!;
+        if (first.canonical?.subject !== second.canonical?.subject) continue;
+        if (first.canonical?.key === second.canonical?.key) {
+          throw new Error("one-game portfolio repeated the exact same market");
+        }
+
+        const yardage = new Set([
+          "passing_yards",
+          "rushing_yards",
+          "receiving_yards",
+        ]);
+        const touchdowns = new Set(["touchdowns"]);
+        const firstFamily = first.canonical?.family ?? "other";
+        const secondFamily = second.canonical?.family ?? "other";
+        expect(
+          (yardage.has(firstFamily) && touchdowns.has(secondFamily)) ||
+            (touchdowns.has(firstFamily) && yardage.has(secondFamily)),
+        ).toBe(true);
+      }
+    }
   });
 });
