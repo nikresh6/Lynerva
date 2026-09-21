@@ -36,7 +36,7 @@ import {
   type PortfolioPlan,
   type PortfolioRisk,
 } from "@/lib/builder/portfolio";
-import { isBuilderEligibleOpportunity } from "@/lib/markets/eligibility";
+import { isBuilderSearchableOpportunity } from "@/lib/markets/eligibility";
 import type { MarketOpportunity } from "@/lib/markets/types";
 import { cn, formatEdge, formatPercent } from "@/lib/utils";
 import { PlatformMark } from "./platform-mark";
@@ -257,7 +257,13 @@ function builderLinePreferenceMatches(
   preference: BuilderLinePreference,
 ) {
   if (preference === "mixed") return true;
-  return builderPickDirectionForUi(market) === preference;
+
+  const direction = builderPickDirectionForUi(market);
+  // Over/under preference applies only to true O/U markets. Moneylines,
+  // anytime TDs, yes/no interception markets, and other binary props stay in
+  // the search universe regardless of this preference.
+  if (direction !== "over" && direction !== "under") return true;
+  return direction === preference;
 }
 
 function builderPickDirectionForUi(
@@ -283,7 +289,7 @@ export function BuilderWorkbench() {
   const [linePreference, setLinePreference] =
     useState<BuilderLinePreference>("mixed");
   const eligibleMarkets = useMemo(
-    () => opportunities.filter(isBuilderEligibleOpportunity),
+    () => opportunities.filter(isBuilderSearchableOpportunity),
     [opportunities],
   );
   const currentMarkets = useMemo(
