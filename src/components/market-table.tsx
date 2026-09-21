@@ -612,12 +612,21 @@ function InjuryRiskCard({ market }: { market: MarketOpportunity }) {
         ) : null}
 
         <p className="mt-3 text-[10px] leading-5 text-muted">
-          Huddlemark estimates whether the player appears at all, then the chance
-          of maintaining a near-normal role if active. The stat probability is
-          calculated after those branches, so a 90-yard full-role projection no
-          longer implies the same bet probability for a questionable game-time
-          decision.
+          Huddlemark first estimates whether the player appears at all, then the
+          chance of maintaining a near-normal role if active. If the player takes
+          a snap, early-exit and reduced-role risk affect the stat projection. A
+          true Kalshi DNP is not treated as an automatic loss because those
+          markets can settle at an Exchange-determined fair value.
         </p>
+        {components?.injuryDnpSettlementBps !== null &&
+        components?.injuryDnpSettlementBps !== undefined ? (
+          <div className="mt-2 flex items-center justify-between rounded-lg border bg-surface px-3 py-2 text-[9px]">
+            <span className="text-muted">Estimated DNP fair-value branch</span>
+            <span className="font-semibold tabular">
+              {formatPercent(components.injuryDnpSettlementBps)}
+            </span>
+          </div>
+        ) : null}
         {sources.length ? (
           <p className="mt-2 text-[9px] text-faint">
             Injury signals: {sources.join(" + ")}. Sleeper supplies public player
