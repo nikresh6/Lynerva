@@ -6,6 +6,7 @@ import {
   type InjuryAvailabilityEstimate,
 } from "@/lib/model/injury-availability";
 import { getEspnPlayerInjuryState } from "./live-player-stats";
+import { getInjuryNewsSignal } from "./injury-news";
 
 const sleeperPlayerSchema = z
   .object({
@@ -131,24 +132,28 @@ async function getSleeperPlayerInjury(subject: string) {
 export interface PregamePlayerAvailability extends InjuryAvailabilityEstimate {
   espnStatus: string | null;
   sleeperStatus: string | null;
+  newsPublishedAt: string | null;
+  newsText: string | null;
 }
 
 export async function getPregamePlayerAvailability(input: {
   subject: string;
   espnGameId?: string | null;
 }): Promise<PregamePlayerAvailability | null> {
-  const [espn, sleeper] = await Promise.all([
+  const [espn, sleeper, news] = await Promise.all([
     input.espnGameId
       ? getEspnPlayerInjuryState(input.espnGameId, input.subject)
       : Promise.resolve(null),
     getSleeperPlayerInjury(input.subject),
+    getInjuryNewsSignal(input.subject).catch(() => null),
   ]);
 
-  if (!espn && !sleeper) return null;
+  if (!espn && !sleeper && !news) return null;
 
   const sources = [
     ...(espn ? ["ESPN"] : []),
     ...(sleeper ? ["Sleeper"] : []),
+    ...(news?.sources ?? []),
   ];
 
   const estimate = estimateInjuryAvailability({
@@ -158,6 +163,7 @@ export async function getPregamePlayerAvailability(input: {
     notes: sleeper?.notes ?? null,
     practiceParticipation: sleeper?.practiceParticipation ?? null,
     practiceDescription: sleeper?.practiceDescription ?? null,
+    news: news?.text ?? null,
     sources,
   });
 
@@ -167,5 +173,7 @@ export async function getPregamePlayerAvailability(input: {
     ...estimate,
     espnStatus: espn?.status ?? null,
     sleeperStatus: sleeper?.status ?? null,
+    newsPublishedAt: news?.publishedAt ?? null,
+    newsText: news?.text ?? null,
   };
 }
