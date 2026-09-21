@@ -728,7 +728,7 @@ function selectPortfolioCandidates(
   if (targetReturn >= 4 || risk === "higher") {
     addBest(parlays, 1, {
       probabilityMax: 0.12,
-      returnMin: 20,
+      returnMin: 25,
       returnMax: 150,
       returnTarget: clamp(targetReturn * 8, 25, 80),
       legCountMin: 4,
