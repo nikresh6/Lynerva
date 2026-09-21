@@ -629,8 +629,8 @@ function InjuryRiskCard({ market }: { market: MarketOpportunity }) {
         ) : null}
         {sources.length ? (
           <p className="mt-2 text-[9px] text-faint">
-            Injury signals: {sources.join(" + ")}. Sleeper supplies public player
-            injury/practice fields and ESPN supplies game-specific injury status.
+            Injury signals: {sources.join(" + ")}. Structured status, practice
+            data, and recent public injury reporting are blended when available.
           </p>
         ) : null}
       </div>
@@ -765,11 +765,19 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
   const contextAdjustment =
     (components?.contextAdjustmentBps ?? 0) *
     (market.recommendedSide === "no" ? -1 : 1);
+  const teammateProjectionAdjustment =
+    components?.teammateContextAdjustment ?? 0;
+  const rawConsensusProjection =
+    components?.rawConsensusProjection ?? components?.consensusProjection ?? null;
 
   const contextText =
-    Math.abs(contextAdjustment) < 25
-      ? "No meaningful change"
-      : `${signedPercentFromBps(contextAdjustment)} to this bet`;
+    teammateProjectionAdjustment > 0.05
+      ? `+${teammateProjectionAdjustment.toFixed(
+          market.canonical?.family === "receptions" ? 1 : 0,
+        )} projection adjustment from teammate availability`
+      : Math.abs(contextAdjustment) < 25
+        ? "No meaningful change"
+        : `${signedPercentFromBps(contextAdjustment)} to this bet`;
 
   return (
     <section className="rounded-2xl border bg-background p-4">
@@ -792,6 +800,15 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
                   ? ` vs ${market.canonical.threshold} line`
                   : ""}
               </div>
+              {teammateProjectionAdjustment > 0.05 &&
+              rawConsensusProjection !== null ? (
+                <p className="mt-1 text-[10px] leading-4 text-accent">
+                  Raw source consensus {rawConsensusProjection.toFixed(2)} · teammate
+                  availability +{teammateProjectionAdjustment.toFixed(
+                    market.canonical?.family === "receptions" ? 1 : 0,
+                  )}
+                </p>
+              ) : null}
               <p className="mt-1 text-[11px] leading-5 text-muted">
                 {market.canonical?.threshold !== null &&
                 market.canonical?.threshold !== undefined &&
@@ -817,6 +834,21 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
                     .join(" · ")}
                 </p>
               ) : null}
+              {components?.projectionStdDev !== null &&
+              components?.projectionStdDev !== undefined ? (
+                <p className="mt-1 text-[10px] leading-5 text-faint">
+                  Expected game-to-game SD {components.projectionStdDev.toFixed(1)}
+                  {components.projectionStdDevPrior !== null &&
+                  components.projectionStdDevPrior !== undefined
+                    ? ` · 2025 projection/position prior ${components.projectionStdDevPrior.toFixed(1)}`
+                    : ""}
+                  {(components.projectionStdDevPlayerWeight ?? 0) > 0
+                    ? ` · ${Math.round(
+                        (components.projectionStdDevPlayerWeight ?? 0) * 100,
+                      )}% player-specific 2026 variance`
+                    : ""}
+                </p>
+              ) : null}
             </>
           )}
         </div>
@@ -839,7 +871,10 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
           <div className="text-xs font-semibold">Game conditions</div>
           <div className="mt-1.5 text-[15px] font-semibold">{contextText}</div>
           <p className="mt-1 text-[11px] leading-5 text-muted">
-            Weather and the expected game environment are included here.
+            Weather, expected game environment, and newly available teammate
+            injury information are included here. Teammate adjustments are
+            reduced when projection sources appear to have already moved after
+            the news.
           </p>
         </div>
       </div>
