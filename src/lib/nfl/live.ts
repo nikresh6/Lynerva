@@ -39,7 +39,24 @@ const eventSchema = z
       displayClock: z.string().optional().default(""),
     }),
     competitions: z.array(
-      z.object({ competitors: z.array(competitorSchema) }).passthrough(),
+      z
+        .object({
+          competitors: z.array(competitorSchema),
+          situation: z
+            .object({
+              possession: z.string().optional(),
+              down: z.coerce.number().optional(),
+              distance: z.coerce.number().optional(),
+              yardLine: z.coerce.number().optional(),
+              possessionText: z.string().optional(),
+              isRedZone: z.boolean().optional(),
+              homeTimeouts: z.coerce.number().optional(),
+              awayTimeouts: z.coerce.number().optional(),
+            })
+            .passthrough()
+            .optional(),
+        })
+        .passthrough(),
     ),
   })
   .passthrough();
@@ -60,6 +77,11 @@ export interface LiveNflGame {
   home: { team: string; score: number; timeouts?: number | null };
   away: { team: string; score: number; timeouts?: number | null };
   possession: string | null;
+  down?: number | null;
+  distance?: number | null;
+  yardLine?: number | null;
+  possessionText?: string | null;
+  isRedZone?: boolean | null;
   updatedAt: string;
 }
 
@@ -77,10 +99,14 @@ export class EspnLiveNflProvider implements LiveNflProvider {
       { cache: "no-store" },
     );
     return payload.events.map((event) => {
-      const competitors = event.competitions[0]?.competitors ?? [];
+      const competition = event.competitions[0];
+      const competitors = competition?.competitors ?? [];
+      const situation = competition?.situation;
       const home = competitors.find((team) => team.homeAway === "home");
       const away = competitors.find((team) => team.homeAway === "away");
-      const possession = competitors.find((team) => team.possession);
+      const possession =
+        competitors.find((team) => team.possession) ??
+        competitors.find((team) => team.id === situation?.possession);
       return {
         id: event.id,
         name: event.name,
@@ -95,14 +121,19 @@ export class EspnLiveNflProvider implements LiveNflProvider {
         home: {
           team: home?.team.abbreviation ?? "—",
           score: Number(home?.score ?? 0),
-          timeouts: home?.timeouts ?? null,
+          timeouts: situation?.homeTimeouts ?? home?.timeouts ?? null,
         },
         away: {
           team: away?.team.abbreviation ?? "—",
           score: Number(away?.score ?? 0),
-          timeouts: away?.timeouts ?? null,
+          timeouts: situation?.awayTimeouts ?? away?.timeouts ?? null,
         },
         possession: possession?.team.abbreviation ?? null,
+        down: situation?.down ?? null,
+        distance: situation?.distance ?? null,
+        yardLine: situation?.yardLine ?? null,
+        possessionText: situation?.possessionText ?? null,
+        isRedZone: situation?.isRedZone ?? null,
         updatedAt,
       };
     });
