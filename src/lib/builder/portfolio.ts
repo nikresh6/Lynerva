@@ -945,7 +945,37 @@ function targetShares(
     maxTotal = bounds.reduce((sum, row) => sum + row.max, 0);
   }
 
-  if (maxTotal < 0.9999) return null;
+  if (maxTotal < 0.9999) {
+    // A narrow board should still return a plan. Preserve the ranking, but
+    // normalize a quality-weighted fallback instead of failing merely because
+    // the preferred sleeve caps cannot absorb 100% of the bankroll.
+    const qualityWeights = candidates.map((candidate) => {
+      const coreBonus =
+        candidate.role === "core_straight"
+          ? 1.4
+          : candidate.role === "hedge_straight"
+            ? 1.05
+            : candidate.role === "value_straight"
+              ? 1.15
+              : candidate.role === "core_parlay"
+                ? 1.0
+                : candidate.role === "upside_parlay"
+                  ? 0.65
+                  : candidate.role === "aggressive_straight"
+                    ? 0.6
+                    : 0.25;
+      return (
+        coreBonus *
+        clamp(candidate.probability, 0.05, 0.95) *
+        clamp(candidate.expectedValueMultiplier, 0.65, 1.6)
+      );
+    });
+    const totalWeight = qualityWeights.reduce((sum, value) => sum + value, 0);
+    if (totalWeight <= 0) {
+      return candidates.map(() => 1 / candidates.length);
+    }
+    return qualityWeights.map((weight) => weight / totalWeight);
+  }
 
   const lowShares = fillExtreme(candidates, bounds, false);
   const highShares = fillExtreme(candidates, bounds, true);
