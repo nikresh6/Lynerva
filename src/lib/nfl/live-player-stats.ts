@@ -5,15 +5,26 @@ import { fetchValidated } from "@/lib/providers/http";
 
 const statValueSchema = z.union([z.string(), z.number()]);
 
+const athleteIdentitySchema = z
+  .object({
+    id: z.string().optional(),
+    fullName: z.string().optional(),
+    displayName: z.string().optional(),
+    shortName: z.string().optional(),
+  })
+  .passthrough();
+
+const teamIdentitySchema = z
+  .object({
+    id: z.string().optional(),
+    abbreviation: z.string().optional(),
+    displayName: z.string().optional(),
+  })
+  .passthrough();
+
 const athleteStatSchema = z
   .object({
-    athlete: z
-      .object({
-        fullName: z.string().optional(),
-        displayName: z.string().optional(),
-        shortName: z.string().optional(),
-      })
-      .passthrough(),
+    athlete: athleteIdentitySchema,
     stats: z.array(statValueSchema).default([]),
   })
   .passthrough();
@@ -29,15 +40,67 @@ const statGroupSchema = z
   })
   .passthrough();
 
+const injuryItemSchema = z
+  .object({
+    athlete: athleteIdentitySchema,
+    status: z.string().optional(),
+    detail: z.string().optional(),
+    type: z
+      .object({
+        name: z.string().optional(),
+        description: z.string().optional(),
+        abbreviation: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
+    details: z
+      .object({
+        type: z.string().optional(),
+        detail: z.string().optional(),
+        returnDate: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
+
+const injuryGroupSchema = z
+  .object({
+    team: teamIdentitySchema.optional(),
+    injuries: z.array(injuryItemSchema).default([]),
+  })
+  .passthrough();
+
+const boxscoreTeamSchema = z
+  .object({
+    team: teamIdentitySchema.optional(),
+    statistics: z.array(statGroupSchema).default([]),
+  })
+  .passthrough();
+
+const headerCompetitorSchema = z
+  .object({
+    team: teamIdentitySchema.optional(),
+    injuries: z.array(injuryItemSchema).default([]),
+  })
+  .passthrough();
+
 const summarySchema = z
   .object({
     boxscore: z
       .object({
-        players: z
+        players: z.array(boxscoreTeamSchema).default([]),
+      })
+      .passthrough()
+      .optional(),
+    injuries: z.array(injuryGroupSchema).default([]),
+    header: z
+      .object({
+        competitions: z
           .array(
             z
               .object({
-                statistics: z.array(statGroupSchema).default([]),
+                competitors: z.array(headerCompetitorSchema).default([]),
               })
               .passthrough(),
           )
@@ -50,6 +113,27 @@ const summarySchema = z
 
 type EspnSummary = z.infer<typeof summarySchema>;
 type StatGroup = z.infer<typeof statGroupSchema>;
+type InjuryItem = z.infer<typeof injuryItemSchema>;
+
+export interface LivePlayerState {
+  value: number;
+  team: string | null;
+  injuryStatus: string | null;
+  injuryDetail: string | null;
+}
+
+export interface EspnPlayerGameStats {
+  playerName: string;
+  team: string | null;
+  passingYards: number | null;
+  passingTouchdowns: number | null;
+  passingInterceptions: number | null;
+  rushingYards: number | null;
+  rushingTouchdowns: number | null;
+  receivingYards: number | null;
+  receptions: number | null;
+  receivingTouchdowns: number | null;
+}
 
 const summaryCache = new Map<
   string,
@@ -71,6 +155,10 @@ function normalizeColumn(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
+function athleteName(athlete: z.infer<typeof athleteIdentitySchema>) {
+  return athlete.fullName ?? athlete.displayName ?? athlete.shortName ?? "";
+}
+
 function samePlayer(candidate: string, subject: string) {
   const first = normalizePerson(candidate);
   const second = normalizePerson(subject);
@@ -83,7 +171,9 @@ function samePlayer(candidate: string, subject: string) {
 }
 
 function groupMatches(group: StatGroup, names: string[]) {
-  const name = normalizeColumn((group.name ?? "") + " " + (group.displayName ?? ""));
+  const name = normalizeColumn(
+    (group.name ?? "") + " " + (group.displayName ?? ""),
+  );
   return names.some((candidate) => name.includes(normalizeColumn(candidate)));
 }
 
@@ -123,12 +213,9 @@ function groupValue(
       const index = findColumnIndex(group, columnAliases);
       if (index < 0) continue;
 
-      const row = group.athletes.find((entry) => {
-        const athlete = entry.athlete;
-        const name =
-          athlete.fullName ?? athlete.displayName ?? athlete.shortName ?? "";
-        return samePlayer(name, subject);
-      });
+      const row = group.athletes.find((entry) =>
+        samePlayer(athleteName(entry.athlete), subject),
+      );
       if (!row) continue;
 
       const value = numericStat(row.stats[index]);
@@ -136,6 +223,60 @@ function groupValue(
     }
   }
   return null;
+}
+
+function playerTeam(payload: EspnSummary, subject: string) {
+  for (const team of payload.boxscore?.players ?? []) {
+    const found = team.statistics.some((group) =>
+      group.athletes.some((entry) =>
+        samePlayer(athleteName(entry.athlete), subject),
+      ),
+    );
+    if (found) return team.team?.abbreviation ?? null;
+  }
+  return null;
+}
+
+function injuryText(injury: InjuryItem) {
+  return [
+    injury.status,
+    injury.detail,
+    injury.type?.name,
+    injury.type?.description,
+    injury.type?.abbreviation,
+    injury.details?.type,
+    injury.details?.detail,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function findPlayerInjury(payload: EspnSummary, subject: string) {
+  const candidates: InjuryItem[] = [];
+
+  for (const group of payload.injuries) {
+    candidates.push(...group.injuries);
+  }
+  for (const competition of payload.header?.competitions ?? []) {
+    for (const competitor of competition.competitors) {
+      candidates.push(...competitor.injuries);
+    }
+  }
+
+  const injury = candidates.find((item) =>
+    samePlayer(athleteName(item.athlete), subject),
+  );
+  if (!injury) {
+    return {
+      status: null as string | null,
+      detail: null as string | null,
+    };
+  }
+
+  return {
+    status: injury.status ?? injury.type?.description ?? null,
+    detail: injuryText(injury) || null,
+  };
 }
 
 export function extractLivePlayerStat(
@@ -203,6 +344,69 @@ export function extractLivePlayerStat(
   }
 }
 
+export function extractEspnPlayerGameStats(
+  payload: EspnSummary,
+): EspnPlayerGameStats[] {
+  const players = new Map<string, { name: string; team: string | null }>();
+
+  for (const team of payload.boxscore?.players ?? []) {
+    for (const group of team.statistics) {
+      for (const entry of group.athletes) {
+        const name = athleteName(entry.athlete);
+        const key = normalizePerson(name);
+        if (!key) continue;
+        players.set(key, {
+          name,
+          team: team.team?.abbreviation ?? null,
+        });
+      }
+    }
+  }
+
+  return [...players.values()].map(({ name, team }) => ({
+    playerName: name,
+    team,
+    passingYards: groupValue(payload, name, ["passing"], [
+      "passingYards",
+      "yards",
+      "yds",
+    ]),
+    passingTouchdowns: groupValue(payload, name, ["passing"], [
+      "passingTouchdowns",
+      "touchdowns",
+      "td",
+    ]),
+    passingInterceptions: groupValue(payload, name, ["passing"], [
+      "interceptions",
+      "int",
+    ]),
+    rushingYards: groupValue(payload, name, ["rushing"], [
+      "rushingYards",
+      "yards",
+      "yds",
+    ]),
+    rushingTouchdowns: groupValue(payload, name, ["rushing"], [
+      "rushingTouchdowns",
+      "touchdowns",
+      "td",
+    ]),
+    receivingYards: groupValue(payload, name, ["receiving"], [
+      "receivingYards",
+      "yards",
+      "yds",
+    ]),
+    receptions: groupValue(payload, name, ["receiving"], [
+      "receptions",
+      "rec",
+    ]),
+    receivingTouchdowns: groupValue(payload, name, ["receiving"], [
+      "receivingTouchdowns",
+      "touchdowns",
+      "td",
+    ]),
+  }));
+}
+
 async function loadSummary(gameId: string) {
   const cached = summaryCache.get(gameId);
   if (cached && Date.now() - cached.storedAt < SUMMARY_TTL_MS) {
@@ -214,7 +418,8 @@ async function loadSummary(gameId: string) {
 
   const promise = fetchValidated(
     "ESPN box score",
-    "https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=" + gameId,
+    "https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=" +
+      gameId,
     summarySchema,
     { cache: "no-store" },
   )
@@ -230,19 +435,44 @@ async function loadSummary(gameId: string) {
   return promise;
 }
 
+export async function getLivePlayerState(
+  gameId: string,
+  subject: string,
+  statistic: string,
+): Promise<LivePlayerState | null> {
+  try {
+    const payload = await loadSummary(gameId);
+    const value = extractLivePlayerStat(payload, subject, statistic);
+    if (value === null) return null;
+    const injury = findPlayerInjury(payload, subject);
+    return {
+      value,
+      team: playerTeam(payload, subject),
+      injuryStatus: injury.status,
+      injuryDetail: injury.detail,
+    };
+  } catch (error) {
+    console.error(
+      "Live ESPN player state unavailable for " + subject + " " + statistic,
+      error,
+    );
+    return null;
+  }
+}
+
 export async function getLivePlayerStat(
   gameId: string,
   subject: string,
   statistic: string,
 ) {
+  return (await getLivePlayerState(gameId, subject, statistic))?.value ?? null;
+}
+
+export async function getEspnPlayerGameStats(gameId: string) {
   try {
-    const payload = await loadSummary(gameId);
-    return extractLivePlayerStat(payload, subject, statistic);
+    return extractEspnPlayerGameStats(await loadSummary(gameId));
   } catch (error) {
-    console.error(
-      "Live ESPN player stat unavailable for " + subject + " " + statistic,
-      error,
-    );
-    return null;
+    console.error("ESPN final player stats unavailable for " + gameId, error);
+    return [] as EspnPlayerGameStats[];
   }
 }
