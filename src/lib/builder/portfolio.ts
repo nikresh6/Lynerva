@@ -236,11 +236,21 @@ function portfolioCandidateIsDistinct(
   );
 
   for (const row of selected) {
-    if (sharedExactLegs(candidate, row) > 0) return false;
+    const sharedExact = sharedExactLegs(candidate, row);
+    const sameRole = row.role === role;
+
+    // Alternatives inside the same sleeve should be genuinely different.
+    // Across different sleeves, allow one strong leg to carry through without
+    // letting the portfolio become the same two-player thesis repeated.
+    if (sameRole && sharedExact > 0) return false;
+    if (!sameRole && sharedExact > 1) return false;
+
     const existingStats = new Set(row.legs.map((leg) => playerStatKey(leg)));
-    if (candidate.legs.some((leg) => existingStats.has(playerStatKey(leg)))) {
-      return false;
-    }
+    const sharedPlayerStats = candidate.legs.filter((leg) =>
+      existingStats.has(playerStatKey(leg)),
+    ).length;
+    if (sameRole && sharedPlayerStats > 0) return false;
+    if (!sameRole && sharedPlayerStats > 1) return false;
   }
 
   for (const subject of candidateSubjects) {
@@ -253,7 +263,7 @@ function portfolioCandidateIsDistinct(
         ).length,
       0,
     );
-    if (existingOccurrences >= 2) return false;
+    if (existingOccurrences >= 3) return false;
   }
 
   if (candidate.kind !== "parlay") return true;
@@ -262,8 +272,14 @@ function portfolioCandidateIsDistinct(
     if (row.kind !== "parlay") return true;
 
     const smallerLegCount = Math.min(candidate.legs.length, row.legs.length);
-    const maxSharedSubjects =
-      smallerLegCount <= 2 ? 0.5 : smallerLegCount === 3 ? 0.5 : 0.6;
+    const sameRole = row.role === role;
+    const maxSharedSubjects = sameRole
+      ? smallerLegCount <= 3
+        ? 0.5
+        : 0.6
+      : smallerLegCount <= 2
+        ? 0.5
+        : 0.75;
     const left = exposureSets(candidate, subjectTeams);
     const right = exposureSets(row, subjectTeams);
     return setOverlap(left.subjects, right.subjects) <= maxSharedSubjects;
@@ -725,7 +741,7 @@ function selectPortfolioCandidates(
     });
   }
 
-  if (targetReturn >= 4 || risk === "higher") {
+  if (targetReturn >= 5 || risk === "higher") {
     addBest(parlays, 1, {
       probabilityMax: 0.12,
       returnMin: 25,
@@ -905,9 +921,20 @@ function targetShares(
   let bounds = candidates.map((candidate) => {
     const base = shareBounds(candidate.role, risk, targetReturn);
     const count = roleCounts.get(candidate.role) ?? 1;
+
+    // Sleeves describe risk, they are not quotas. For ordinary targets let the
+    // optimizer reduce expensive upside sleeves all the way to zero when that
+    // is what is required to land near the requested payout.
+    const optionalUpside =
+      candidate.role === "hail_mary" ||
+      candidate.role === "upside_parlay" ||
+      candidate.role === "aggressive_straight";
+    const targetAwareMin =
+      optionalUpside && targetReturn < 6 ? 0 : base.min / count;
+
     return {
-      min: base.min / count,
-      max: Math.max(base.min / count, base.max / count),
+      min: targetAwareMin,
+      max: Math.max(targetAwareMin, base.max / count),
     };
   });
   const minTotal = bounds.reduce((sum, row) => sum + row.min, 0);
@@ -946,41 +973,65 @@ function targetShares(
   }
 
   if (maxTotal < 0.9999) {
-    // A narrow board should still return a plan. Preserve the ranking, but
-    // normalize a quality-weighted fallback instead of failing merely because
-    // the preferred sleeve caps cannot absorb 100% of the bankroll.
-    const qualityWeights = candidates.map((candidate) => {
-      const coreBonus =
-        candidate.role === "core_straight"
-          ? 1.4
-          : candidate.role === "hedge_straight"
-            ? 1.05
-            : candidate.role === "value_straight"
-              ? 1.15
-              : candidate.role === "core_parlay"
-                ? 1.0
-                : candidate.role === "upside_parlay"
-                  ? 0.65
-                  : candidate.role === "aggressive_straight"
-                    ? 0.6
-                    : 0.25;
-      return (
-        coreBonus *
-        clamp(candidate.probability, 0.05, 0.95) *
-        clamp(candidate.expectedValueMultiplier, 0.65, 1.6)
-      );
+    // Last-resort capacity should still respect the payout objective. Widen
+    // non-lottery positions evenly instead of switching to a quality-only
+    // allocation, which could turn a requested 4x plan into a 10x+ plan.
+    const softCap =
+      risk === "lower" ? 0.42 : risk === "balanced" ? 0.36 : 0.45;
+    bounds = bounds.map((row, index) => {
+      const candidate = candidates[index];
+      if (!candidate || candidate.role === "hail_mary") return row;
+      return { ...row, max: Math.max(row.max, softCap) };
     });
-    const totalWeight = qualityWeights.reduce((sum, value) => sum + value, 0);
-    if (totalWeight <= 0) {
-      return candidates.map(() => 1 / candidates.length);
-    }
-    return qualityWeights.map((weight) => weight / totalWeight);
+    maxTotal = bounds.reduce((sum, row) => sum + row.max, 0);
   }
 
-  const lowShares = fillExtreme(candidates, bounds, false);
-  const highShares = fillExtreme(candidates, bounds, true);
-  const lowReturn = weightedReturn(candidates, lowShares);
-  const highReturn = weightedReturn(candidates, highShares);
+  if (maxTotal < 0.9999) {
+    // A genuinely tiny board cannot satisfy both concentration caps and a
+    // full-bankroll request. Keep the plan available, but give the remaining
+    // capacity to the lowest-return positions so payout stays as close to the
+    // user's target as the board permits.
+    bounds = bounds.map((row, index) => ({
+      ...row,
+      max:
+        candidates[index]?.role === "hail_mary"
+          ? row.max
+          : Math.max(row.max, 1),
+    }));
+  }
+
+  let lowShares = fillExtreme(candidates, bounds, false);
+  let highShares = fillExtreme(candidates, bounds, true);
+  let lowReturn = weightedReturn(candidates, lowShares);
+  let highReturn = weightedReturn(candidates, highShares);
+
+  // If required sleeve minimums alone push the payout above the request,
+  // relax those minimums. The target is an optimization constraint, not an
+  // excuse to force a value/upside sleeve that the user did not need.
+  if (targetReturn < lowReturn - 1e-9) {
+    const relaxedBounds = bounds.map((row, index) => ({
+      min:
+        candidates[index]?.role === "core_straight"
+          ? Math.min(row.min, 0.04)
+          : 0,
+      max: row.max,
+    }));
+    const relaxedLow = fillExtreme(candidates, relaxedBounds, false);
+    const relaxedHigh = fillExtreme(candidates, relaxedBounds, true);
+    const relaxedLowReturn = weightedReturn(candidates, relaxedLow);
+    const relaxedHighReturn = weightedReturn(candidates, relaxedHigh);
+    if (
+      Math.abs(relaxedLowReturn - targetReturn) <
+        Math.abs(lowReturn - targetReturn) ||
+      (targetReturn >= relaxedLowReturn && targetReturn <= relaxedHighReturn)
+    ) {
+      bounds = relaxedBounds;
+      lowShares = relaxedLow;
+      highShares = relaxedHigh;
+      lowReturn = relaxedLowReturn;
+      highReturn = relaxedHighReturn;
+    }
+  }
 
   if (highReturn <= lowReturn + 1e-9) return lowShares;
 
