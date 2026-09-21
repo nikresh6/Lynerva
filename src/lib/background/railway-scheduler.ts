@@ -3,11 +3,19 @@ import "server-only";
 import { getMarketOpportunities } from "@/lib/markets/service";
 import { persistMarkets } from "@/lib/markets/persist";
 import { ingestNflverseSeason } from "@/lib/nfl/nflverse";
+import { getLiveNflGames } from "@/lib/nfl/live";
+import { getEspnPlayerGameStats } from "@/lib/nfl/live-player-stats";
+import {
+  runSourceLearningFromActuals,
+  type SourceLearningActualRow,
+} from "@/lib/model/source-learning";
 
 const MARKET_INITIAL_DELAY_MS = 15_000;
 const MARKET_INTERVAL_MS = 20 * 60_000;
 const NFLVERSE_INITIAL_DELAY_MS = 90_000;
 const NFLVERSE_INTERVAL_MS = 12 * 60 * 60_000;
+const FINAL_GRADING_INITIAL_DELAY_MS = 60_000;
+const FINAL_GRADING_INTERVAL_MS = 30 * 60_000;
 
 type SchedulerGlobal = typeof globalThis & {
   __lynervaRailwaySchedulerStarted?: boolean;
@@ -15,6 +23,7 @@ type SchedulerGlobal = typeof globalThis & {
 
 let marketJobRunning = false;
 let nflverseJobRunning = false;
+let finalGradingJobRunning = false;
 
 function logJob(
   job: string,
@@ -71,6 +80,76 @@ async function refreshNflverseAndLearning() {
   }
 }
 
+async function gradeFinalEspnGames() {
+  if (finalGradingJobRunning) return;
+  finalGradingJobRunning = true;
+  logJob("espn-final-grading", "started");
+
+  try {
+    const games = await getLiveNflGames();
+    const finals = games.filter(
+      (game) =>
+        game.seasonType === 2 &&
+        game.seasonYear !== null &&
+        game.week !== null &&
+        (game.state === "post" || /final/i.test(game.status)),
+    );
+
+    const completed = await Promise.all(
+      finals.map(async (game) => ({
+        game,
+        rows: await getEspnPlayerGameStats(game.id),
+      })),
+    );
+
+    const bySeason = new Map<number, SourceLearningActualRow[]>();
+    for (const { game, rows } of completed) {
+      const season = game.seasonYear;
+      const week = game.week;
+      if (season === null || week === null) continue;
+      const actuals = bySeason.get(season) ?? [];
+      actuals.push(
+        ...rows.map((row) => ({
+          week,
+          playerName: row.playerName,
+          passingYards: row.passingYards,
+          passingTouchdowns: row.passingTouchdowns,
+          passingInterceptions: row.passingInterceptions,
+          rushingYards: row.rushingYards,
+          rushingTouchdowns: row.rushingTouchdowns,
+          receivingYards: row.receivingYards,
+          receptions: row.receptions,
+          receivingTouchdowns: row.receivingTouchdowns,
+        })),
+      );
+      bySeason.set(season, actuals);
+    }
+
+    let graded = 0;
+    let weightsStored = 0;
+    const effectiveWeeks = new Set<number>();
+    for (const [season, actuals] of bySeason) {
+      const result = await runSourceLearningFromActuals(season, actuals);
+      graded += result.graded;
+      weightsStored += result.weightsStored;
+      if (result.effectiveWeek !== null) {
+        effectiveWeeks.add(result.effectiveWeek);
+      }
+    }
+
+    logJob("espn-final-grading", "completed", {
+      finalGamesChecked: finals.length,
+      graded,
+      weightsStored,
+      effectiveWeeks: [...effectiveWeeks],
+    });
+  } catch (error) {
+    logJob("espn-final-grading", "failed", error);
+  } finally {
+    finalGradingJobRunning = false;
+  }
+}
+
 function recurringJob(
   task: () => Promise<void>,
   initialDelayMs: number,
@@ -90,17 +169,23 @@ export function startRailwayBackgroundJobs() {
   globalState.__lynervaRailwaySchedulerStarted = true;
 
   console.info(
-    "[lynerva-background] Railway scheduler active: markets every 20m, nflverse/source grading every 12h.",
+    "[lynerva-background] Railway scheduler active: markets every 20m, ESPN final grading every 30m, nflverse backfill every 12h.",
   );
 
   // Market persistence captures the latest pregame source projections used by
-  // the learning loop. nflverse later supplies settled ground truth and
-  // recomputes source weights. Both jobs run in the long-lived Railway Node
-  // process, so Vercel cron configuration is not required on Railway.
+  // the learning loop. Final ESPN box scores grade completed games quickly,
+  // while nflverse remains the durable historical backfill. Learned weights
+  // remain effective for the following week, so partial Sunday results never
+  // leak into later games from the same NFL week.
   recurringJob(
     persistCurrentMarkets,
     MARKET_INITIAL_DELAY_MS,
     MARKET_INTERVAL_MS,
+  );
+  recurringJob(
+    gradeFinalEspnGames,
+    FINAL_GRADING_INITIAL_DELAY_MS,
+    FINAL_GRADING_INTERVAL_MS,
   );
   recurringJob(
     refreshNflverseAndLearning,
