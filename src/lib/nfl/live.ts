@@ -9,6 +9,7 @@ const competitorSchema = z
     homeAway: z.enum(["home", "away"]),
     score: z.string().optional().default("0"),
     possession: z.boolean().optional().default(false),
+    timeouts: z.number().optional(),
     team: z.object({
       abbreviation: z.string(),
       displayName: z.string(),
@@ -56,8 +57,8 @@ export interface LiveNflGame {
   status: string;
   period: number;
   clock: string;
-  home: { team: string; score: number };
-  away: { team: string; score: number };
+  home: { team: string; score: number; timeouts?: number | null };
+  away: { team: string; score: number; timeouts?: number | null };
   possession: string | null;
   updatedAt: string;
 }
@@ -94,10 +95,12 @@ export class EspnLiveNflProvider implements LiveNflProvider {
         home: {
           team: home?.team.abbreviation ?? "—",
           score: Number(home?.score ?? 0),
+          timeouts: home?.timeouts ?? null,
         },
         away: {
           team: away?.team.abbreviation ?? "—",
           score: Number(away?.score ?? 0),
+          timeouts: away?.timeouts ?? null,
         },
         possession: possession?.team.abbreviation ?? null,
         updatedAt,
