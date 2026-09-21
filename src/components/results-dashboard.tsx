@@ -152,7 +152,7 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
               How did the model actually do?
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-6 text-muted sm:text-base">
-              Every week keeps its ten highest-ranked distinct pregame picks. Hits, misses, and hypothetical profit stay on the record.
+              Every week locks its ten highest-ranked distinct pregame picks. Once frozen, the ranks, model probabilities, and entry prices never change.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -217,7 +217,7 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
             </div>
             <div className="rounded-xl bg-background p-4">
               <p className="text-[9px] uppercase tracking-[0.08em] text-faint">Selection rule</p>
-              <p className="mt-2 text-xs leading-5">Top ten distinct pregame rankings, with alternate lines deduplicated.</p>
+              <p className="mt-2 text-xs leading-5">Top ten distinct pregame rankings only. Once the card freezes, it cannot be replaced by later or live predictions.</p>
             </div>
           </div>
         </div>
