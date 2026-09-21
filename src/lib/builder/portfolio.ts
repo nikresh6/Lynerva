@@ -701,7 +701,7 @@ function selectPortfolioCandidates(
     returnMax: 5.5,
     returnTarget: clamp(targetReturn, 2.1, 4),
     legCountMin: 2,
-    legCountMax: Math.min(4, Math.max(2, parlays[0]?.legs.length ?? 4)),
+    legCountMax: 4,
     legProbabilityMin: 0.45,
     legProbabilityMax: 0.78,
     role: "core_parlay",
