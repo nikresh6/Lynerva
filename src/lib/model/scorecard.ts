@@ -177,7 +177,7 @@ function bucketLabel(bucket: string | null) {
   return BUCKET_RULES.find((rule) => rule.id === bucket)?.label ?? "Pregame";
 }
 
-async function lockEligibleScorecards() {
+export async function lockEligibleScorecards() {
   const db = getDb();
   const now = new Date();
 
@@ -486,7 +486,7 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
             executablePriceBps: row.executablePriceBps,
             edgeBps: row.edgeBps,
             score: publicScore(row.features) ?? row.opportunityScore,
-            frozenAt: row.predictedAt.toISOString(),
+            frozenAt: row.lockedAt.toISOString(),
             settledAt: row.settledAt?.toISOString() ?? null,
             result,
             profitOnTen,
