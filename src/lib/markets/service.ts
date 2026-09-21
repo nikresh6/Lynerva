@@ -2,6 +2,7 @@ import "server-only";
 
 import { fetchKalshiNflMarkets } from "@/lib/kalshi";
 import { estimateMarket } from "@/lib/model";
+import { blendConditionalWithDnpFairValueBps } from "@/lib/model/injury-availability";
 import { getLiveNflGames, type LiveNflGame } from "@/lib/nfl/live";
 import { findCurrentRegularSeasonGame } from "@/lib/nfl/current-game";
 import { loadNflSchedule } from "@/lib/nfl/schedule";
@@ -484,14 +485,11 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
             market.yesBidBps ??
             model.probabilityBps;
       const dnpAdjustedProbabilityBps =
-        injuryPlayBps !== null &&
-        model.probabilityBps !== null &&
-        currentFairYesBps !== null
-          ? Math.round(
-              (injuryPlayBps / 10_000) * model.probabilityBps +
-                (1 - injuryPlayBps / 10_000) * currentFairYesBps,
-            )
-          : model.probabilityBps;
+        blendConditionalWithDnpFairValueBps({
+          conditionalProbabilityBps: model.probabilityBps,
+          playProbabilityBps: injuryPlayBps,
+          dnpFairValueBps: currentFairYesBps,
+        });
       const pricedModel =
         injuryPlayBps !== null && model.components
           ? {
