@@ -6,9 +6,13 @@ import { getMatchupProjection } from "@/lib/nfl/team-history";
 import { getCurrentSeasonMatchupProjection } from "@/lib/nfl/current-season-team";
 import type { NflScheduleGame } from "@/lib/nfl/schedule-match";
 import type { LiveNflGame } from "@/lib/nfl/live";
-import { getLivePlayerStat } from "@/lib/nfl/live-player-stats";
+import { getLivePlayerState } from "@/lib/nfl/live-player-stats";
 import { canPublishPlayerProbability, empiricalPlayerProbability, poissonAtLeastProbability } from "./player-probability";
-import { conditionalLivePlayerProbability } from "./live-player-probability";
+import {
+  conditionalLivePlayerProbability,
+  liveGameScriptMultiplier,
+  liveInjuryAvailabilityMultiplier,
+} from "./live-player-probability";
 import { getExternalProjectionConsensus } from "./external-projections";
 import { getEspnGameProbability } from "./game-projections";
 import { selfCalibrateProbability } from "./self-learning";
@@ -20,7 +24,7 @@ import type {
   ModelEstimate,
 } from "@/lib/markets/types";
 
-const MODEL_VERSION = "hybrid-consensus-learning-v7";
+const MODEL_VERSION = "hybrid-consensus-learning-v8";
 
 const emptyEvidence: HistoricalEvidence = {
   last5Hits: null,
@@ -93,6 +97,16 @@ function remainingGameFraction(game: LiveNflGame | null | undefined) {
     (Math.max(game.period, 1) - 1) * 900 + (900 - clockSeconds),
   );
   return clamp((3600 - elapsed) / 3600, 0.02, 1);
+}
+
+function playerScoreMargin(
+  game: LiveNflGame | null | undefined,
+  playerTeam: string | null | undefined,
+) {
+  if (!game || game.state !== "in" || !playerTeam) return null;
+  if (playerTeam === game.home.team) return game.home.score - game.away.score;
+  if (playerTeam === game.away.team) return game.away.score - game.home.score;
+  return null;
 }
 
 function baselineGameProjection(
@@ -525,7 +539,7 @@ export async function estimateMarket(
   }
 
   try {
-    const [history, external, liveStat] = await Promise.all([
+    const [history, external, livePlayerState] = await Promise.all([
       findPublicPlayerHistory(canonical.subject, canonical.statistic),
       getExternalProjectionConsensus(
         canonical,
@@ -533,7 +547,7 @@ export async function estimateMarket(
         scheduleGame?.season ?? 2026,
       ),
       liveGame?.state === "in"
-        ? getLivePlayerStat(
+        ? getLivePlayerState(
             liveGame.id,
             canonical.subject,
             canonical.statistic,
@@ -544,6 +558,7 @@ export async function estimateMarket(
     const values = sample.map((row) => row.value);
     const threshold = canonical.threshold;
     const isLivePlayerMarket = liveGame?.state === "in";
+    const liveStat = livePlayerState?.value ?? null;
 
     if (isLivePlayerMarket && liveStat === null) {
       return {
@@ -693,6 +708,16 @@ export async function estimateMarket(
     }
 
     const remainingFraction = remainingGameFraction(liveGame);
+    const injuryMultiplier = liveInjuryAvailabilityMultiplier(
+      livePlayerState?.injuryStatus,
+      livePlayerState?.injuryDetail,
+    );
+    const scoreMargin = playerScoreMargin(liveGame, livePlayerState?.team);
+    const gameScriptMultiplier = liveGameScriptMultiplier(
+      canonical.family,
+      scoreMargin,
+    );
+    const remainingRateMultiplier = injuryMultiplier * gameScriptMultiplier;
     const liveConditional =
       liveStat !== null && baselineProjection !== null
         ? conditionalLivePlayerProbability({
@@ -703,6 +728,7 @@ export async function estimateMarket(
             baselineFullGameProjection: baselineProjection,
             fullGameStdDev: playerStdDev,
             remainingFraction,
+            remainingRateMultiplier,
           })
         : null;
 
@@ -832,11 +858,14 @@ export async function estimateMarket(
                     : 0.28;
     const historyBoost =
       values.length >= 4 ? clamp(values.length / 40, 0.08, 0.22) : 0;
+    const injuryUncertaintyPenalty =
+      injuryMultiplier > 0 && injuryMultiplier < 1 ? 0.08 : 0;
     const reliability = clamp(
       sourceReliability +
         historyBoost -
         dispersionPenalty +
-        (liveConditional ? 0.08 : 0),
+        (liveConditional ? 0.08 : 0) -
+        injuryUncertaintyPenalty,
       0.30,
       liveConditional ? 0.92 : 0.88,
     );
@@ -852,7 +881,9 @@ export async function estimateMarket(
               canonical.statistic.replaceAll("_", " ") +
               " with " +
               (remainingFraction * 100).toFixed(0) +
-              "% of regulation remaining. Conditional projected final: " +
+              "% of regulation remaining. Pace-adjusted full-game rate: " +
+              liveConditional.paceAdjustedFullGameProjection.toFixed(1) +
+              ". Conditional projected final: " +
               liveConditional.projectedFinal.toFixed(1) +
               ".",
           ]
@@ -866,6 +897,26 @@ export async function estimateMarket(
         ? `Four-game statistical model active using ${values.length} current-season regular-season games.`
         : `Statistical model locked until four current-season games; ${values.length} available now.`,
     ];
+    if (liveConditional && gameScriptMultiplier !== 1) {
+      factors.push(
+        "Live game script adjusted remaining opportunity by " +
+          ((gameScriptMultiplier - 1) * 100).toFixed(0) +
+          "% from the player's score margin.",
+      );
+    }
+    if (
+      liveConditional &&
+      livePlayerState?.injuryDetail &&
+      injuryMultiplier < 1
+    ) {
+      factors.push(
+        "Live injury adjustment: " +
+          livePlayerState.injuryDetail +
+          ". Remaining opportunity multiplier " +
+          injuryMultiplier.toFixed(2) +
+          "x.",
+      );
+    }
     if (gameProjection) {
       factors.push(
         `Game context retained: projected scoring environment ${gameProjection.projectedTotal.toFixed(1)} points from current regular-season team data.`,
