@@ -66,6 +66,20 @@ export function isModelBackedOpportunity(market: MarketOpportunity) {
   );
 }
 
+export function isBuilderSearchableOpportunity(market: MarketOpportunity) {
+  if (!isPricedOpportunity(market)) return false;
+  if (
+    market.executablePriceBps === null ||
+    market.executablePriceBps < 200 ||
+    market.executablePriceBps > 9_800
+  ) {
+    return false;
+  }
+  if (market.model.reliabilityBps < 2_500) return false;
+  if (market.spreadBps !== null && market.spreadBps > 2_500) return false;
+  return true;
+}
+
 export function isBuilderEligibleOpportunity(market: MarketOpportunity) {
   if (!isModelBackedOpportunity(market)) return false;
   if (
