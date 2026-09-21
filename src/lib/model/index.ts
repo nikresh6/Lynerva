@@ -788,13 +788,11 @@ export async function estimateMarket(
             statisticalProbability * statisticalWeight
           : activeProjectionProbability;
 
-      const noPlayHits =
-        canonical.direction === "under" || canonical.direction === "no"
-          ? 1
-          : 0;
-      probability =
-        pregameAvailability.playProbability * activeConditionalProbability +
-        (1 - pregameAvailability.playProbability) * noPlayHits;
+      // Conditional on taking the field, use the injury-adjusted workload.
+      // Kalshi player markets can settle a true DNP at a scalar "last fair
+      // price" instead of a binary 0/1, so the DNP branch is added later when
+      // the executable market price is available in the opportunity layer.
+      probability = activeConditionalProbability;
     }
 
     const remainingFraction = remainingGameFraction(liveGame);
@@ -1196,6 +1194,10 @@ export async function estimateMarket(
           preInjuryProbability === null
             ? null
             : Math.round(preInjuryProbability * 10_000),
+        injuryConditionalProbabilityBps: pregameAvailability
+          ? Math.round(probability * 10_000)
+          : null,
+        injuryDnpSettlementBps: null,
         injuryAdjustedProjection,
         injuryStatus: pregameAvailability?.status ?? null,
         injuryDetail: pregameAvailability?.detail ?? null,
