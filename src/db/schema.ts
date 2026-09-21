@@ -383,6 +383,30 @@ export const predictionResults = sqliteTable(
   (table) => [index("prediction_results_settled_idx").on(table.settledAt)],
 );
 
+export const weeklyScorecardPicks = sqliteTable(
+  "weekly_scorecard_picks",
+  {
+    id: text("id").primaryKey(),
+    season: integer("season").notNull(),
+    week: integer("week").notNull(),
+    rank: integer("rank").notNull(),
+    predictionId: text("prediction_id")
+      .notNull()
+      .references(() => predictions.id, { onDelete: "restrict" }),
+    lockedAt: integer("locked_at", { mode: "timestamp" }).notNull(),
+    createdAt,
+  },
+  (table) => [
+    uniqueIndex("weekly_scorecard_week_rank_unique").on(
+      table.season,
+      table.week,
+      table.rank,
+    ),
+    uniqueIndex("weekly_scorecard_prediction_unique").on(table.predictionId),
+    index("weekly_scorecard_week_idx").on(table.season, table.week),
+  ],
+);
+
 export const sourceProjections = sqliteTable(
   "source_projections",
   {
