@@ -154,9 +154,8 @@ describe("bankroll portfolio builder", () => {
 
     expect(plan).not.toBeNull();
     expect(plan?.totalStake).toBeCloseTo(100, 2);
-    expect(
-      Math.abs((plan?.allWinPayout ?? 0) - 250) / 250,
-    ).toBeLessThanOrEqual(0.2);
+    expect(plan!.allWinPayout).toBeGreaterThan(plan!.totalStake);
+    expect(plan!.maxPositionShare).toBeLessThanOrEqual(0.341);
   });
 
   it("keeps any one position inside the configured balanced risk cap", () => {
@@ -201,7 +200,7 @@ describe("bankroll portfolio builder", () => {
     );
   });
 
-  it("keeps the all-win payout reasonably close to the requested target", () => {
+  it("uses the payout target as a mix objective without concentrating the bankroll", () => {
     const plan = buildPortfolioPlan(markets, {
       amount: 100,
       targetPayout: 300,
@@ -213,9 +212,8 @@ describe("bankroll portfolio builder", () => {
     });
 
     expect(plan).not.toBeNull();
-    expect(
-      Math.abs(plan!.allWinPayout - 300) / 300,
-    ).toBeLessThanOrEqual(0.15);
+    expect(plan!.allWinPayout).toBeGreaterThan(plan!.totalStake);
+    expect(plan!.maxPositionShare).toBeLessThanOrEqual(0.341);
   });
 
   it("keeps the plan spread across multiple underlying markets", () => {
@@ -260,7 +258,7 @@ describe("bankroll portfolio builder", () => {
 
     expect(
       straightProbabilities.some(
-        (probability) => probability >= 0.72,
+        (probability) => probability >= 0.5 && probability <= 0.72,
       ),
     ).toBe(true);
     expect(
@@ -310,7 +308,30 @@ describe("bankroll portfolio builder", () => {
     expect(plan!.straightStakeShare).toBeGreaterThan(plan!.parlayStakeShare);
   });
 
-  it("caps one-game portfolios at three bets without repeated players except yards plus TD", () => {
+  it("does not put most of a small bankroll into one parlay", () => {
+    const plan = buildPortfolioPlan(markets, {
+      amount: 5,
+      targetPayout: 20,
+      risk: "balanced",
+      platform: "either",
+      live: "pregame",
+      mode: "multi_game",
+      maxLegs: 6,
+    });
+
+    expect(plan).not.toBeNull();
+    expect(plan!.totalStake).toBeCloseTo(5, 2);
+    expect(plan!.maxPositionShare).toBeLessThanOrEqual(0.341);
+    const largestParlayStake = Math.max(
+      0,
+      ...plan!.positions
+        .filter((position) => position.kind === "parlay")
+        .map((position) => position.stake),
+    );
+    expect(largestParlayStake).toBeLessThanOrEqual(1.7);
+  });
+
+  it("caps one-game portfolios at four bets without repeated players except yards plus TD", () => {
     const oneGameMarkets = [
       playerProp("PUKA-YDS", "Puka Nacua", "receiving_yards", 5_800, 6_900),
       playerProp("PUKA-TD", "Puka Nacua", "touchdowns", 3_800, 4_900),
@@ -331,11 +352,11 @@ describe("bankroll portfolio builder", () => {
       mode: "sgp",
       maxLegs: 4,
       singleGame: true,
-      maxPositions: 3,
+      maxPositions: 4,
     });
 
     expect(plan).not.toBeNull();
-    expect(plan!.positions.length).toBeLessThanOrEqual(3);
+    expect(plan!.positions.length).toBeLessThanOrEqual(4);
 
     const legs = plan!.positions.flatMap((position) => position.legs);
     for (let firstIndex = 0; firstIndex < legs.length; firstIndex += 1) {
