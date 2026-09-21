@@ -1040,10 +1040,39 @@ export function buildRankedCombinations(
       second.estimatedProbability - first.estimatedProbability,
   );
 
-  return selectDistinctCombinations(
+  let selected = selectDistinctCombinations(
     candidates,
     Math.max(1, limit),
   );
+
+  // If the highest-quality search beam collapses around one thesis, make a
+  // second pass that removes the already displayed ticket entirely. This gives
+  // the user genuinely different alternatives instead of either one card or a
+  // row of one-leg swaps.
+  if (selected.length < Math.max(2, limit) && selected.length > 0) {
+    const augmented = [...candidates];
+    for (const seed of selected.slice(0, 4)) {
+      const excluded = new Set(seed.legs.map(combinationIdentity));
+      const freshBoard = opportunities.filter(
+        (market) => !excluded.has(combinationIdentity(market)),
+      );
+      if (freshBoard.length < 2) continue;
+
+      const alternates = buildCombinationCandidates(
+        freshBoard,
+        options,
+        Math.max(12, Math.min(limit * 4, 48)),
+      );
+      augmented.push(...alternates);
+      selected = selectDistinctCombinations(
+        augmented,
+        Math.max(1, limit),
+      );
+      if (selected.length >= limit) break;
+    }
+  }
+
+  return selected;
 }
 
 export function buildTopScoredCombinations(
