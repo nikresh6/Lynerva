@@ -390,6 +390,8 @@ export const weeklyScorecardPicks = sqliteTable(
     season: integer("season").notNull(),
     week: integer("week").notNull(),
     rank: integer("rank").notNull(),
+    bucket: text("bucket"),
+    bucketRank: integer("bucket_rank"),
     predictionId: text("prediction_id")
       .notNull()
       .references(() => predictions.id, { onDelete: "restrict" }),
@@ -401,6 +403,12 @@ export const weeklyScorecardPicks = sqliteTable(
       table.season,
       table.week,
       table.rank,
+    ),
+    uniqueIndex("weekly_scorecard_bucket_rank_unique").on(
+      table.season,
+      table.week,
+      table.bucket,
+      table.bucketRank,
     ),
     uniqueIndex("weekly_scorecard_prediction_unique").on(table.predictionId),
     index("weekly_scorecard_week_idx").on(table.season, table.week),
