@@ -460,9 +460,17 @@ export function BuilderWorkbench() {
         ? (combination?.legs ?? []).filter(
             (_, index) => index !== swapTarget.legIndex,
           )
-        : (
-            portfolioPlan?.positions[swapTarget.positionIndex]?.legs ?? []
-          ).filter((_, index) => index !== swapTarget.legIndex);
+        : portfolioRequest?.singleGame
+          ? (portfolioPlan?.positions ?? []).flatMap((position, positionIndex) =>
+              position.legs.filter(
+                (_, legIndex) =>
+                  positionIndex !== swapTarget.positionIndex ||
+                  legIndex !== swapTarget.legIndex,
+              ),
+            )
+          : (
+              portfolioPlan?.positions[swapTarget.positionIndex]?.legs ?? []
+            ).filter((_, index) => index !== swapTarget.legIndex);
 
     const swapMode =
       swapTarget.kind === "parlay-leg"
