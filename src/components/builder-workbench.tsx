@@ -34,7 +34,6 @@ import {
 import {
   buildPortfolioPlan,
   type PortfolioPlan,
-  type PortfolioPosition,
   type PortfolioRisk,
 } from "@/lib/builder/portfolio";
 import { isBuilderEligibleOpportunity } from "@/lib/markets/eligibility";
@@ -1631,7 +1630,11 @@ export function BuilderWorkbench() {
                       builderScoreTone(position.lynervaScore),
                     )}
                   >
-                    <div className="flex items-start justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={() => openPortfolioBetSwap(index)}
+                      className="group flex w-full items-start justify-between gap-3 rounded-xl text-left"
+                    >
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="rounded-full border bg-surface px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-muted">
@@ -1643,14 +1646,10 @@ export function BuilderWorkbench() {
                           <span className="text-[9px] text-faint">
                             Bet {index + 1}
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => openPortfolioBetSwap(index)}
-                            className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-[9px] font-semibold text-accent transition-colors hover:bg-accent-bg"
-                          >
+                          <span className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-[9px] font-semibold text-accent transition-colors group-hover:bg-accent-bg">
                             <RefreshCw size={9} />
-                            Replace bet
-                          </button>
+                            Click to replace bet
+                          </span>
                         </div>
                         <p className="mt-2 text-xl font-semibold tabular">
                           {"$"}{position.stake.toFixed(2)}
@@ -1685,7 +1684,7 @@ export function BuilderWorkbench() {
                           </div>
                         </div>
                       </div>
-                    </div>
+                    </button>
 
                     <div className="mt-4 space-y-2">
                       {position.legs.map((leg, legIndex) => (
