@@ -11,6 +11,7 @@ export type PortfolioRisk = "lower" | "balanced" | "higher";
 
 export type PortfolioRole =
   | "core_straight"
+  | "hedge_straight"
   | "value_straight"
   | "aggressive_straight"
   | "core_parlay"
@@ -230,26 +231,38 @@ function portfolioCandidateIsDistinct(
   role: PortfolioRole,
   subjectTeams?: PortfolioPlanOptions["subjectTeams"],
 ) {
+  const candidateSubjects = candidate.legs.map(
+    (leg) => leg.canonical?.subject.toLowerCase() ?? marketKey(leg),
+  );
+
+  for (const row of selected) {
+    if (sharedExactLegs(candidate, row) > 0) return false;
+  }
+
+  for (const subject of candidateSubjects) {
+    const existingOccurrences = selected.reduce(
+      (count, row) =>
+        count +
+        row.legs.filter(
+          (leg) =>
+            (leg.canonical?.subject.toLowerCase() ?? marketKey(leg)) === subject,
+        ).length,
+      0,
+    );
+    if (existingOccurrences >= 2) return false;
+  }
+
   if (candidate.kind !== "parlay") return true;
 
   return selected.every((row) => {
     if (row.kind !== "parlay") return true;
 
-    // Diversity is enforced between alternatives serving the same portfolio
-    // job. A core parlay and a Hail Mary are intentionally different risk
-    // sleeves, so the longshot should not disappear merely because it shares a
-    // strong leg with the safer sleeve.
-    if (row.role !== role) return true;
-
     const smallerLegCount = Math.min(candidate.legs.length, row.legs.length);
-    if (smallerLegCount <= 2) return true;
-    const maxSharedExact =
-      smallerLegCount === 3 ? 1 : Math.floor(smallerLegCount / 2);
-    if (sharedExactLegs(candidate, row) > maxSharedExact) return false;
-
+    const maxSharedSubjects =
+      smallerLegCount <= 2 ? 0.5 : smallerLegCount === 3 ? 0.5 : 0.6;
     const left = exposureSets(candidate, subjectTeams);
     const right = exposureSets(row, subjectTeams);
-    return setOverlap(left.subjects, right.subjects) <= 0.67;
+    return setOverlap(left.subjects, right.subjects) <= maxSharedSubjects;
   });
 }
 
@@ -261,11 +274,11 @@ function overlapShare(
   const left = exposureSets(first, subjectTeams);
   const right = exposureSets(second, subjectTeams);
   return clamp(
-    setOverlap(left.markets, right.markets) * 0.5 +
+    setOverlap(left.markets, right.markets) * 0.42 +
       setOverlap(left.playerStats, right.playerStats) * 0.22 +
-      setOverlap(left.subjects, right.subjects) * 0.13 +
-      setOverlap(left.teams, right.teams) * 0.1 +
-      setOverlap(left.games, right.games) * 0.05,
+      setOverlap(left.subjects, right.subjects) * 0.26 +
+      setOverlap(left.teams, right.teams) * 0.07 +
+      setOverlap(left.games, right.games) * 0.03,
     0,
     1,
   );
@@ -309,8 +322,8 @@ function hedgeBonus(
 }
 
 function straightRole(probability: number): PortfolioRole {
-  if (probability >= 0.75) return "core_straight";
-  if (probability >= 0.52) return "value_straight";
+  if (probability >= 0.5) return "core_straight";
+  if (probability >= 0.2) return "value_straight";
   return "aggressive_straight";
 }
 
@@ -346,13 +359,14 @@ function straightCandidates(
     const grossReturn = 1 / price;
     const expectedValueMultiplier = probability * grossReturn;
 
-    if (expectedValueMultiplier <= 1) continue;
+    if (expectedValueMultiplier < 0.72) continue;
 
     const reliability = clamp(market.model.reliabilityBps / 10_000, 0, 1);
     const score =
-      1.0 * Math.log(expectedValueMultiplier) +
+      1.05 * Math.log(Math.max(expectedValueMultiplier, 0.5)) +
       0.35 * Math.log(probability) +
-      0.15 * reliability;
+      0.15 * reliability +
+      (expectedValueMultiplier > 1 ? 0.22 : 0);
 
     rows.push({
       id: `straight:${marketKey(market)}`,
@@ -388,7 +402,7 @@ function straightCandidates(
         second.score - first.score ||
         second.expectedValueMultiplier - first.expectedValueMultiplier,
     )
-    .slice(0, 72);
+    .slice(0, 180);
 }
 
 function parlayRole(grossReturn: number): PortfolioRole {
@@ -456,7 +470,7 @@ function parlayCandidates(
         mode,
         objective,
       },
-      60,
+      96,
     );
 
     for (const combination of built) {
@@ -480,6 +494,11 @@ function bestCandidate(
     returnMin?: number;
     returnMax?: number;
     returnTarget?: number;
+    legCountMin?: number;
+    legCountMax?: number;
+    legProbabilityMin?: number;
+    legProbabilityMax?: number;
+    requireHedge?: boolean;
     role: PortfolioRole;
     subjectTeams?: PortfolioPlanOptions["subjectTeams"];
   },
@@ -515,6 +534,37 @@ function bestCandidate(
     ) {
       continue;
     }
+    if (
+      options.legCountMin !== undefined &&
+      candidate.legs.length < options.legCountMin
+    ) {
+      continue;
+    }
+    if (
+      options.legCountMax !== undefined &&
+      candidate.legs.length > options.legCountMax
+    ) {
+      continue;
+    }
+    if (
+      options.legProbabilityMin !== undefined &&
+      candidate.legs.some(
+        (leg) => adjustedProbability(leg) < options.legProbabilityMin!,
+      )
+    ) {
+      continue;
+    }
+    if (
+      options.legProbabilityMax !== undefined &&
+      candidate.legs.some(
+        (leg) => adjustedProbability(leg) > options.legProbabilityMax!,
+      )
+    ) {
+      continue;
+    }
+
+    const hedge = hedgeBonus(candidate, avoid, options.subjectTeams);
+    if (options.requireHedge && hedge <= 0) continue;
 
     const overlaps = avoid.map((row) =>
       overlapShare(candidate, row, options.subjectTeams),
@@ -550,7 +600,7 @@ function bestCandidate(
       1.45 * maxOverlap -
       0.8 * probabilityDistance -
       returnPenalty * returnDistance +
-      hedgeBonus(candidate, avoid, options.subjectTeams);
+      hedge;
 
     if (score > bestScore) {
       best = { ...candidate, role: options.role };
@@ -580,75 +630,109 @@ function selectPortfolioCandidates(
     pool: Candidate[],
     count: number,
     options: Parameters<typeof bestCandidate>[2],
+    allowRelaxedFallback = true,
   ) => {
     for (let index = 0; index < count; index += 1) {
-      addCandidate(
-        selected,
-        bestCandidate(pool, selected, { ...options, subjectTeams }),
-      );
+      let candidate = bestCandidate(pool, selected, {
+        ...options,
+        subjectTeams,
+      });
+
+      if (!candidate && allowRelaxedFallback) {
+        candidate = bestCandidate(pool, selected, {
+          role: options.role,
+          subjectTeams,
+          returnTarget: options.returnTarget,
+          probabilityTarget: options.probabilityTarget,
+        });
+      }
+
+      addCandidate(selected, candidate);
     }
   };
 
-  addBest(straights, targetReturn < 3 ? 1 : 2, {
-    probabilityMin: 0.7,
-    probabilityMax: 0.98,
-    probabilityTarget: risk === "lower" ? 0.84 : 0.8,
+  // Core straights should be believable, useful bets, not 85%-95% contracts
+  // that consume bankroll for very little upside.
+  addBest(straights, targetReturn < 2.5 ? 1 : 2, {
+    probabilityMin: 0.5,
+    probabilityMax: 0.72,
+    probabilityTarget: risk === "lower" ? 0.64 : 0.59,
     role: "core_straight",
   });
 
-  addBest(straights, targetReturn < 3 ? 1 : 2, {
-    probabilityMin: risk === "lower" ? 0.54 : 0.46,
-    probabilityMax: 0.76,
-    probabilityTarget: risk === "lower" ? 0.64 : 0.6,
+  // Add a true offset when the board contains one. This is not forced if the
+  // available markets do not provide a sensible hedge.
+  addBest(
+    straights,
+    1,
+    {
+      probabilityMin: 0.32,
+      probabilityMax: 0.78,
+      probabilityTarget: 0.55,
+      requireHedge: true,
+      role: "hedge_straight",
+    },
+    false,
+  );
+
+  addBest(straights, 2, {
+    probabilityMin: 0.12,
+    probabilityMax: 0.48,
+    probabilityTarget: risk === "higher" ? 0.28 : 0.36,
     role: "value_straight",
   });
 
-  if (risk === "higher" || targetReturn >= (risk === "lower" ? 4 : 3.25)) {
+  if (risk === "higher" || targetReturn >= 4) {
     addBest(straights, 1, {
-      probabilityMin: risk === "lower" ? 0.42 : 0.25,
-      probabilityMax: risk === "higher" ? 0.58 : 0.64,
-      probabilityTarget:
-        risk === "higher" ? 0.38 : risk === "lower" ? 0.52 : 0.46,
+      probabilityMin: 0.08,
+      probabilityMax: 0.32,
+      probabilityTarget: 0.2,
       role: "aggressive_straight",
     });
   }
 
-  // A normal parlay should not require a pile of 85% to 95% legs. Combined
-  // hit rates around 25% to 50% are perfectly normal for useful 2x to 5x
-  // builds, so target that shape directly.
+  // Core parlays are built from ordinary legs, roughly the 45%-78% range,
+  // so payout comes from several plausible outcomes rather than one 8% leg.
   addBest(parlays, 2, {
-    probabilityMin: 0.22,
+    probabilityMin: 0.16,
     probabilityMax: 0.62,
-    probabilityTarget: risk === "lower" ? 0.46 : 0.38,
-    returnMin: 1.5,
-    returnMax: 5,
-    returnTarget: clamp(
-      targetReturn,
-      risk === "lower" ? 1.7 : 1.8,
-      risk === "lower" ? 2.8 : 3.6,
-    ),
+    probabilityTarget: risk === "lower" ? 0.42 : 0.32,
+    returnMin: 1.8,
+    returnMax: 5.5,
+    returnTarget: clamp(targetReturn, 2.1, 4),
+    legCountMin: 2,
+    legCountMax: Math.min(4, Math.max(2, parlays[0]?.legs.length ?? 4)),
+    legProbabilityMin: 0.45,
+    legProbabilityMax: 0.78,
     role: "core_parlay",
   });
 
-  if (targetReturn >= 3.25 || risk === "higher") {
-    const upsideTarget = clamp(targetReturn * 2.1, 5, 24);
+  // Value parlays may be longer, but each leg still needs to carry a
+  // meaningful share of the payout. No market-family quotas are imposed.
+  if (targetReturn >= 2.5 || risk !== "lower") {
     addBest(parlays, risk === "higher" ? 2 : 1, {
-      probabilityMin: 0.06,
-      probabilityMax: 0.4,
-      returnMin: 4,
-      returnMax: 25,
-      returnTarget: upsideTarget,
+      probabilityMin: 0.035,
+      probabilityMax: 0.3,
+      probabilityTarget: 0.12,
+      returnMin: 4.5,
+      returnMax: 18,
+      returnTarget: clamp(targetReturn * 2.2, 6, 12),
+      legCountMin: 3,
+      legCountMax: 6,
+      legProbabilityMin: 0.3,
+      legProbabilityMax: 0.75,
       role: "upside_parlay",
     });
   }
 
-  if (targetReturn >= (risk === "lower" ? 5 : 3.8) || risk === "higher") {
-    const hailTarget = clamp(targetReturn * 18, 28, 400);
+  if (targetReturn >= 4 || risk === "higher") {
     addBest(parlays, 1, {
-      probabilityMax: 0.2,
-      returnMin: 25,
-      returnMax: 400,
-      returnTarget: hailTarget,
+      probabilityMax: 0.12,
+      returnMin: 12,
+      returnMax: 150,
+      returnTarget: clamp(targetReturn * 8, 18, 80),
+      legCountMin: 4,
+      legCountMax: 8,
       role: "hail_mary",
     });
   }
@@ -735,47 +819,32 @@ function shareBounds(
   targetReturn: number,
 ): ShareBounds {
   if (risk === "lower") {
-    if (role === "core_straight") return { min: 0.2, max: 0.4 };
-    if (role === "value_straight") return { min: 0.15, max: 0.3 };
-    if (role === "aggressive_straight") return { min: 0.03, max: 0.1 };
-    if (role === "core_parlay") return { min: 0.08, max: 0.22 };
-    if (role === "upside_parlay") return { min: 0.02, max: 0.18 };
-    return {
-      min: 0,
-      max: targetReturn >= 4.5 ? 0.025 : 0,
-    };
+    if (role === "core_straight") return { min: 0.16, max: 0.36 };
+    if (role === "hedge_straight") return { min: 0.05, max: 0.16 };
+    if (role === "value_straight") return { min: 0.08, max: 0.24 };
+    if (role === "aggressive_straight") return { min: 0.02, max: 0.08 };
+    if (role === "core_parlay") return { min: 0.05, max: 0.18 };
+    if (role === "upside_parlay") return { min: 0.01, max: 0.09 };
+    return { min: 0, max: targetReturn >= 5 ? 0.025 : 0.01 };
   }
 
   if (risk === "higher") {
-    if (role === "core_straight") return { min: 0.05, max: 0.18 };
-    if (role === "value_straight") return { min: 0.08, max: 0.22 };
-    if (role === "aggressive_straight") return { min: 0.1, max: 0.25 };
-    if (role === "core_parlay") return { min: 0.08, max: 0.24 };
-    if (role === "upside_parlay") return { min: 0.06, max: 0.22 };
-    return { min: 0.01, max: 0.16 };
+    if (role === "core_straight") return { min: 0.08, max: 0.24 };
+    if (role === "hedge_straight") return { min: 0.03, max: 0.1 };
+    if (role === "value_straight") return { min: 0.08, max: 0.2 };
+    if (role === "aggressive_straight") return { min: 0.06, max: 0.16 };
+    if (role === "core_parlay") return { min: 0.06, max: 0.2 };
+    if (role === "upside_parlay") return { min: 0.05, max: 0.18 };
+    return { min: 0.01, max: 0.09 };
   }
 
-  if (role === "core_straight") {
-    return targetReturn < 3 ? { min: 0.18, max: 0.34 } : { min: 0.12, max: 0.3 };
-  }
-  if (role === "value_straight") {
-    return targetReturn < 3 ? { min: 0.16, max: 0.32 } : { min: 0.12, max: 0.26 };
-  }
-  if (role === "aggressive_straight") return { min: 0.06, max: 0.18 };
-  if (role === "core_parlay") {
-    // Around 2x-3.5x, the requested all-win payout is often mathematically
-    // unreachable if the entire parlay sleeve is capped near 20%. Allow the
-    // balanced plan to use more ordinary, model-backed parlays while the
-    // per-position cap still prevents one bet from becoming the bankroll.
-    return targetReturn <= 3.5
-      ? { min: 0.08, max: 0.64 }
-      : { min: 0.08, max: 0.24 };
-  }
-  if (role === "upside_parlay") return { min: 0.04, max: 0.18 };
-  return {
-    min: targetReturn >= 4 ? 0.005 : 0,
-    max: targetReturn >= 2.8 ? 0.08 : 0,
-  };
+  if (role === "core_straight") return { min: 0.12, max: 0.3 };
+  if (role === "hedge_straight") return { min: 0.04, max: 0.13 };
+  if (role === "value_straight") return { min: 0.08, max: 0.22 };
+  if (role === "aggressive_straight") return { min: 0.04, max: 0.12 };
+  if (role === "core_parlay") return { min: 0.06, max: 0.22 };
+  if (role === "upside_parlay") return { min: 0.03, max: 0.14 };
+  return { min: targetReturn >= 4 ? 0.005 : 0, max: 0.05 };
 }
 
 function fillExtreme(
@@ -935,11 +1004,11 @@ export function buildPortfolioPlan(
   const straights = straightCandidates(opportunities, options);
   const parlays = parlayCandidates(opportunities, options);
 
-  if (!straights.length || !parlays.length) return null;
+  if (!straights.length && !parlays.length) return null;
 
   const maxPositions = Math.max(
     1,
-    Math.min(options.maxPositions ?? (options.singleGame ? 3 : 12), 12),
+    Math.min(options.maxPositions ?? (options.singleGame ? 4 : 12), 12),
   );
   const selected = options.singleGame
     ? selectSingleGamePortfolioCandidates(
@@ -958,14 +1027,7 @@ export function buildPortfolioPlan(
         options.subjectTeams,
       ).slice(0, maxPositions);
 
-  const selectedStraights = selected.filter(
-    (candidate) => candidate.kind === "straight",
-  );
-  const selectedParlays = selected.filter(
-    (candidate) => candidate.kind === "parlay",
-  );
-
-  if (selectedStraights.length < 1 || selectedParlays.length < 1) return null;
+  if (!selected.length) return null;
 
   const shares = targetShares(selected, options.risk, targetReturn);
   if (!shares) return null;
@@ -1044,11 +1106,12 @@ export function buildPortfolioPlan(
 
   const roleOrder: Record<PortfolioRole, number> = {
     core_straight: 0,
-    value_straight: 1,
-    aggressive_straight: 2,
-    core_parlay: 3,
-    upside_parlay: 4,
-    hail_mary: 5,
+    hedge_straight: 1,
+    value_straight: 2,
+    aggressive_straight: 3,
+    core_parlay: 4,
+    upside_parlay: 5,
+    hail_mary: 6,
   };
 
   return {
