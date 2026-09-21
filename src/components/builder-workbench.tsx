@@ -24,12 +24,13 @@ import {
   type BuiltCombination,
 } from "@/lib/builder";
 import {
-  findMarketReplacements,
-  findPortfolioBetReplacements,
+  findBestMarketReplacement,
+  findBestPortfolioBetReplacement,
   rebuildCombinationFromLegs,
   replacePortfolioLeg,
   replacePortfolioPosition,
   type ReplacementDirection,
+  type ReplacementOddsPreference,
 } from "@/lib/builder/customize";
 import {
   buildPortfolioPlan,
@@ -245,11 +246,10 @@ function replacementDirectionLabel(direction: ReplacementDirection) {
   return "Any";
 }
 
-function replacementPriceLabel(toleranceBps: number) {
-  if (toleranceBps <= 500) return "Very close";
-  if (toleranceBps <= 1000) return "Close";
-  if (toleranceBps <= 2000) return "Flexible";
-  return "Any odds";
+function replacementOddsLabel(preference: ReplacementOddsPreference) {
+  if (preference === "higher") return "Higher payout";
+  if (preference === "lower") return "Lower payout";
+  return "Similar odds";
 }
 
 type BuilderLinePreference = "mixed" | "over" | "under";
@@ -382,8 +382,9 @@ export function BuilderWorkbench() {
     useState<PortfolioPlan | null>(null);
   const [swapTarget, setSwapTarget] = useState<BuilderSwapTarget | null>(null);
   const [swapDirection, setSwapDirection] =
-    useState<ReplacementDirection>("same");
-  const [swapToleranceBps, setSwapToleranceBps] = useState(1000);
+    useState<ReplacementDirection>("any");
+  const [swapOddsPreference, setSwapOddsPreference] =
+    useState<ReplacementOddsPreference>("similar");
   const [rankingMode, setRankingMode] = useState(false);
   const [activeParlayIndex, setActiveParlayIndex] = useState(0);
   const [processing, setProcessing] = useState<
@@ -480,8 +481,8 @@ export function BuilderWorkbench() {
   );
   const playerVisuals = usePlayerVisuals(resultPlayerNames);
 
-  const swapMarketOptions = useMemo(() => {
-    if (!swapTarget || swapTarget.kind === "portfolio-bet") return [];
+  const swapMarketOption = useMemo(() => {
+    if (!swapTarget || swapTarget.kind === "portfolio-bet") return null;
 
     const target = swapTarget.market;
     const existingLegs =
@@ -489,17 +490,13 @@ export function BuilderWorkbench() {
         ? (combination?.legs ?? []).filter(
             (_, index) => index !== swapTarget.legIndex,
           )
-        : portfolioRequest?.singleGame
-          ? (portfolioPlan?.positions ?? []).flatMap((position, positionIndex) =>
-              position.legs.filter(
-                (_, legIndex) =>
-                  positionIndex !== swapTarget.positionIndex ||
-                  legIndex !== swapTarget.legIndex,
-              ),
-            )
-          : (
-              portfolioPlan?.positions[swapTarget.positionIndex]?.legs ?? []
-            ).filter((_, index) => index !== swapTarget.legIndex);
+        : (portfolioPlan?.positions ?? []).flatMap((position, positionIndex) =>
+            position.legs.filter(
+              (_, legIndex) =>
+                positionIndex !== swapTarget.positionIndex ||
+                legIndex !== swapTarget.legIndex,
+            ),
+          );
 
     const swapMode =
       swapTarget.kind === "parlay-leg"
@@ -507,88 +504,72 @@ export function BuilderWorkbench() {
         : portfolioPlan?.positions[swapTarget.positionIndex]?.parlayMode ??
           "any";
 
-    const replacementMarkets =
-      swapTarget.kind === "portfolio-leg" && portfolioRequest
-        ? portfolioRequest.markets
-        : swapTarget.kind === "parlay-leg" && parlayRequest
-          ? parlayRequest.markets
-          : currentMarkets;
+    const replacementUniverse =
+      swapTarget.kind === "portfolio-leg" &&
+      portfolioRequest?.singleGame &&
+      portfolioRequest.matchup
+        ? eligibleMarkets.filter(
+            (market) =>
+              market.canonical?.matchup === portfolioRequest.matchup,
+          )
+        : eligibleMarkets;
 
-    const replacements = findMarketReplacements(replacementMarkets, target, {
+    return findBestMarketReplacement(replacementUniverse, target, {
       direction: swapDirection,
-      toleranceBps: swapToleranceBps,
+      oddsPreference: swapOddsPreference,
       existingLegs,
       mode: swapMode,
       singleGame:
         swapTarget.kind === "portfolio-leg"
           ? portfolioRequest?.singleGame
           : false,
-      limit: 24,
     });
-
-    if (swapTarget.kind !== "portfolio-leg" || !portfolioPlan) {
-      return replacements.slice(0, 12);
-    }
-
-    const usedElsewhere = new Set(
-      portfolioPlan.positions
-        .filter((_, index) => index !== swapTarget.positionIndex)
-        .flatMap((position) => position.legs)
-        .map(
-          (leg) =>
-            leg.canonical?.key ??
-            `${leg.platform}:${leg.platformMarketId}:${leg.recommendedSide}`,
-        ),
-    );
-
-    return replacements
-      .filter(
-        (market) =>
-          !usedElsewhere.has(
-            market.canonical?.key ??
-              `${market.platform}:${market.platformMarketId}:${market.recommendedSide}`,
-          ),
-      )
-      .slice(0, 12);
   }, [
     swapTarget,
     swapDirection,
-    swapToleranceBps,
-    currentMarkets,
+    swapOddsPreference,
+    eligibleMarkets,
     combination,
     portfolioPlan,
     parlayRequest,
     portfolioRequest,
   ]);
 
-  const swapBetOptions = useMemo(() => {
+  const swapBetOption = useMemo(() => {
     if (
       !swapTarget ||
       swapTarget.kind !== "portfolio-bet" ||
       !portfolioPlan ||
       !portfolioRequest
     ) {
-      return [];
+      return null;
     }
-    const position = portfolioPlan.positions[swapTarget.positionIndex];
-    if (!position) return [];
 
-    return findPortfolioBetReplacements(portfolioRequest.markets, position, {
+    const position = portfolioPlan.positions[swapTarget.positionIndex];
+    if (!position) return null;
+    const replacementUniverse =
+      portfolioRequest.singleGame && portfolioRequest.matchup
+        ? eligibleMarkets.filter(
+            (market) =>
+              market.canonical?.matchup === portfolioRequest.matchup,
+          )
+        : eligibleMarkets;
+
+    return findBestPortfolioBetReplacement(replacementUniverse, position, {
       direction: swapDirection,
-      toleranceBps: swapToleranceBps,
+      oddsPreference: swapOddsPreference,
       mode: portfolioRequest.mode,
       live: portfolioRequest.live,
       existingPositions: portfolioPlan.positions.filter(
         (_, index) => index !== swapTarget.positionIndex,
       ),
       singleGame: portfolioRequest.singleGame,
-      limit: 10,
     });
   }, [
     swapTarget,
     swapDirection,
-    swapToleranceBps,
-    currentMarkets,
+    swapOddsPreference,
+    eligibleMarkets,
     portfolioPlan,
     portfolioRequest,
   ]);
@@ -690,8 +671,8 @@ export function BuilderWorkbench() {
   }
 
   function openParlayLegSwap(index: number, market: MarketOpportunity) {
-    setSwapDirection("same");
-    setSwapToleranceBps(1000);
+    setSwapDirection("any");
+    setSwapOddsPreference("similar");
     setSwapTarget({ kind: "parlay-leg", legIndex: index, market });
   }
 
@@ -700,8 +681,8 @@ export function BuilderWorkbench() {
     legIndex: number,
     market: MarketOpportunity,
   ) {
-    setSwapDirection("same");
-    setSwapToleranceBps(1000);
+    setSwapDirection("any");
+    setSwapOddsPreference("similar");
     setSwapTarget({
       kind: "portfolio-leg",
       positionIndex,
@@ -712,7 +693,7 @@ export function BuilderWorkbench() {
 
   function openPortfolioBetSwap(positionIndex: number) {
     setSwapDirection("any");
-    setSwapToleranceBps(1000);
+    setSwapOddsPreference("similar");
     setSwapTarget({ kind: "portfolio-bet", positionIndex });
   }
 
@@ -2014,8 +1995,8 @@ export function BuilderWorkbench() {
             if (event.target === event.currentTarget) setSwapTarget(null);
           }}
         >
-          <div className="max-h-[82vh] w-full max-w-3xl overflow-y-auto rounded-3xl border bg-surface shadow-2xl">
-            <div className="sticky top-0 z-10 border-b bg-surface/95 px-4 py-4 backdrop-blur-xl sm:px-5">
+          <div className="w-full max-w-xl overflow-hidden rounded-3xl border bg-surface shadow-2xl">
+            <div className="border-b bg-surface/95 px-4 py-4 sm:px-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.1em] text-accent">
@@ -2028,9 +2009,9 @@ export function BuilderWorkbench() {
                       : "Replace this leg"}
                   </h3>
                   <p className="mt-1 text-[10px] leading-4 text-muted">
-                    Huddlemark keeps the price close to the original, then ranks
-                    the available replacements by model score, edge, reliability,
-                    and odds distance.
+                    Pick the direction and payout shape. Huddlemark chooses one
+                    replacement using the full market board, prioritizing model
+                    value, reliability, fit, and a different player thesis.
                   </p>
                 </div>
                 <button
@@ -2043,187 +2024,207 @@ export function BuilderWorkbench() {
                 </button>
               </div>
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+              <div className="mt-4 grid gap-4">
                 <div>
                   <p className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-faint">
-                    Bet direction
+                    Direction
                   </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {(["any", "same", "over", "under", "moneyline"] as ReplacementDirection[]).map(
-                      (direction) => (
-                        <button
-                          key={direction}
-                          type="button"
-                          onClick={() => setSwapDirection(direction)}
-                          className={cn(
-                            "rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold transition-colors",
-                            swapDirection === direction
-                              ? "border-accent/40 bg-accent-bg text-accent"
-                              : "bg-background text-muted hover:text-foreground",
-                          )}
-                        >
-                          {replacementDirectionLabel(direction)}
-                        </button>
-                      ),
-                    )}
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      ["any", "I don't care"],
+                      ["over", "Over"],
+                      ["under", "Under"],
+                    ] as const).map(([direction, label]) => (
+                      <button
+                        key={direction}
+                        type="button"
+                        onClick={() => setSwapDirection(direction)}
+                        className={cn(
+                          "rounded-xl border px-3 py-2 text-[10px] font-semibold transition-colors",
+                          swapDirection === direction
+                            ? "border-accent/40 bg-accent-bg text-accent"
+                            : "bg-background text-muted hover:text-foreground",
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
                   </div>
                 </div>
-                <label className="min-w-40">
+
+                <div>
                   <p className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-faint">
-                    Odds similarity
+                    Odds
                   </p>
-                  <select
-                    value={swapToleranceBps}
-                    onChange={(event) =>
-                      setSwapToleranceBps(Number(event.target.value))
-                    }
-                    className="control-surface h-9 w-full rounded-lg px-2.5 text-[10px] outline-none focus:border-accent"
-                  >
-                    <option value={500}>Very close · ±5 pts</option>
-                    <option value={1000}>Close · ±10 pts</option>
-                    <option value={2000}>Flexible · ±20 pts</option>
-                    <option value={10000}>Any odds</option>
-                  </select>
-                </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      ["similar", "Similar"],
+                      ["higher", "Higher payout"],
+                      ["lower", "Lower payout"],
+                    ] as const).map(([preference, label]) => (
+                      <button
+                        key={preference}
+                        type="button"
+                        onClick={() => setSwapOddsPreference(preference)}
+                        className={cn(
+                          "rounded-xl border px-3 py-2 text-[10px] font-semibold transition-colors",
+                          swapOddsPreference === preference
+                            ? "border-accent/40 bg-accent-bg text-accent"
+                            : "bg-background text-muted hover:text-foreground",
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="p-3 sm:p-4">
-              <div className="mb-3 flex items-center justify-between gap-3 px-1">
-                <p className="text-[10px] text-muted">
-                  {swapTarget.kind === "portfolio-bet"
-                    ? swapBetOptions.length
-                    : swapMarketOptions.length}{" "}
-                  replacement{(swapTarget.kind === "portfolio-bet"
-                    ? swapBetOptions.length
-                    : swapMarketOptions.length) === 1 ? "" : "s"} found
+            <div className="p-4 sm:p-5">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <p className="text-[10px] font-semibold text-foreground">
+                  Huddlemark's replacement
                 </p>
                 <span className="text-[9px] text-faint">
-                  {replacementDirectionLabel(swapDirection)} ·{" "}
-                  {replacementPriceLabel(swapToleranceBps)}
+                  {swapDirection === "any"
+                    ? "Any direction"
+                    : replacementDirectionLabel(swapDirection)}{" "}
+                  · {replacementOddsLabel(swapOddsPreference)}
                 </span>
               </div>
 
               {swapTarget.kind === "portfolio-bet" ? (
-                swapBetOptions.length ? (
-                  <div className="space-y-2">
-                    {swapBetOptions.map((option, optionIndex) => {
-                      const legs =
-                        option.kind === "straight"
-                          ? [option.market]
-                          : option.combination.legs;
-                      const grossReturn =
-                        option.kind === "straight"
-                          ? 10_000 /
-                            Math.max(option.market.executablePriceBps ?? 1, 1)
-                          : option.combination.grossReturn;
-                      const score =
-                        option.kind === "straight"
-                          ? option.market.lynervaScore
-                          : option.combination.lynervaScore;
-                      return (
-                        <button
-                          key={`${option.kind}:${legs
-                            .map((leg) => leg.platformMarketId)
-                            .join("|")}`}
-                          type="button"
-                          onClick={() => applyPortfolioBetSwap(option)}
-                          className="flex w-full items-center gap-3 rounded-2xl border bg-background p-3 text-left transition-all hover:border-accent/35 hover:bg-accent-bg/20"
-                        >
-                          <span className="grid size-8 shrink-0 place-items-center rounded-xl border bg-surface text-[10px] font-bold">
-                            {optionIndex + 1}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-semibold">
-                              {option.kind === "straight"
-                                ? builderPickLabel(option.market)
-                                : `${legs.length}-leg ${option.combination.grossReturn.toFixed(2)}x parlay`}
+                swapBetOption ? (
+                  (() => {
+                    const legs =
+                      swapBetOption.kind === "straight"
+                        ? [swapBetOption.market]
+                        : swapBetOption.combination.legs;
+                    const grossReturn =
+                      swapBetOption.kind === "straight"
+                        ? 10_000 /
+                          Math.max(
+                            swapBetOption.market.executablePriceBps ?? 1,
+                            1,
+                          )
+                        : swapBetOption.combination.grossReturn;
+                    const score =
+                      swapBetOption.kind === "straight"
+                        ? swapBetOption.market.lynervaScore
+                        : swapBetOption.combination.lynervaScore;
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => applyPortfolioBetSwap(swapBetOption)}
+                        className="w-full rounded-2xl border border-accent/25 bg-accent-bg/15 p-4 text-left transition-all hover:bg-accent-bg/30"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold">
+                              {swapBetOption.kind === "straight"
+                                ? builderPickLabel(swapBetOption.market)
+                                : `${legs.length}-leg parlay`}
                             </p>
-                            <p className="mt-1 truncate text-[9px] text-faint">
-                              {option.kind === "straight"
-                                ? option.market.canonical?.matchup ??
-                                  option.market.eventTitle
+                            <p className="mt-1 text-[9px] leading-4 text-muted">
+                              {swapBetOption.kind === "straight"
+                                ? swapBetOption.market.canonical?.matchup ??
+                                  swapBetOption.market.eventTitle
                                 : legs
                                     .map((leg) => builderPickLabel(leg))
                                     .join(" · ")}
                             </p>
                           </div>
                           <div className="shrink-0 text-right">
-                            <p className="text-xs font-semibold tabular">
-                              {grossReturn.toFixed(2)}x
+                            <p className="text-sm font-semibold tabular">
+                              {grossReturn.toFixed(2)}x est.
                             </p>
                             <p className="mt-0.5 text-[9px] text-muted">
                               Score {score ?? "n/a"}
                             </p>
                           </div>
-                        </button>
-                      );
-                    })}
-                  </div>
+                        </div>
+                        <div className="mt-3 flex items-center justify-end gap-1 text-[10px] font-semibold text-accent">
+                          Use this replacement
+                          <ChevronRight size={11} />
+                        </div>
+                      </button>
+                    );
+                  })()
                 ) : (
-                  <div className="rounded-2xl border bg-background p-8 text-center">
-                    <p className="text-sm font-semibold">No similar bet found</p>
+                  <div className="rounded-2xl border bg-background p-7 text-center">
+                    <p className="text-sm font-semibold">No exact fit found</p>
                     <p className="mt-1 text-[10px] leading-4 text-muted">
-                      Try Any direction or widen the odds similarity range.
+                      Try I don't care for direction. The engine already relaxes
+                      edge and payout distance before giving up.
                     </p>
                   </div>
                 )
-              ) : swapMarketOptions.length ? (
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {swapMarketOptions.map((market) => (
-                    <button
-                      key={`${market.platform}:${market.platformMarketId}`}
-                      type="button"
-                      onClick={() => applyMarketSwap(market)}
-                      className="rounded-2xl border bg-background p-3 text-left transition-all hover:border-accent/35 hover:bg-accent-bg/20"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <PlatformMark platform={market.platform} />
-                            <span className="rounded-full border bg-surface px-2 py-0.5 text-[8px] font-semibold">
-                              {replacementDirectionLabel(
-                                builderPickDirectionForUi(market),
-                              )}
-                            </span>
-                          </div>
-                          <p className="mt-2 text-xs font-semibold leading-5">
-                            {builderPickLabel(market)}
-                          </p>
-                          <p className="mt-1 truncate text-[9px] text-faint">
-                            {market.canonical?.matchup ?? market.eventTitle}
-                          </p>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <p className="text-sm font-semibold tabular">
-                            {formatPercent(market.executablePriceBps)}
-                          </p>
-                          <p className="mt-0.5 text-[9px] text-positive">
-                            Model {formatPercent(market.recommendedProbabilityBps)}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="mt-3 flex items-center justify-between border-t pt-2 text-[9px]">
-                        <span className="text-muted">
-                          Score {market.lynervaScore ?? "n/a"}
-                        </span>
-                        <span className="font-semibold text-positive">
-                          {formatEdge(
-                            (market.recommendedProbabilityBps ?? 0) -
-                              (market.executablePriceBps ?? 0),
+              ) : swapMarketOption ? (
+                <button
+                  type="button"
+                  onClick={() => applyMarketSwap(swapMarketOption)}
+                  className="w-full rounded-2xl border border-accent/25 bg-accent-bg/15 p-4 text-left transition-all hover:bg-accent-bg/30"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <PlatformMark platform={swapMarketOption.platform} />
+                        <span className="rounded-full border bg-surface px-2 py-0.5 text-[8px] font-semibold">
+                          {replacementDirectionLabel(
+                            builderPickDirectionForUi(swapMarketOption),
                           )}
                         </span>
                       </div>
-                    </button>
-                  ))}
-                </div>
+                      <p className="mt-2 text-sm font-semibold leading-5">
+                        {builderPickLabel(swapMarketOption)}
+                      </p>
+                      <p className="mt-1 truncate text-[9px] text-faint">
+                        {swapMarketOption.canonical?.matchup ??
+                          swapMarketOption.eventTitle}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-sm font-semibold tabular">
+                        {formatPercent(swapMarketOption.executablePriceBps)}
+                      </p>
+                      <p className="mt-0.5 text-[9px] text-positive">
+                        Model{" "}
+                        {formatPercent(
+                          swapMarketOption.recommendedProbabilityBps,
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between border-t pt-3 text-[9px]">
+                    <span className="text-muted">
+                      Score {swapMarketOption.lynervaScore ?? "n/a"}
+                    </span>
+                    <span
+                      className={cn(
+                        "font-semibold",
+                        (swapMarketOption.edgeBps ?? 0) > 0
+                          ? "text-positive"
+                          : "text-warning",
+                      )}
+                    >
+                      {formatEdge(
+                        (swapMarketOption.recommendedProbabilityBps ?? 0) -
+                          (swapMarketOption.executablePriceBps ?? 0),
+                      )}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex items-center justify-end gap-1 text-[10px] font-semibold text-accent">
+                    Use this replacement
+                    <ChevronRight size={11} />
+                  </div>
+                </button>
               ) : (
-                <div className="rounded-2xl border bg-background p-8 text-center">
-                  <p className="text-sm font-semibold">
-                    No replacement fits those filters
-                  </p>
+                <div className="rounded-2xl border bg-background p-7 text-center">
+                  <p className="text-sm font-semibold">No exact fit found</p>
                   <p className="mt-1 text-[10px] leading-4 text-muted">
-                    Widen the odds range or switch the direction to Any.
+                    Try I don't care for direction. Huddlemark already searches
+                    all alternate lines and best-available modeled markets.
                   </p>
                 </div>
               )}
