@@ -913,128 +913,71 @@ function targetShares(
 ) {
   if (!candidates.length) return null;
 
-  const roleCounts = new Map<PortfolioRole, number>();
-  for (const candidate of candidates) {
-    roleCounts.set(candidate.role, (roleCounts.get(candidate.role) ?? 0) + 1);
-  }
+  const concentrationCap =
+    risk === "lower" ? 0.4 : risk === "balanced" ? 0.34 : 0.4;
 
   let bounds = candidates.map((candidate) => {
-    const base = shareBounds(candidate.role, risk, targetReturn);
-    const count = roleCounts.get(candidate.role) ?? 1;
-
-    // Sleeves describe risk, they are not quotas. For ordinary targets let the
-    // optimizer reduce expensive upside sleeves all the way to zero when that
-    // is what is required to land near the requested payout.
-    const optionalUpside =
-      candidate.role === "hail_mary" ||
-      candidate.role === "upside_parlay" ||
-      candidate.role === "aggressive_straight";
-    const targetAwareMin =
-      optionalUpside && targetReturn < 6 ? 0 : base.min / count;
+    const preferred = shareBounds(candidate.role, risk, targetReturn);
+    const hailMinimum =
+      candidate.role === "hail_mary" && targetReturn >= 5
+        ? Math.min(preferred.max, 0.005)
+        : 0;
 
     return {
-      min: targetAwareMin,
-      max: Math.max(targetAwareMin, base.max / count),
+      // Roles describe the position. They are not bankroll quotas. Only a tiny
+      // Hail Mary seed is retained for genuinely high targets.
+      min: hailMinimum,
+      max:
+        candidate.role === "hail_mary"
+          ? preferred.max
+          : Math.min(concentrationCap, Math.max(preferred.max, 0.12)),
     };
   });
-  const minTotal = bounds.reduce((sum, row) => sum + row.min, 0);
+
   let maxTotal = bounds.reduce((sum, row) => sum + row.max, 0);
-
-  if (minTotal > 1.0001) return null;
-
   if (maxTotal < 0.9999) {
-    // If the role-level caps do not add to a full bankroll, add room to
-    // straight bets first. The old fallback raised every position to the same
-    // cap, which could accidentally put most of a lower-risk bankroll into
-    // parlays.
-    const straightFallbackCap =
-      risk === "lower" ? 0.4 : risk === "balanced" ? 0.34 : 0.4;
+    // On a narrow board, use the same concentration ceiling across ordinary
+    // positions before giving up on a full-bankroll allocation.
     bounds = bounds.map((row, index) =>
-      candidates[index]?.kind === "straight"
-        ? { ...row, max: Math.max(row.max, straightFallbackCap) }
-        : row,
+      candidates[index]?.role === "hail_mary"
+        ? row
+        : { ...row, max: concentrationCap },
     );
     maxTotal = bounds.reduce((sum, row) => sum + row.max, 0);
   }
 
   if (maxTotal < 0.9999) {
-    // Only if straights still cannot absorb the bankroll, widen ordinary
-    // parlays modestly. Hail Mary positions never receive fallback capacity.
-    const parlayFallbackCap =
-      risk === "lower" ? 0.22 : risk === "balanced" ? 0.3 : 0.4;
-    bounds = bounds.map((row, index) => {
-      const candidate = candidates[index];
-      if (!candidate || candidate.kind !== "parlay" || candidate.role === "hail_mary") {
-        return row;
-      }
-      return { ...row, max: Math.max(row.max, parlayFallbackCap) };
-    });
-    maxTotal = bounds.reduce((sum, row) => sum + row.max, 0);
-  }
-
-  if (maxTotal < 0.9999) {
-    // Last-resort capacity should still respect the payout objective. Widen
-    // non-lottery positions evenly instead of switching to a quality-only
-    // allocation, which could turn a requested 4x plan into a 10x+ plan.
-    const softCap =
-      risk === "lower" ? 0.42 : risk === "balanced" ? 0.36 : 0.45;
-    bounds = bounds.map((row, index) => {
-      const candidate = candidates[index];
-      if (!candidate || candidate.role === "hail_mary") return row;
-      return { ...row, max: Math.max(row.max, softCap) };
-    });
-    maxTotal = bounds.reduce((sum, row) => sum + row.max, 0);
-  }
-
-  if (maxTotal < 0.9999) {
-    // A genuinely tiny board cannot satisfy both concentration caps and a
-    // full-bankroll request. Keep the plan available, but give the remaining
-    // capacity to the lowest-return positions so payout stays as close to the
-    // user's target as the board permits.
-    bounds = bounds.map((row, index) => ({
-      ...row,
-      max:
-        candidates[index]?.role === "hail_mary"
-          ? row.max
-          : Math.max(row.max, 1),
-    }));
-  }
-
-  let lowShares = fillExtreme(candidates, bounds, false);
-  let highShares = fillExtreme(candidates, bounds, true);
-  let lowReturn = weightedReturn(candidates, lowShares);
-  let highReturn = weightedReturn(candidates, highShares);
-
-  // If required sleeve minimums alone push the payout above the request,
-  // relax those minimums. The target is an optimization constraint, not an
-  // excuse to force a value/upside sleeve that the user did not need.
-  if (targetReturn < lowReturn - 1e-9) {
-    const relaxedBounds = bounds.map((row, index) => ({
-      min:
-        candidates[index]?.role === "core_straight"
-          ? Math.min(row.min, 0.04)
-          : 0,
-      max: row.max,
-    }));
-    const relaxedLow = fillExtreme(candidates, relaxedBounds, false);
-    const relaxedHigh = fillExtreme(candidates, relaxedBounds, true);
-    const relaxedLowReturn = weightedReturn(candidates, relaxedLow);
-    const relaxedHighReturn = weightedReturn(candidates, relaxedHigh);
-    if (
-      Math.abs(relaxedLowReturn - targetReturn) <
-        Math.abs(lowReturn - targetReturn) ||
-      (targetReturn >= relaxedLowReturn && targetReturn <= relaxedHighReturn)
-    ) {
-      bounds = relaxedBounds;
-      lowShares = relaxedLow;
-      highShares = relaxedHigh;
-      lowReturn = relaxedLowReturn;
-      highReturn = relaxedHighReturn;
+    // If there are only one or two usable positions, concentration is
+    // mathematically unavoidable. Keep Hail Mary capped, and widen the
+    // lowest-risk ordinary positions only as much as necessary.
+    const ordinary = candidates
+      .map((candidate, index) => ({ candidate, index }))
+      .filter(({ candidate }) => candidate.role !== "hail_mary")
+      .toSorted(
+        (first, second) =>
+          second.candidate.probability - first.candidate.probability,
+      );
+    let missing = 1 - maxTotal;
+    for (const row of ordinary) {
+      if (missing <= 1e-9) break;
+      const current = bounds[row.index]!;
+      const room = 1 - current.max;
+      const addition = Math.min(room, missing);
+      bounds[row.index] = { ...current, max: current.max + addition };
+      missing -= addition;
     }
   }
 
+  const lowShares = fillExtreme(candidates, bounds, false);
+  const highShares = fillExtreme(candidates, bounds, true);
+  const lowReturn = weightedReturn(candidates, lowShares);
+  const highReturn = weightedReturn(candidates, highShares);
+
   if (highReturn <= lowReturn + 1e-9) return lowShares;
 
+  // Weighted all-win payout is linear in stake shares. Interpolating between
+  // the lowest-return and highest-return feasible allocations therefore lands
+  // exactly on the requested return whenever the selected board can span it.
   const alpha = clamp(
     (targetReturn - lowReturn) / (highReturn - lowReturn),
     0,
