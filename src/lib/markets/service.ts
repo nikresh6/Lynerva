@@ -397,7 +397,9 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
       // silently recompute Lynerva's own probability.
       const key = `${item.canonical.key}${liveKey}`;
       const cached = modelSnapshotCache.get(key);
-      if (cached && Date.now() - cached.storedAt < 15 * 60 * 1_000) {
+      const modelCacheTtl =
+        item.liveGame?.state === "in" ? 60_000 : 5 * 60_000;
+      if (cached && Date.now() - cached.storedAt < modelCacheTtl) {
         return cached.estimate;
       }
       const estimate = await estimateMarket(
