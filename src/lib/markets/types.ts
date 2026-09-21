@@ -84,6 +84,13 @@ export interface ModelEstimate {
   factors: string[];
   components?: {
     consensusProjection: number | null;
+    rawConsensusProjection?: number | null;
+    teammateContextAdjustment?: number | null;
+    teammateContextNotes?: string[];
+    projectionStdDev?: number | null;
+    projectionStdDevPrior?: number | null;
+    projectionStdDevObserved?: number | null;
+    projectionStdDevPlayerWeight?: number | null;
     consensusProbabilityBps: number | null;
     statisticalProbabilityBps: number | null;
     contextAdjustmentBps: number;
