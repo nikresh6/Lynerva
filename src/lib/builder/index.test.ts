@@ -281,7 +281,7 @@ describe("combination builder", () => {
     ).toHaveLength(1);
   });
 
-  it("rejects ordinary builds where one longshot carries almost all the payout", () => {
+  it("only uses a payout-heavy longshot as an explicitly relaxed fallback", () => {
     const result = buildCombination(
       [
         opportunity("SAFE", "KC-BUF", 8_000, 9_000),
@@ -295,10 +295,15 @@ describe("combination builder", () => {
       },
     );
 
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(
+      result?.relaxedConstraints.some((row) =>
+        row.includes("payout concentration"),
+      ),
+    ).toBe(true);
   });
 
-  it("allows a concentrated build when the longshot has exceptional model value", () => {
+  it("does not give a high-edge longshot a special concentration escape hatch", () => {
     const result = buildCombination(
       [
         opportunity("SAFE", "KC-BUF", 8_000, 9_000),
@@ -313,7 +318,12 @@ describe("combination builder", () => {
     );
 
     expect(result?.legs).toHaveLength(2);
-    expect(result?.maxOddsContributionShare ?? 0).toBeGreaterThan(0.7);
+    expect(result?.maxOddsContributionShare ?? 0).toBeGreaterThan(0.64);
+    expect(
+      result?.relaxedConstraints.some((row) =>
+        row.includes("payout concentration"),
+      ),
+    ).toBe(true);
   });
 
   it("does not let one ordinary longshot carry a five-leg max-EV parlay", () => {
@@ -345,7 +355,7 @@ describe("combination builder", () => {
     });
 
     expect(result).not.toBeNull();
-    expect(result?.maxOddsContributionShare ?? 1).toBeLessThanOrEqual(0.52);
+    expect(result?.maxOddsContributionShare ?? 1).toBeLessThanOrEqual(0.37);
     expect(
       result?.legs.some((leg) => leg.platformMarketId === "BARKLEY25REC"),
     ).toBe(false);
