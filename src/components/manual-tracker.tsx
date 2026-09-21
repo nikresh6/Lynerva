@@ -457,6 +457,88 @@ function statusTone(status: TrackerStatus) {
   return "bg-background text-muted";
 }
 
+function settledBorderTone(status: TrackerStatus) {
+  if (status === "win") {
+    return "border-positive/45 shadow-[inset_3px_0_0_var(--positive)] hover:border-positive/70";
+  }
+  if (status === "loss") {
+    return "border-negative/45 shadow-[inset_3px_0_0_var(--negative)] hover:border-negative/70";
+  }
+  if (status === "push") {
+    return "border-warning/40 shadow-[inset_3px_0_0_var(--warning)] hover:border-warning/60";
+  }
+  if (status === "cashed") {
+    return "border-accent/40 shadow-[inset_3px_0_0_var(--accent)] hover:border-accent/60";
+  }
+  return "border-border";
+}
+
+function CompactMetric({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[7px] font-semibold uppercase tracking-[0.09em] text-faint">
+        {label}
+      </p>
+      <p className={cn("mt-0.5 whitespace-nowrap text-[11px] font-semibold tabular", tone)}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function CompactChance({
+  label,
+  original,
+  current,
+}: {
+  label: string;
+  original: number | null | undefined;
+  current: number | null | undefined;
+}) {
+  const delta =
+    original !== null &&
+    original !== undefined &&
+    current !== null &&
+    current !== undefined
+      ? current - original
+      : null;
+  const TrendIcon =
+    delta === null || Math.abs(delta) < 25
+      ? ArrowRight
+      : delta > 0
+        ? ArrowUpRight
+        : ArrowDownRight;
+  const tone =
+    delta === null
+      ? "text-muted"
+      : delta > 25
+        ? "text-positive"
+        : delta < -25
+          ? "text-negative"
+          : "text-muted";
+
+  return (
+    <div className="min-w-0">
+      <p className="text-[7px] font-semibold uppercase tracking-[0.09em] text-faint">
+        {label}
+      </p>
+      <div className="mt-0.5 flex items-center gap-1 whitespace-nowrap text-[10px] font-semibold tabular">
+        <span>{chanceLabel(original)}</span>
+        <TrendIcon className={cn("size-2.5", tone)} />
+        <span className={tone}>{chanceLabel(current)}</span>
+      </div>
+    </div>
+  );
+}
+
 function sidePrice(
   market: MarketOpportunity | undefined,
   side: "yes" | "no" | null | undefined,
@@ -1457,6 +1539,122 @@ export function ManualTracker() {
               const straightChances = !bet.isParlay
                 ? straightProbabilitySnapshot(bet, current)
                 : null;
+
+              if (bet.status !== "open") {
+                const originalModel = bet.isParlay
+                  ? parlay?.originalLynerva
+                  : straightChances?.originalLynerva;
+                const currentModel = bet.isParlay
+                  ? parlay?.currentLynerva
+                  : straightChances?.currentLynerva;
+                const originalMarket = bet.isParlay
+                  ? parlay?.originalMarket
+                  : straightChances?.originalMarket;
+                const currentMarket = bet.isParlay
+                  ? parlay?.currentMarket
+                  : straightChances?.currentMarket;
+                const returned =
+                  bet.manualProfitOverride === null
+                    ? bet.payout
+                    : Math.max(0, bet.stake + bet.manualProfitOverride);
+
+                return (
+                  <article
+                    key={bet.id}
+                    className={cn(
+                      "group rounded-xl border bg-surface px-4 py-3 transition-[border-color,background-color,transform] duration-200 hover:-translate-y-px hover:bg-surface-raised/40 lg:col-span-2",
+                      settledBorderTone(bet.status),
+                    )}
+                  >
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                      <div className="flex min-w-0 flex-1 items-center gap-3">
+                        <span
+                          className={cn(
+                            "shrink-0 rounded-full px-2 py-0.5 text-[7px] font-bold uppercase tracking-[0.09em]",
+                            statusTone(bet.status),
+                          )}
+                        >
+                          {bet.status === "cashed" ? "Cashed" : bet.status}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13px] font-semibold leading-5">
+                            {bet.isParlay
+                              ? bet.legs.length + "-leg parlay"
+                              : bet.description}
+                          </p>
+                          <p className="truncate text-[8px] uppercase tracking-[0.08em] text-faint">
+                            {bet.date} · Kalshi
+                            {bet.entryPriceBps
+                              ? " · entry " + formatPercent(bet.entryPriceBps)
+                              : ""}
+                            {bet.isParlay && bet.toWin !== null
+                              ? " · " + money(bet.stake) + " to win " + money(bet.toWin)
+                              : ""}
+                            {bet.manualProfitOverride !== null ? " · manual P/L" : ""}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-x-5 gap-y-2 border-t border-border/70 pt-2.5 sm:grid-cols-5 lg:flex lg:shrink-0 lg:items-center lg:gap-6 lg:border-0 lg:pt-0">
+                        <CompactMetric label="Stake" value={money(bet.stake)} />
+                        <CompactMetric label="Returned" value={money(returned)} />
+                        <CompactMetric
+                          label="P/L"
+                          value={money(pl)}
+                          tone={
+                            (pl ?? 0) > 0
+                              ? "text-positive"
+                              : (pl ?? 0) < 0
+                                ? "text-negative"
+                                : ""
+                          }
+                        />
+                        <CompactChance
+                          label="Model"
+                          original={originalModel}
+                          current={currentModel}
+                        />
+                        <CompactChance
+                          label="Market"
+                          original={originalMarket}
+                          current={currentMarket}
+                        />
+                      </div>
+
+                      <div className="flex shrink-0 items-center justify-end gap-1 border-t border-border/70 pt-2 lg:border-0 lg:pt-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActualProfitBetId(bet.id);
+                            setActualProfitAmount(String(pl ?? 0));
+                          }}
+                          className="h-7 rounded-lg border bg-background px-2.5 text-[8px] font-semibold text-muted transition-colors hover:text-foreground"
+                        >
+                          {bet.manualProfitOverride === null ? "Adjust P/L" : "Edit P/L"}
+                        </button>
+                        {bet.manualProfitOverride !== null ? (
+                          <button
+                            type="button"
+                            onClick={() => resetActualProfit(bet.id)}
+                            className="h-7 rounded-lg border bg-background px-2 text-[8px] font-semibold text-faint transition-colors hover:text-foreground"
+                            title="Reset to automatic P/L"
+                          >
+                            Reset
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => removeBet(bet.id)}
+                          className="grid size-7 place-items-center rounded-lg text-muted transition-colors hover:bg-negative-bg hover:text-negative"
+                          aria-label="Delete position"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              }
 
               return (
                 <article
