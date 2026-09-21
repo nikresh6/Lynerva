@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   BarChart3,
@@ -45,6 +45,45 @@ import { useMarketData } from "./market-data-provider";
 import { BetLab } from "./market-table";
 import { SubjectVisual } from "./subject-visual";
 import { usePlayerVisuals } from "./player-visuals";
+
+type BuilderComboQuote = {
+  key: string;
+  ticker: string;
+  priceBps: number;
+  grossReturn: number;
+  sourceUrl: string;
+};
+
+function comboQuoteKey(legs: MarketOpportunity[]) {
+  if (
+    legs.length < 2 ||
+    legs.some(
+      (leg) =>
+        leg.platform !== "kalshi" ||
+        !leg.platformMarketId ||
+        !leg.recommendedSide,
+    )
+  ) {
+    return null;
+  }
+
+  return legs
+    .map((leg) => `${leg.platformMarketId}:${leg.recommendedSide}`)
+    .toSorted()
+    .join("|");
+}
+
+function comboQuoteRequest(legs: MarketOpportunity[]) {
+  const key = comboQuoteKey(legs);
+  if (!key) return null;
+  return {
+    key,
+    legs: legs.map((leg) => ({
+      marketTicker: leg.platformMarketId,
+      side: leg.recommendedSide!,
+    })),
+  };
+}
 
 function builderPickLabel(market: MarketOpportunity) {
   const canonical = market.canonical;
@@ -385,6 +424,7 @@ export function BuilderWorkbench() {
     useState<ReplacementDirection>("any");
   const [swapOddsPreference, setSwapOddsPreference] =
     useState<ReplacementOddsPreference>("similar");
+  const [comboQuotes, setComboQuotes] = useState<Record<string, BuilderComboQuote>>({});
   const [rankingMode, setRankingMode] = useState(false);
   const [activeParlayIndex, setActiveParlayIndex] = useState(0);
   const [processing, setProcessing] = useState<
@@ -481,6 +521,104 @@ export function BuilderWorkbench() {
   );
   const playerVisuals = usePlayerVisuals(resultPlayerNames);
 
+  const comboQuoteRequests = useMemo(() => {
+    const requests = new Map<
+      string,
+      NonNullable<ReturnType<typeof comboQuoteRequest>>
+    >();
+
+    const add = (legs: MarketOpportunity[]) => {
+      const request = comboQuoteRequest(legs);
+      if (request && !requests.has(request.key)) {
+        requests.set(request.key, request);
+      }
+    };
+
+    for (const row of combinations) add(row.legs);
+    if (combination) add(combination.legs);
+    for (const position of portfolioPlan?.positions ?? []) {
+      if (position.kind === "parlay") add(position.legs);
+    }
+
+    return [...requests.values()].slice(0, 24);
+  }, [combinations, combination, portfolioPlan]);
+
+  useEffect(() => {
+    if (!comboQuoteRequests.length) {
+      setComboQuotes({});
+      return;
+    }
+
+    const controller = new AbortController();
+    void fetch("/api/builder/combo-quotes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ combinations: comboQuoteRequests }),
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) return { quotes: [] as BuilderComboQuote[] };
+        return (await response.json()) as { quotes?: BuilderComboQuote[] };
+      })
+      .then((payload) => {
+        if (controller.signal.aborted) return;
+        const next: Record<string, BuilderComboQuote> = {};
+        for (const quote of payload.quotes ?? []) next[quote.key] = quote;
+        setComboQuotes(next);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        console.error("Kalshi combo quote lookup failed", error);
+        setComboQuotes({});
+      });
+
+    return () => controller.abort();
+  }, [comboQuoteRequests]);
+
+  const currentComboQuote =
+    combination && comboQuoteKey(combination.legs)
+      ? comboQuotes[comboQuoteKey(combination.legs)!] ?? null
+      : null;
+  const displayGrossReturn =
+    currentComboQuote?.grossReturn ?? combination?.grossReturn ?? 0;
+  const displayImpliedProbability =
+    currentComboQuote?.priceBps !== undefined
+      ? currentComboQuote.priceBps / 10_000
+      : combination?.impliedProbability ?? 0;
+
+  const portfolioDisplay = useMemo(() => {
+    if (!portfolioPlan) return null;
+    const positions = portfolioPlan.positions.map((position) => {
+      const key = position.kind === "parlay" ? comboQuoteKey(position.legs) : null;
+      const quote = key ? comboQuotes[key] ?? null : null;
+      const grossReturn = quote?.grossReturn ?? position.grossReturn;
+      const expectedValueMultiplier =
+        position.estimatedProbability * grossReturn;
+      return {
+        id: position.id,
+        grossReturn,
+        expectedProfit: position.stake * (expectedValueMultiplier - 1),
+        payoutIfWin: position.stake * grossReturn,
+        exactQuote: Boolean(quote),
+      };
+    });
+    const allWinPayout = positions.reduce(
+      (sum, position) => sum + position.payoutIfWin,
+      0,
+    );
+    const expectedPayout = positions.reduce(
+      (sum, position) =>
+        sum + position.stake + position.expectedProfit,
+      0,
+    );
+    return {
+      byId: Object.fromEntries(positions.map((position) => [position.id, position])),
+      allWinPayout,
+      expectedProfit: expectedPayout - portfolioPlan.totalStake,
+      exactQuoteCount: positions.filter((position) => position.exactQuote).length,
+    };
+  }, [portfolioPlan, comboQuotes]);
+
   const swapMarketOption = useMemo(() => {
     if (!swapTarget || swapTarget.kind === "portfolio-bet") return null;
 
@@ -576,14 +714,15 @@ export function BuilderWorkbench() {
 
   const payout =
     combination && parlayRequest
-      ? combination.grossReturn * parlayRequest.stake
+      ? displayGrossReturn * parlayRequest.stake
       : 0;
   const profit = combination && parlayRequest
     ? payout - parlayRequest.stake
     : 0;
   const evProfit =
     combination && parlayRequest
-      ? (combination.expectedProfitOn100 * parlayRequest.stake) / 100
+      ? (combination.estimatedProbability * displayGrossReturn - 1) *
+        parlayRequest.stake
       : 0;
 
   function runWithProgress(
