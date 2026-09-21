@@ -149,7 +149,7 @@ function easternKickoffParts(date: Date) {
     minute: "2-digit",
     hourCycle: "h23",
   }).formatToParts(date);
-  const value = (type: Intl.DateTimeFormatPartTypes) =>
+  const value = (type: string) =>
     parts.find((part) => part.type === type)?.value ?? "";
   return {
     weekday: value("weekday"),
