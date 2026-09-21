@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import {
   ArrowUpRight,
   CheckCircle2,
+  ChevronDown,
   Clock3,
   Database,
   Minus,
@@ -16,12 +17,22 @@ type PerformanceRow = {
   source: string;
   statistic: string;
   sampleSize: number;
+  meanAbsoluteError: number;
   medianAbsoluteError: number;
   p90AbsoluteError: number;
   recentMedianAbsoluteError: number;
   robustError: number;
   rmse: number;
   bias: number;
+  learnedTarget: number;
+  confidence: number;
+  examples: Array<{
+    playerName: string;
+    week: number;
+    projectedValue: number;
+    actualValue: number;
+    absoluteError: number;
+  }>;
   weight: number | null;
   previousWeight: number | null;
   weightChange: number | null;
@@ -138,6 +149,7 @@ export function SourceDashboard({
     [rows],
   );
   const [selectedStat, setSelectedStat] = useState(stats[0] ?? "passing_yards");
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const selectedRows = rows
     .filter((row) => row.statistic === selectedStat)
     .toSorted(
@@ -304,7 +316,7 @@ export function SourceDashboard({
               Who is best at each stat?
             </h2>
             <p className="mt-2 max-w-2xl text-xs leading-5 text-muted">
-              “Typical miss” is the blended error Huddlemark uses to judge consistency. Lower is better. Influence changes only after real results are graded.
+              “Typical miss” is a robust error score, not a mystery average. Click any source to see the exact formula, its real graded player examples, and how that error turns into model influence.
             </p>
           </div>
           <div className="scrollbar-subtle flex max-w-full gap-1 overflow-x-auto pb-1" role="tablist" aria-label="Projection statistic">
@@ -340,37 +352,152 @@ export function SourceDashboard({
               const source = sources.find((item) => item.id === row.source);
               const rowTrend = trend(row);
               const TrendIcon = rowTrend.Icon;
+              const key = `${row.source}:${row.statistic}`;
+              const expanded = expandedKey === key;
+              const unit = errorUnit(row.statistic);
+              const formula =
+                `0.50 × ${row.medianAbsoluteError.toFixed(1)} + 0.30 × ${row.recentMedianAbsoluteError.toFixed(1)} + 0.20 × ${row.p90AbsoluteError.toFixed(1)} = ${row.robustError.toFixed(1)} ${unit}`;
               return (
-                <div key={`${row.source}:${row.statistic}`} className="grid gap-3 border-b px-4 py-4 last:border-b-0 sm:grid-cols-[1.2fr_0.7fr_0.8fr_0.9fr] sm:items-center">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className={cn(
-                      "grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-bold",
-                      index === 0 ? "bg-positive-bg text-positive" : "bg-background text-muted",
-                    )}>
-                      {index + 1}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold">{source?.name ?? row.source}</p>
-                      {index === 0 ? <p className="text-[9px] text-positive">Lowest error so far</p> : null}
+                <div key={key} className="border-b last:border-b-0">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedKey(expanded ? null : key)}
+                    className="grid w-full gap-3 px-4 py-4 text-left transition-colors hover:bg-background/55 sm:grid-cols-[1.2fr_0.7fr_0.8fr_0.9fr] sm:items-center"
+                    aria-expanded={expanded}
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className={cn(
+                        "grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-bold",
+                        index === 0 ? "bg-positive-bg text-positive" : "bg-background text-muted",
+                      )}>
+                        {index + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold">{source?.name ?? row.source}</p>
+                        {index === 0 ? <p className="text-[9px] text-positive">Lowest error so far</p> : <p className="text-[9px] text-faint">Click for calculation</p>}
+                      </div>
+                      <ChevronDown className={cn("size-4 shrink-0 text-faint transition-transform sm:hidden", expanded && "rotate-180")} />
                     </div>
-                  </div>
-                  <div>
-                    <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Graded</p>
-                    <p className="text-sm font-semibold tabular">{row.sampleSize.toLocaleString()}</p>
-                  </div>
-                  <div>
-                    <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Typical miss</p>
-                    <p className="text-sm font-semibold tabular">{row.robustError.toFixed(1)} {errorUnit(row.statistic)}</p>
-                    <p className="text-[9px] text-faint">Bias {row.bias >= 0 ? "+" : ""}{row.bias.toFixed(1)}</p>
-                  </div>
-                  <div>
-                    <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Model influence</p>
-                    <p className="text-sm font-semibold tabular">{row.weight === null ? "Waiting" : `${(row.weight * 100).toFixed(1)}%`}</p>
-                    <p className={cn("mt-0.5 inline-flex items-center gap-1 text-[9px]", rowTrend.tone)}>
-                      <TrendIcon className="size-3" />
-                      {rowTrend.label}
-                    </p>
-                  </div>
+                    <div>
+                      <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Graded</p>
+                      <p className="text-sm font-semibold tabular">{row.sampleSize.toLocaleString()}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Typical miss</p>
+                      <p className="text-sm font-semibold tabular">{row.robustError.toFixed(1)} {unit}</p>
+                      <p className="text-[9px] text-faint">Bias {row.bias >= 0 ? "+" : ""}{row.bias.toFixed(1)}</p>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Model influence</p>
+                        <p className="text-sm font-semibold tabular">{row.weight === null ? "Waiting" : `${(row.weight * 100).toFixed(1)}%`}</p>
+                        <p className={cn("mt-0.5 inline-flex items-center gap-1 text-[9px]", rowTrend.tone)}>
+                          <TrendIcon className="size-3" />
+                          {rowTrend.label}
+                        </p>
+                      </div>
+                      <ChevronDown className={cn("hidden size-4 shrink-0 text-faint transition-transform sm:block", expanded && "rotate-180")} />
+                    </div>
+                  </button>
+
+                  {expanded ? (
+                    <div className="border-t bg-background/45 px-4 py-5 sm:px-6">
+                      <div className="grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
+                        <div>
+                          <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-accent">
+                            Exact typical-miss calculation
+                          </p>
+                          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                            <div className="rounded-xl border bg-surface p-3">
+                              <p className="text-[8px] uppercase tracking-[0.08em] text-faint">50% normal miss</p>
+                              <p className="mt-1 text-lg font-semibold tabular">{row.medianAbsoluteError.toFixed(1)} {unit}</p>
+                              <p className="mt-1 text-[9px] leading-4 text-muted">Median error across all graded projections.</p>
+                            </div>
+                            <div className="rounded-xl border bg-surface p-3">
+                              <p className="text-[8px] uppercase tracking-[0.08em] text-faint">30% recent miss</p>
+                              <p className="mt-1 text-lg font-semibold tabular">{row.recentMedianAbsoluteError.toFixed(1)} {unit}</p>
+                              <p className="mt-1 text-[9px] leading-4 text-muted">Median error from the latest 40 graded rows.</p>
+                            </div>
+                            <div className="rounded-xl border bg-surface p-3">
+                              <p className="text-[8px] uppercase tracking-[0.08em] text-faint">20% bad-day penalty</p>
+                              <p className="mt-1 text-lg font-semibold tabular">{row.p90AbsoluteError.toFixed(1)} {unit}</p>
+                              <p className="mt-1 text-[9px] leading-4 text-muted">90th-percentile error, so repeated ugly misses still matter.</p>
+                            </div>
+                          </div>
+                          <div className="mt-3 rounded-xl border bg-surface-raised/45 p-3">
+                            <p className="text-[9px] uppercase tracking-[0.08em] text-faint">With the real numbers</p>
+                            <p className="mt-1 text-sm font-semibold tabular">{formula}</p>
+                            <p className="mt-2 text-[10px] leading-4 text-muted">
+                              The simple average absolute miss is {row.meanAbsoluteError.toFixed(1)} {unit}. Huddlemark uses the robust {row.robustError.toFixed(1)} {unit} score instead so one freak projection cannot dominate the source.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div>
+                          <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-accent">
+                            How that becomes influence
+                          </p>
+                          <div className="mt-3 space-y-2">
+                            <div className="flex items-center justify-between rounded-xl border bg-surface px-3 py-2.5">
+                              <span className="text-[10px] text-muted">Equal starting share</span>
+                              <span className="text-xs font-semibold tabular">{(100 / Math.max(sources.length, 1)).toFixed(1)}%</span>
+                            </div>
+                            <div className="flex items-center justify-between rounded-xl border bg-surface px-3 py-2.5">
+                              <span className="text-[10px] text-muted">Accuracy target share</span>
+                              <span className="text-xs font-semibold tabular">{(row.learnedTarget * 100).toFixed(1)}%</span>
+                            </div>
+                            <div className="flex items-center justify-between rounded-xl border bg-surface px-3 py-2.5">
+                              <span className="text-[10px] text-muted">Learning confidence</span>
+                              <span className="text-xs font-semibold tabular">{(row.confidence * 100).toFixed(0)}%</span>
+                            </div>
+                            <div className="flex items-center justify-between rounded-xl border border-accent/25 bg-accent-bg/40 px-3 py-2.5">
+                              <span className="text-[10px] font-semibold">Current model influence</span>
+                              <span className="text-sm font-semibold tabular text-accent">{row.weight === null ? "Waiting" : `${(row.weight * 100).toFixed(1)}%`}</span>
+                            </div>
+                          </div>
+                          <p className="mt-3 text-[9px] leading-4 text-faint">
+                            Accuracy strength is 1 ÷ typical miss. The source is then shrunk toward an equal share until it has enough graded rows. Learning confidence starts at 0% through 20 grades and tops out at 75% around 200 grades.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-5 border-t pt-4">
+                        <div className="flex items-end justify-between gap-3">
+                          <div>
+                            <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-accent">Real graded examples</p>
+                            <p className="mt-1 text-[10px] text-muted">These are actual saved projections compared with the final box score.</p>
+                          </div>
+                          <span className="text-[9px] text-faint">Most recent first</span>
+                        </div>
+                        <div className="mt-3 grid gap-2 md:grid-cols-3">
+                          {row.examples.length ? row.examples.map((example) => (
+                            <div key={`${example.playerName}:${example.week}:${example.projectedValue}:${example.actualValue}`} className="rounded-xl border bg-surface p-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="truncate text-xs font-semibold">{example.playerName}</p>
+                                <span className="shrink-0 text-[8px] uppercase tracking-[0.08em] text-faint">Wk {example.week}</span>
+                              </div>
+                              <div className="mt-3 flex items-end justify-between gap-2">
+                                <div>
+                                  <p className="text-[8px] uppercase tracking-[0.08em] text-faint">Projected</p>
+                                  <p className="mt-0.5 text-sm font-semibold tabular">{example.projectedValue.toFixed(1)}</p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-[8px] uppercase tracking-[0.08em] text-faint">Actual</p>
+                                  <p className="mt-0.5 text-sm font-semibold tabular">{example.actualValue.toFixed(1)}</p>
+                                </div>
+                              </div>
+                              <div className="mt-2 rounded-lg bg-background px-2.5 py-2 text-center">
+                                <span className="text-[9px] text-muted">Miss </span>
+                                <span className="text-xs font-semibold tabular">{example.absoluteError.toFixed(1)} {unit}</span>
+                              </div>
+                            </div>
+                          )) : (
+                            <p className="text-xs text-muted">No individual graded examples available yet.</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               );
             })
