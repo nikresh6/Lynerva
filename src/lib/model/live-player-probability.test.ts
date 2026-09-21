@@ -3,6 +3,7 @@ import {
   conditionalLivePlayerProbability,
   liveGameScriptMultiplier,
   liveInjuryAvailabilityMultiplier,
+  livePossessionOpportunityMultiplier,
 } from "./live-player-probability";
 
 describe("conditionalLivePlayerProbability", () => {
@@ -23,6 +24,26 @@ describe("conditionalLivePlayerProbability", () => {
     expect(result!.paceAdjustedFullGameProjection).toBeGreaterThan(40);
     expect(result!.probability).toBeGreaterThan(0.45);
     expect(result!.probability).toBeLessThan(0.9);
+  });
+
+  it("does not become falsely certain on a late passing-yard under while a drive is still possible", () => {
+    const result = conditionalLivePlayerProbability({
+      family: "passing_yards",
+      direction: "under",
+      threshold: 300,
+      currentValue: 271,
+      baselineFullGameProjection: 280,
+      fullGameStdDev: 58,
+      remainingFraction: 0.03,
+      remainingRateMultiplier: 1.3,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.projectedFinal).toBeGreaterThan(280);
+    expect(result!.remainingStdDev).not.toBeNull();
+    expect(result!.remainingStdDev!).toBeGreaterThan(15);
+    expect(result!.probability).toBeGreaterThan(0.6);
+    expect(result!.probability).toBeLessThan(0.95);
   });
 
   it("makes an under nearly impossible once the threshold is already crossed", () => {
@@ -90,6 +111,12 @@ describe("live context multipliers", () => {
         "Questionable to return with an ankle injury",
       ),
     ).toBe(0.45);
+  });
+
+  it("uses late possession to change remaining opportunity without overreacting early", () => {
+    expect(livePossessionOpportunityMultiplier(0.5, "KC", "KC")).toBe(1);
+    expect(livePossessionOpportunityMultiplier(0.03, "KC", "KC")).toBeGreaterThan(1.25);
+    expect(livePossessionOpportunityMultiplier(0.03, "KC", "IND")).toBeLessThan(0.8);
   });
 
   it("uses score margin to shift passing and rushing opportunity", () => {
