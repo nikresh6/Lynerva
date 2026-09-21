@@ -109,6 +109,18 @@ export interface ModelEstimate {
     liveProjectedFinal?: number | null;
     liveRemainingFraction?: number | null;
     liveOvertimeProbabilityBps?: number | null;
+    preInjuryProbabilityBps?: number | null;
+    injuryAdjustedProjection?: number | null;
+    injuryStatus?: string | null;
+    injuryDetail?: string | null;
+    injuryBodyPart?: string | null;
+    injuryPracticeParticipation?: string | null;
+    injuryPlayProbabilityBps?: number | null;
+    injuryFinishProbabilityBps?: number | null;
+    injuryFullRoleProbabilityBps?: number | null;
+    injuryExpectedUsageIfActiveBps?: number | null;
+    injuryRisk?: "low" | "medium" | "high" | "out" | null;
+    injurySources?: string[];
   };
 }
 
