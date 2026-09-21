@@ -473,7 +473,7 @@ function settledBorderTone(status: TrackerStatus) {
   return "border-border";
 }
 
-function isSettledTrackerStatus(status: TrackerStatus) {
+function isSettledTrackerStatus(status: TrackerStatus): boolean {
   return status !== "open";
 }
 
