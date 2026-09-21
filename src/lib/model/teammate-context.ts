@@ -7,6 +7,7 @@ import {
   type ProjectionPoint,
 } from "@/lib/model/external-projections";
 import { getPlayerVisuals, getTeamRoster } from "@/lib/nfl/player-visuals";
+import { findPublicPlayerSeasonHistory } from "@/lib/nfl/history";
 import { getPregamePlayerAvailability } from "@/lib/nfl/pregame-injuries";
 
 export interface TeammateContextAdjustment {
@@ -235,12 +236,38 @@ async function computeTeammateContextAdjustment(input: {
       input.week,
       input.season,
     );
-    if (
-      teammateProjection.projection === null ||
-      teammateProjection.projection <= 0
-    ) {
-      continue;
+
+    let projectedVolume = teammateProjection.projection;
+    if (projectedVolume === null || projectedVolume <= 0) {
+      // Projection sites often remove a player entirely once he is ruled out.
+      // Recover his normal role from completed regular-season games so the
+      // lost opportunity does not disappear from teammate context at the exact
+      // moment it matters most.
+      const statistic = input.market.statistic ?? input.market.family;
+      const [currentHistory, priorHistory] = await Promise.all([
+        findPublicPlayerSeasonHistory(
+          player.fullName,
+          statistic,
+          input.season,
+        ),
+        findPublicPlayerSeasonHistory(
+          player.fullName,
+          statistic,
+          input.season - 1,
+        ),
+      ]);
+      const historyRows =
+        currentHistory.values.length >= 3
+          ? currentHistory.values.slice(0, 8)
+          : priorHistory.values.slice(0, 12);
+      if (historyRows.length) {
+        projectedVolume =
+          historyRows.reduce((sum, row) => sum + row.value, 0) /
+          historyRows.length;
+      }
     }
+
+    if (projectedVolume === null || projectedVolume <= 0) continue;
 
     const unavailableShare = clamp(1 - availability.playProbability, 0, 1);
     if (unavailableShare < 0.18 && availability.risk !== "out") continue;
@@ -251,8 +278,7 @@ async function computeTeammateContextAdjustment(input: {
       eventAt: availability.newsPublishedAt,
       risk: availability.risk,
     });
-    const teammateLostVolume =
-      teammateProjection.projection * unavailableShare;
+    const teammateLostVolume = projectedVolume * unavailableShare;
     const estimatedAddedVolume =
       teammateLostVolume *
       redistributionRate(input.market.family) *
@@ -272,7 +298,7 @@ async function computeTeammateContextAdjustment(input: {
       player: player.fullName,
       status: availability.status,
       playProbability: availability.playProbability,
-      projectedVolume: teammateProjection.projection,
+      projectedVolume,
       estimatedAddedVolume,
       unpricedFraction,
     });
