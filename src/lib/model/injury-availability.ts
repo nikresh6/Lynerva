@@ -9,6 +9,7 @@ export interface InjuryAvailabilitySignals {
   notes?: string | null;
   practiceParticipation?: string | null;
   practiceDescription?: string | null;
+  news?: string | null;
   sources?: string[];
 }
 
@@ -53,6 +54,7 @@ function normalizedText(signals: InjuryAvailabilitySignals) {
     signals.notes,
     signals.practiceParticipation,
     signals.practiceDescription,
+    signals.news,
   ]
     .filter(Boolean)
     .join(" · ")
@@ -66,7 +68,8 @@ function hasMeaningfulSignal(signals: InjuryAvailabilitySignals) {
       signals.bodyPart ||
       signals.notes ||
       signals.practiceParticipation ||
-      signals.practiceDescription,
+      signals.practiceDescription ||
+      signals.news,
   );
 }
 
@@ -88,7 +91,7 @@ export function estimateInjuryAvailability(
   if (onlyRestSignal) return null;
 
   const ruledOut =
-    /\bruled out\b|\bout\b|injured reserve|\bir\b|physically unable to perform|\bpup\b/.test(
+    /\bruled out\b|\binactive\b|will not play|won'?t play|\bout\b|injured reserve|\bir\b|physically unable to perform|\bpup\b/.test(
       text,
     );
   const doubtful = /\bdoubtful\b/.test(text);
@@ -143,7 +146,7 @@ export function estimateInjuryAvailability(
 
   if (
     !ruledOut &&
-    /trending.*wrong|wrong direction|unlikely to play|not expected to play|long shot to play/.test(
+    /trending.{0,50}(?:out|not play|sit)|trending.*wrong|wrong direction|unlikely to play|not expected to play|long shot to play|leaning.{0,30}(?:out|sit)/.test(
       text,
     )
   ) {
