@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, CloudSun, ExternalLink, FlaskConical, X } from "lucide-react";
+import { ChevronDown, CloudSun, ExternalLink, FlaskConical, HeartPulse, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { MarketOpportunity } from "@/lib/markets/types";
@@ -477,6 +477,158 @@ function pickFacingBps(
   return side === "no" ? 10_000 - bps : bps;
 }
 
+function InjuryRiskCard({ market }: { market: MarketOpportunity }) {
+  const components = market.model.components;
+  const risk = components?.injuryRisk ?? null;
+  const play = components?.injuryPlayProbabilityBps ?? null;
+  const finish = components?.injuryFinishProbabilityBps ?? null;
+  const fullRole = components?.injuryFullRoleProbabilityBps ?? null;
+
+  if (!risk || play === null || market.isLive) return null;
+
+  const preInjury = pickFacingBps(
+    components?.preInjuryProbabilityBps,
+    market.recommendedSide,
+  );
+  const adjusted = market.recommendedProbabilityBps;
+  const probabilityImpact =
+    preInjury !== null && adjusted !== null ? adjusted - preInjury : null;
+  const baseProjection = components?.consensusProjection ?? null;
+  const adjustedProjection = components?.injuryAdjustedProjection ?? null;
+  const sources = components?.injurySources ?? [];
+  const riskTone =
+    risk === "out" || risk === "high"
+      ? "border-negative/30 bg-negative-bg/55 text-negative"
+      : risk === "medium"
+        ? "border-warning/30 bg-warning-bg/55 text-warning"
+        : "border-positive/25 bg-positive-bg/45 text-positive";
+  const riskLabel =
+    risk === "out"
+      ? "Ruled out risk"
+      : risk === "high"
+        ? "High availability risk"
+        : risk === "medium"
+          ? "Meaningful availability risk"
+          : "Low availability risk";
+
+  return (
+    <section className="overflow-hidden rounded-2xl border bg-background">
+      <div className={cn("border-b p-4", riskTone)}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl border bg-surface/70">
+              <HeartPulse className="size-4" />
+            </span>
+            <div>
+              <p className="text-[9px] font-semibold uppercase tracking-[0.1em]">
+                Injury availability
+              </p>
+              <h3 className="mt-1 text-base font-semibold text-foreground">
+                {components?.injuryStatus ?? "Injury listed"}
+                {components?.injuryBodyPart
+                  ? " · " + components.injuryBodyPart
+                  : ""}
+              </h3>
+            </div>
+          </div>
+          <span className="rounded-full border bg-surface/75 px-2.5 py-1 text-[9px] font-semibold">
+            {riskLabel}
+          </span>
+        </div>
+        {components?.injuryDetail ? (
+          <p className="mt-3 text-[11px] leading-5 text-foreground/75">
+            {components.injuryDetail}
+          </p>
+        ) : null}
+        {components?.injuryPracticeParticipation ? (
+          <p className="mt-1 text-[10px] text-foreground/65">
+            Practice: {components.injuryPracticeParticipation}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="p-4">
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-xl border bg-surface p-3">
+            <p className="text-[8px] uppercase tracking-[0.08em] text-faint">
+              Play chance
+            </p>
+            <p className="mt-1 text-lg font-semibold tabular">
+              {formatPercent(play)}
+            </p>
+          </div>
+          <div className="rounded-xl border bg-surface p-3">
+            <p className="text-[8px] uppercase tracking-[0.08em] text-faint">
+              Finish if active
+            </p>
+            <p className="mt-1 text-lg font-semibold tabular">
+              {finish === null ? "—" : formatPercent(finish)}
+            </p>
+          </div>
+          <div className="rounded-xl border bg-surface p-3">
+            <p className="text-[8px] uppercase tracking-[0.08em] text-faint">
+              Full-role chance
+            </p>
+            <p className="mt-1 text-lg font-semibold tabular">
+              {fullRole === null ? "—" : formatPercent(fullRole)}
+            </p>
+          </div>
+        </div>
+
+        {baseProjection !== null && adjustedProjection !== null ? (
+          <div className="mt-3 rounded-xl border bg-surface-raised/40 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-[8px] uppercase tracking-[0.08em] text-faint">
+                  Projection after availability risk
+                </p>
+                <p className="mt-1 text-sm font-semibold tabular">
+                  {baseProjection.toFixed(1)} full-role →{" "}
+                  {adjustedProjection.toFixed(1)} expected
+                </p>
+              </div>
+              {probabilityImpact !== null ? (
+                <div className="text-right">
+                  <p className="text-[8px] uppercase tracking-[0.08em] text-faint">
+                    Bet probability impact
+                  </p>
+                  <p
+                    className={cn(
+                      "mt-1 text-sm font-semibold tabular",
+                      probabilityImpact < 0
+                        ? "text-negative"
+                        : probabilityImpact > 0
+                          ? "text-positive"
+                          : "",
+                    )}
+                  >
+                    {probabilityImpact >= 0 ? "+" : ""}
+                    {(probabilityImpact / 100).toFixed(1)}pp
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        <p className="mt-3 text-[10px] leading-5 text-muted">
+          Huddlemark estimates whether the player appears at all, then the chance
+          of maintaining a near-normal role if active. The stat probability is
+          calculated after those branches, so a 90-yard full-role projection no
+          longer implies the same bet probability for a questionable game-time
+          decision.
+        </p>
+        {sources.length ? (
+          <p className="mt-2 text-[9px] text-faint">
+            Injury signals: {sources.join(" + ")}. Sleeper supplies public player
+            injury/practice fields and ESPN supplies game-specific injury status.
+          </p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 function sourceLabel(source: string) {
   if (source === "nflverse_current_season_scoring") return "nflverse scoring";
   if (source === "current_season_league_baseline") return "2026 league baseline";
@@ -789,6 +941,7 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
           ) : null}
 
           <LiveCheckpoint market={market} />
+          <InjuryRiskCard market={market} />
 
           <section className="rounded-2xl border bg-background p-4">
             <h3 className="text-sm font-semibold">At a glance</h3>
@@ -987,6 +1140,21 @@ export function MarketTable({
                         </span>
                       ) : null}
                       {market.isLive ? <span className="live-badge rounded-full bg-negative-bg px-1.5 py-0.5 text-[9px] font-bold uppercase text-negative">Live</span> : null}
+                      {!market.isLive &&
+                      market.model.components?.injuryRisk &&
+                      market.model.components.injuryRisk !== "low" ? (
+                        <span
+                          className={cn(
+                            "rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase",
+                            market.model.components.injuryRisk === "high" ||
+                            market.model.components.injuryRisk === "out"
+                              ? "bg-negative-bg text-negative"
+                              : "bg-warning-bg text-warning",
+                          )}
+                        >
+                          Injury risk
+                        </span>
+                      ) : null}
                     </div>
                     <div className="mt-2 line-clamp-2 text-[15px] font-semibold leading-6">
                       <span className="mr-1.5 text-positive">{displayPickSide(market)}</span>
