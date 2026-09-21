@@ -152,7 +152,7 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
               How did the model actually do?
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-6 text-muted sm:text-base">
-              Every week locks its ten highest-ranked distinct pregame picks. Once frozen, the ranks, model probabilities, and entry prices never change.
+              Every week locks a balanced pregame card: 1 TNF, 4 Sunday noon, 3 Sunday late, 1 SNF, and 1 MNF. Each slate freezes five minutes before its kickoff window.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -217,7 +217,7 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
             </div>
             <div className="rounded-xl bg-background p-4">
               <p className="text-[9px] uppercase tracking-[0.08em] text-faint">Selection rule</p>
-              <p className="mt-2 text-xs leading-5">Top ten distinct pregame rankings only. Once the card freezes, it cannot be replaced by later or live predictions.</p>
+              <p className="mt-2 text-xs leading-5">1 TNF, 4 Sunday noon, 3 Sunday late, 1 SNF, and 1 MNF. Each slate locks five minutes before its first kickoff, then never changes.</p>
             </div>
           </div>
         </div>
@@ -235,6 +235,9 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
                 <span className="grid size-8 shrink-0 place-items-center rounded-full border bg-background text-xs font-bold">{pick.rank}</span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full border bg-background px-2 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-muted">
+                      {pick.slot}
+                    </span>
                     <span className={cn(
                       "inline-flex items-center gap-1 rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-[0.08em]",
                       pick.result === "hit"
