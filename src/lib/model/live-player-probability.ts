@@ -34,11 +34,117 @@ const poissonFamilies = new Set<MarketFamily>([
   "touchdowns",
 ]);
 
+const passingScriptFamilies = new Set<MarketFamily>([
+  "passing_yards",
+  "passing_touchdowns",
+  "passing_interceptions",
+  "receiving_yards",
+  "receptions",
+  "longest_reception",
+]);
+
+const rushingScriptFamilies = new Set<MarketFamily>([
+  "rushing_yards",
+  "rushing_touchdowns",
+]);
+
 export interface LivePlayerConditionalEstimate {
   probability: number;
   projectedFinal: number;
   expectedRemaining: number;
   remainingStdDev: number | null;
+  paceAdjustedFullGameProjection: number;
+  paceWeight: number;
+}
+
+export function liveInjuryAvailabilityMultiplier(
+  status: string | null | undefined,
+  detail: string | null | undefined,
+) {
+  const text = ((status ?? "") + " " + (detail ?? "")).toLowerCase();
+  if (!text.trim()) return 1;
+
+  if (
+    /ruled out|will not return|won't return|out for the game|inactive|injured reserve|\bout\b/.test(
+      text,
+    )
+  ) {
+    return 0;
+  }
+  if (/doubtful(?: to return)?/.test(text)) return 0.15;
+  if (/questionable to return|uncertain to return|return is questionable/.test(text)) {
+    return 0.45;
+  }
+
+  // A generic pregame "Questionable" tag should not cut a live projection
+  // after the player has already taken the field.
+  return 1;
+}
+
+export function liveGameScriptMultiplier(
+  family: MarketFamily,
+  playerScoreMargin: number | null,
+) {
+  if (playerScoreMargin === null || Math.abs(playerScoreMargin) < 7) return 1;
+
+  if (passingScriptFamilies.has(family)) {
+    if (playerScoreMargin <= -14) return 1.12;
+    if (playerScoreMargin <= -7) return 1.06;
+    if (playerScoreMargin >= 14) return 0.84;
+    if (playerScoreMargin >= 7) return 0.93;
+  }
+
+  if (rushingScriptFamilies.has(family)) {
+    if (playerScoreMargin >= 14) return 1.12;
+    if (playerScoreMargin >= 7) return 1.06;
+    if (playerScoreMargin <= -14) return 0.82;
+    if (playerScoreMargin <= -7) return 0.92;
+  }
+
+  return 1;
+}
+
+function paceWeightFor(family: MarketFamily, elapsedFraction: number) {
+  if (poissonFamilies.has(family)) {
+    return clamp((elapsedFraction - 0.2) * 0.4, 0, 0.26);
+  }
+  if (family === "longest_reception") {
+    return clamp((elapsedFraction - 0.2) * 0.35, 0, 0.22);
+  }
+  return clamp((elapsedFraction - 0.1) * 0.8, 0, 0.62);
+}
+
+function paceAdjustedProjection(input: {
+  family: MarketFamily;
+  currentValue: number;
+  baselineFullGameProjection: number;
+  remainingFraction: number;
+}) {
+  const remaining = clamp(input.remainingFraction, 0.001, 1);
+  const elapsed = clamp(1 - remaining, 0.03, 0.999);
+  const baseline = Math.max(0, input.baselineFullGameProjection);
+  const observedFullGamePace = Math.max(0, input.currentValue) / elapsed;
+  const paceWeight = paceWeightFor(input.family, elapsed);
+
+  if (baseline <= 0) {
+    return {
+      projection: observedFullGamePace,
+      paceWeight,
+    };
+  }
+
+  // Current pace matters more as the game develops, but a single explosive
+  // play should not turn an early-game projection into an absurd extrapolation.
+  const cappedObservedPace = clamp(
+    observedFullGamePace,
+    baseline * 0.3,
+    baseline * 3,
+  );
+  return {
+    projection:
+      baseline * (1 - paceWeight) + cappedObservedPace * paceWeight,
+    paceWeight,
+  };
 }
 
 export function conditionalLivePlayerProbability(input: {
@@ -49,10 +155,22 @@ export function conditionalLivePlayerProbability(input: {
   baselineFullGameProjection: number;
   fullGameStdDev: number;
   remainingFraction: number;
+  remainingRateMultiplier?: number;
 }): LivePlayerConditionalEstimate | null {
   const remaining = clamp(input.remainingFraction, 0.001, 1);
   const current = Math.max(0, input.currentValue);
   const baseline = Math.max(0, input.baselineFullGameProjection);
+  const remainingRateMultiplier = clamp(
+    input.remainingRateMultiplier ?? 1,
+    0,
+    1.5,
+  );
+  const pace = paceAdjustedProjection({
+    family: input.family,
+    currentValue: current,
+    baselineFullGameProjection: baseline,
+    remainingFraction: remaining,
+  });
 
   if (input.family === "longest_reception") {
     if (current >= input.threshold) {
@@ -63,6 +181,8 @@ export function conditionalLivePlayerProbability(input: {
         projectedFinal: current,
         expectedRemaining: 0,
         remainingStdDev: null,
+        paceAdjustedFullGameProjection: pace.projection,
+        paceWeight: pace.paceWeight,
       };
     }
 
@@ -70,21 +190,25 @@ export function conditionalLivePlayerProbability(input: {
       1 -
       normalCdf(
         input.threshold,
-        baseline,
+        Math.max(pace.projection, baseline),
         Math.max(1, input.fullGameStdDev),
       );
+    const opportunityFraction = remaining * remainingRateMultiplier;
     const remainingOver =
-      1 - Math.pow(1 - clamp(fullGameOver, 0.001, 0.999), remaining);
+      1 - Math.pow(1 - clamp(fullGameOver, 0.001, 0.999), opportunityFraction);
     return {
       probability:
         input.direction === "under" ? 1 - remainingOver : remainingOver,
-      projectedFinal: Math.max(current, baseline),
+      projectedFinal: current,
       expectedRemaining: 0,
       remainingStdDev: null,
+      paceAdjustedFullGameProjection: pace.projection,
+      paceWeight: pace.paceWeight,
     };
   }
 
-  const expectedRemaining = baseline * remaining;
+  const expectedRemaining =
+    pace.projection * remaining * remainingRateMultiplier;
   const projectedFinal = current + expectedRemaining;
   let overProbability: number;
 
@@ -102,7 +226,8 @@ export function conditionalLivePlayerProbability(input: {
         : input.threshold;
     const remainingStdDev = Math.max(
       input.family === "receptions" ? 0.75 : 1,
-      input.fullGameStdDev * Math.sqrt(remaining),
+      input.fullGameStdDev *
+        Math.sqrt(Math.max(remaining * remainingRateMultiplier, 0.02)),
     );
     overProbability =
       1 - normalCdf(boundary, projectedFinal, remainingStdDev);
@@ -116,6 +241,8 @@ export function conditionalLivePlayerProbability(input: {
       projectedFinal,
       expectedRemaining,
       remainingStdDev,
+      paceAdjustedFullGameProjection: pace.projection,
+      paceWeight: pace.paceWeight,
     };
   }
 
@@ -128,5 +255,7 @@ export function conditionalLivePlayerProbability(input: {
     projectedFinal,
     expectedRemaining,
     remainingStdDev: null,
+    paceAdjustedFullGameProjection: pace.projection,
+    paceWeight: pace.paceWeight,
   };
 }
