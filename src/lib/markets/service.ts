@@ -496,6 +496,14 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
         injuryPlayBps !== null && model.components
           ? {
               ...model,
+              factors: [
+                ...model.factors,
+                currentFairYesBps !== null
+                  ? "Kalshi DNP branch: estimated at current fair value " +
+                    (currentFairYesBps / 100).toFixed(1) +
+                    "%. A true DNP is not modeled as an automatic binary loss; availability risk instead reduces the portion of the edge that depends on actual player statistics."
+                  : "Kalshi DNP branch: no current fair-value estimate was available.",
+              ],
               components: {
                 ...model.components,
                 injuryDnpSettlementBps: currentFairYesBps,
