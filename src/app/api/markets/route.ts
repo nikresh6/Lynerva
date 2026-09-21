@@ -1,6 +1,12 @@
 import { getMarketOpportunities } from "@/lib/markets/service";
 import { isPricedOpportunity } from "@/lib/markets/eligibility";
-import type { MarketOpportunity } from "@/lib/markets/types";
+import {
+  expectedRoi,
+  lynervaScore,
+  opportunityScore,
+  riskReturn,
+} from "@/lib/markets/math";
+import type { MarketOpportunity, MarketSide } from "@/lib/markets/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,20 +27,98 @@ function groupKey(market: MarketOpportunity) {
   ].join(":");
 }
 
+function sideFacingOpportunity(
+  market: MarketOpportunity,
+  side: MarketSide,
+): MarketOpportunity | null {
+  if (market.model.probabilityBps === null) return null;
+
+  const priceBps = side === "yes" ? market.yesAskBps : market.noAskBps;
+  if (priceBps === null || priceBps <= 0 || priceBps >= 10_000) return null;
+
+  const probabilityBps =
+    side === "yes"
+      ? market.model.probabilityBps
+      : 10_000 - market.model.probabilityBps;
+  const edgeBps = probabilityBps - priceBps;
+  const roi = expectedRoi(probabilityBps, priceBps);
+  const spreadBps =
+    side === "yes"
+      ? market.yesAskBps !== null && market.yesBidBps !== null
+        ? market.yesAskBps - market.yesBidBps
+        : market.spreadBps
+      : market.noAskBps !== null && market.noBidBps !== null
+        ? market.noAskBps - market.noBidBps
+        : market.spreadBps;
+  const ageSeconds = Math.max(
+    0,
+    (Date.now() - new Date(market.updatedAt).getTime()) / 1_000,
+  );
+  const score = lynervaScore({
+    probabilityBps,
+    edgeBps,
+    priceBps,
+    expectedRoi: roi,
+    reliabilityBps: market.model.reliabilityBps,
+    seasonHits: market.model.evidence.seasonHits,
+    seasonGames: market.model.evidence.seasonGames,
+    last10Hits: market.model.evidence.last10Hits,
+    sampleSize: market.model.evidence.sampleSize,
+    recommendedSide: side,
+    liquidityCents: market.liquidityCents,
+    volumeCents: market.volumeCents,
+    spreadBps,
+    ageSeconds,
+  });
+
+  return {
+    ...market,
+    recommendedSide: side,
+    recommendedProbabilityBps: probabilityBps,
+    executablePriceBps: priceBps,
+    edgeBps,
+    expectedRoi: roi,
+    riskReturn: riskReturn(priceBps),
+    spreadBps,
+    opportunityScore: opportunityScore({
+      edgeBps,
+      priceBps,
+      reliabilityBps: market.model.reliabilityBps,
+      liquidityCents: market.liquidityCents,
+      spreadBps,
+      ageSeconds,
+    }),
+    lynervaScore: score?.score ?? null,
+    scoreBreakdown: score?.breakdown ?? null,
+  };
+}
+
+function expandOverUnderSides(market: MarketOpportunity) {
+  const direction = market.canonical?.direction;
+  if (direction !== "over" && direction !== "under") return [market];
+
+  return (["yes", "no"] as const)
+    .map((side) => sideFacingOpportunity(market, side))
+    .filter((row): row is MarketOpportunity => row !== null);
+}
+
 export async function GET() {
   const payload = await getMarketOpportunities();
   const rated = payload.opportunities.filter(
     (market) => market.model.probabilityBps !== null,
   );
   const priced = rated.filter(isPricedOpportunity);
-  const opportunities = priced.map((market) => ({
-    ...market,
-    resolutionRules: null,
-    model: {
-      ...market.model,
-      factors: [],
-    },
-  }));
+  const opportunities = priced
+    .flatMap(expandOverUnderSides)
+    .filter(isPricedOpportunity)
+    .map((market) => ({
+      ...market,
+      resolutionRules: null,
+      model: {
+        ...market.model,
+        factors: [],
+      },
+    }));
 
   return Response.json(
     {
@@ -48,7 +132,7 @@ export async function GET() {
         error: provider.error,
       })),
       ratedCount: rated.length,
-      displayedCount: Math.min(30, new Set(priced.map(groupKey)).size),
+      displayedCount: Math.min(30, new Set(opportunities.map(groupKey)).size),
       fetchedAt: payload.fetchedAt,
     },
     {
