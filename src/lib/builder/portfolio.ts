@@ -237,6 +237,10 @@ function portfolioCandidateIsDistinct(
 
   for (const row of selected) {
     if (sharedExactLegs(candidate, row) > 0) return false;
+    const existingStats = new Set(row.legs.map((leg) => playerStatKey(leg)));
+    if (candidate.legs.some((leg) => existingStats.has(playerStatKey(leg)))) {
+      return false;
+    }
   }
 
   for (const subject of candidateSubjects) {
@@ -382,7 +386,8 @@ function straightCandidates(
     });
   }
 
-  const bestByPlayerStat = new Map<string, Candidate>();
+  const perPlayerStat = new Map<string, number>();
+  const selected: Candidate[] = [];
   for (const candidate of rows.toSorted(
     (first, second) =>
       second.score - first.score ||
@@ -391,18 +396,13 @@ function straightCandidates(
     const market = candidate.legs[0];
     if (!market) continue;
     const key = playerStatKey(market);
-    if (!bestByPlayerStat.has(key)) {
-      bestByPlayerStat.set(key, candidate);
-    }
+    if ((perPlayerStat.get(key) ?? 0) >= 3) continue;
+    perPlayerStat.set(key, (perPlayerStat.get(key) ?? 0) + 1);
+    selected.push(candidate);
+    if (selected.length >= 180) break;
   }
 
-  return [...bestByPlayerStat.values()]
-    .toSorted(
-      (first, second) =>
-        second.score - first.score ||
-        second.expectedValueMultiplier - first.expectedValueMultiplier,
-    )
-    .slice(0, 180);
+  return selected;
 }
 
 function parlayRole(grossReturn: number): PortfolioRole {
