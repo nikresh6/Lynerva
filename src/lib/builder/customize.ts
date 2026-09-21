@@ -429,6 +429,19 @@ export function findPortfolioBetReplacements(
   }
 
   const targetReturn = Math.max(position.grossReturn, 1.05);
+  const targetPriceBps = clamp(10_000 / targetReturn, 1, 9_999);
+  const tolerance = Math.max(0, options.toleranceBps);
+  const minimumPriceBps = Math.max(20, targetPriceBps - tolerance);
+  const maximumPriceBps = Math.min(9_980, targetPriceBps + tolerance);
+  const minimumReturn =
+    tolerance >= 9_999
+      ? 1.3
+      : Math.max(1.3, 10_000 / maximumPriceBps);
+  const maximumReturn =
+    tolerance >= 9_999
+      ? 500
+      : Math.min(500, 10_000 / minimumPriceBps);
+
   const filteredMarkets = markets.filter((market) => {
     if (!directionMatches(market, position.legs[0] ?? market, options.direction)) {
       return false;
@@ -444,8 +457,8 @@ export function findPortfolioBetReplacements(
   const candidates = buildCombinationCandidates(
     filteredMarkets,
     {
-      minReturn: Math.max(1.3, targetReturn * 0.72),
-      maxReturn: Math.min(500, targetReturn * 1.38),
+      minReturn: minimumReturn,
+      maxReturn: maximumReturn,
       maxLegs: Math.max(2, position.legs.length),
       platform: "kalshi",
       live: options.live,
