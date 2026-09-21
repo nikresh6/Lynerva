@@ -50,8 +50,7 @@ function normalizePerson(value: string) {
 function sleeperName(player: SleeperPlayer) {
   return (
     player.full_name ??
-    [player.first_name, player.last_name].filter(Boolean).join(" ") ??
-    ""
+    [player.first_name, player.last_name].filter(Boolean).join(" ")
   );
 }
 
