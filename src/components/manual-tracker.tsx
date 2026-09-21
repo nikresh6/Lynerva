@@ -37,6 +37,7 @@ type ManualBet = ManualTrackerBet;
 
 const STORAGE_KEY = "lynerva-manual-tracker-v2";
 const LEGACY_STORAGE_KEY = "lynerva-manual-tracker-v1";
+const CLOUD_MIGRATION_KEY = "lynerva-manual-tracker-cloud-migrated-v1";
 
 function profit(bet: ManualBet) {
   if (bet.status === "open") return null;
@@ -866,13 +867,26 @@ export function ManualTracker() {
         const remote = await loadManualTrackerBets();
         accountBacked = remote.authenticated;
         if (remote.authenticated) {
-          const remoteIds = new Set(remote.bets.map((bet) => bet.id));
-          const localOnly = localBets.filter((bet) => !remoteIds.has(bet.id));
-          merged = [...remote.bets, ...localOnly].toSorted(
-            (a, b) => b.date.localeCompare(a.date),
-          );
-          if (localOnly.length) {
-            await syncManualTrackerBets(localOnly);
+          let shouldImportLocal = true;
+          try {
+            shouldImportLocal =
+              localStorage.getItem(CLOUD_MIGRATION_KEY) !== "done";
+          } catch {}
+
+          if (shouldImportLocal) {
+            const remoteIds = new Set(remote.bets.map((bet) => bet.id));
+            const localOnly = localBets.filter((bet) => !remoteIds.has(bet.id));
+            merged = [...remote.bets, ...localOnly].toSorted(
+              (a, b) => b.date.localeCompare(a.date),
+            );
+            if (localOnly.length) {
+              await syncManualTrackerBets(localOnly);
+            }
+            try {
+              localStorage.setItem(CLOUD_MIGRATION_KEY, "done");
+            } catch {}
+          } else {
+            merged = remote.bets;
           }
         }
       } catch {
