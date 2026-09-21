@@ -473,6 +473,10 @@ function settledBorderTone(status: TrackerStatus) {
   return "border-border";
 }
 
+function isSettledTrackerStatus(status: TrackerStatus) {
+  return status !== "open";
+}
+
 function CompactMetric({
   label,
   value,
@@ -1540,7 +1544,7 @@ export function ManualTracker() {
                 ? straightProbabilitySnapshot(bet, current)
                 : null;
 
-              if (bet.status !== "open") {
+              if (isSettledTrackerStatus(bet.status)) {
                 const originalModel = bet.isParlay
                   ? parlay?.originalLynerva
                   : straightChances?.originalLynerva;
