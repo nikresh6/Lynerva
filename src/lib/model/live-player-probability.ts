@@ -104,6 +104,38 @@ export function liveGameScriptMultiplier(
   return 1;
 }
 
+export function livePossessionOpportunityMultiplier(
+  remainingFraction: number,
+  playerTeam: string | null | undefined,
+  possessionTeam: string | null | undefined,
+) {
+  if (!playerTeam || !possessionTeam) return 1;
+
+  const remaining = clamp(remainingFraction, 0, 1);
+  if (remaining >= 0.2) return 1;
+
+  // Possession becomes increasingly important late. A player whose offense has
+  // the ball can immediately add production, while a player on the sideline
+  // first needs a change of possession. Keep this adjustment modest because we
+  // do not yet model timeouts, down, distance, or exact field position.
+  const lateGameStrength = clamp((0.2 - remaining) / 0.18, 0, 1);
+  return playerTeam === possessionTeam
+    ? 1 + 0.35 * lateGameStrength
+    : 1 - 0.3 * lateGameStrength;
+}
+
+function remainingVolatilityExponent(family: MarketFamily) {
+  // Football production arrives in drives and chunk plays, not as a smooth
+  // clock-rate process. Using sqrt(time) made late-game yardage distributions
+  // collapse too quickly and produced false 95%+ certainty with real drives
+  // still possible.
+  if (family === "passing_yards") return 0.34;
+  if (family === "receiving_yards") return 0.37;
+  if (family === "rushing_yards") return 0.4;
+  if (family === "receptions") return 0.4;
+  return 0.5;
+}
+
 function paceWeightFor(family: MarketFamily, elapsedFraction: number) {
   if (poissonFamilies.has(family)) {
     return clamp((elapsedFraction - 0.2) * 0.4, 0, 0.26);
@@ -224,11 +256,21 @@ export function conditionalLivePlayerProbability(input: {
       input.family === "receptions" && Number.isInteger(input.threshold)
         ? input.threshold - 0.5
         : input.threshold;
-    const remainingStdDev = Math.max(
-      input.family === "receptions" ? 0.75 : 1,
-      input.fullGameStdDev *
-        Math.sqrt(Math.max(remaining * remainingRateMultiplier, 0.02)),
+    const effectiveRemaining = Math.max(
+      remaining * remainingRateMultiplier,
+      0,
     );
+    const volatilityExponent = remainingVolatilityExponent(input.family);
+    const remainingStdDev =
+      remainingRateMultiplier <= 0
+        ? input.family === "receptions"
+          ? 0.25
+          : 0.5
+        : Math.max(
+            input.family === "receptions" ? 0.75 : 1,
+            input.fullGameStdDev *
+              Math.pow(Math.max(effectiveRemaining, 0.001), volatilityExponent),
+          );
     overProbability =
       1 - normalCdf(boundary, projectedFinal, remainingStdDev);
 
