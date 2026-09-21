@@ -571,7 +571,12 @@ export function portfolioRoleForReplacement(
   replacementKind: "straight" | "parlay",
 ) {
   if (replacementKind === "straight") {
-    if (role === "core_straight" || role === "value_straight" || role === "aggressive_straight") {
+    if (
+      role === "core_straight" ||
+      role === "hedge_straight" ||
+      role === "value_straight" ||
+      role === "aggressive_straight"
+    ) {
       return role;
     }
     return "value_straight" as const;
