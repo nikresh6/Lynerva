@@ -12,12 +12,34 @@ import {
 } from "@/db/schema";
 import { recommendedPredictionPerspective } from "./prediction-perspective";
 
-const SCORECARD_LAUNCH_AT = new Date("2026-09-21T02:46:31.000Z");
+const SCORECARD_BUCKET_LAUNCH_AT = new Date("2026-09-21T16:10:00.000Z");
 const LOCK_SCAN_WINDOW_MS = 14 * 24 * 60 * 60_000;
+const LOCK_LEAD_MS = 5 * 60_000;
+
+type ScorecardBucket =
+  | "tnf"
+  | "sunday_noon"
+  | "sunday_late"
+  | "snf"
+  | "mnf";
+
+const BUCKET_RULES: Array<{
+  id: ScorecardBucket;
+  count: number;
+  rankStart: number;
+  label: string;
+}> = [
+  { id: "tnf", count: 1, rankStart: 1, label: "TNF" },
+  { id: "sunday_noon", count: 4, rankStart: 2, label: "Sunday noon" },
+  { id: "sunday_late", count: 3, rankStart: 6, label: "Sunday late" },
+  { id: "snf", count: 1, rankStart: 9, label: "SNF" },
+  { id: "mnf", count: 1, rankStart: 10, label: "MNF" },
+];
 
 export type ScorecardPick = {
   id: string;
   rank: number;
+  slot: string;
   title: string;
   context: string;
   side: "yes" | "no";
@@ -119,6 +141,42 @@ function publicScore(features: Record<string, number | string | boolean | null>)
     : null;
 }
 
+function easternKickoffParts(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  return {
+    weekday: value("weekday"),
+    hour: Number(value("hour")),
+    minute: Number(value("minute")),
+  };
+}
+
+function scorecardBucketForKickoff(kickoff: Date): ScorecardBucket | null {
+  const { weekday, hour } = easternKickoffParts(kickoff);
+
+  if (weekday === "Thu") return "tnf";
+  if (weekday === "Mon") return "mnf";
+
+  if (weekday === "Sun") {
+    if (hour >= 12 && hour < 15) return "sunday_noon";
+    if (hour >= 15 && hour < 19) return "sunday_late";
+    if (hour >= 19) return "snf";
+  }
+
+  return null;
+}
+
+function bucketLabel(bucket: string | null) {
+  return BUCKET_RULES.find((rule) => rule.id === bucket)?.label ?? "Pregame";
+}
+
 async function lockEligibleScorecards() {
   const db = getDb();
   const now = new Date();
@@ -127,15 +185,19 @@ async function lockEligibleScorecards() {
     .select({
       season: weeklyScorecardPicks.season,
       week: weeklyScorecardPicks.week,
+      bucket: weeklyScorecardPicks.bucket,
     })
     .from(weeklyScorecardPicks);
-  const lockedKeys = new Set(
-    alreadyLocked.map((row) => `${row.season}:${row.week}`),
+
+  const lockedBuckets = new Set(
+    alreadyLocked
+      .filter((row) => row.bucket)
+      .map((row) => `${row.season}:${row.week}:${row.bucket}`),
   );
 
   const scanFrom = new Date(
     Math.max(
-      SCORECARD_LAUNCH_AT.getTime(),
+      SCORECARD_BUCKET_LAUNCH_AT.getTime(),
       now.getTime() - LOCK_SCAN_WINDOW_MS,
     ),
   );
@@ -191,16 +253,12 @@ async function lockEligibleScorecards() {
     if (!season || !week || publicScore(row.features) === null) continue;
 
     const key = `${season}:${week}`;
-    if (lockedKeys.has(key)) continue;
     const group = grouped.get(key) ?? { season, week, candidates: [] };
     group.candidates.push(row);
     grouped.set(key, group);
   }
 
   for (const { season, week, candidates } of grouped.values()) {
-    const key = `${season}:${week}`;
-    if (lockedKeys.has(key)) continue;
-
     const games = await db
       .select({
         kickoffAt: nflGames.kickoffAt,
@@ -217,97 +275,111 @@ async function lockEligibleScorecards() {
       );
 
     if (!games.length) continue;
-    const firstKickoffMs = Math.min(
-      ...games.map((game) => game.kickoffAt.getTime()),
-    );
-    if (now.getTime() < firstKickoffMs) continue;
 
-    const kickoffByMatchup = new Map(
+    const gameByMatchup = new Map(
       games.map((game) => [
         matchupKey(`${game.homeTeam}-${game.awayTeam}`),
-        game.kickoffAt,
+        {
+          kickoffAt: game.kickoffAt,
+          bucket: scorecardBucketForKickoff(game.kickoffAt),
+        },
       ]),
     );
 
-    let lockAt = new Date(firstKickoffMs);
-    if (SCORECARD_LAUNCH_AT.getTime() > firstKickoffMs) {
-      const firstEligibleCapture = candidates
-        .map((candidate) => candidate.predictedAt.getTime())
-        .filter((value) => value >= SCORECARD_LAUNCH_AT.getTime())
-        .toSorted((a, b) => a - b)[0];
-      if (firstEligibleCapture === undefined) continue;
-      lockAt = new Date(firstEligibleCapture);
+    for (const rule of BUCKET_RULES) {
+      const lockKey = `${season}:${week}:${rule.id}`;
+      if (lockedBuckets.has(lockKey)) continue;
+
+      const bucketGames = games.filter(
+        (game) => scorecardBucketForKickoff(game.kickoffAt) === rule.id,
+      );
+      if (!bucketGames.length) continue;
+
+      const firstKickoffMs = Math.min(
+        ...bucketGames.map((game) => game.kickoffAt.getTime()),
+      );
+      const lockAt = new Date(firstKickoffMs - LOCK_LEAD_MS);
+
+      // The bucket system starts now. It never reconstructs older slates with
+      // hindsight. Week 2 therefore keeps only the Monday pick that already
+      // existed when this rule was introduced.
+      if (lockAt.getTime() < SCORECARD_BUCKET_LAUNCH_AT.getTime()) continue;
+      if (now.getTime() < lockAt.getTime()) continue;
+
+      const latestByMarket = new Map<string, (typeof candidates)[number]>();
+
+      for (const candidate of candidates) {
+        if (candidate.predictedAt.getTime() > lockAt.getTime()) continue;
+        if (
+          candidate.predictedAt.getTime() <
+          SCORECARD_BUCKET_LAUNCH_AT.getTime()
+        ) {
+          continue;
+        }
+
+        const matchup =
+          typeof candidate.features.matchup === "string"
+            ? matchupKey(candidate.features.matchup)
+            : "";
+        const game = gameByMatchup.get(matchup);
+        if (!game || game.bucket !== rule.id) continue;
+        if (candidate.predictedAt.getTime() >= game.kickoffAt.getTime()) {
+          continue;
+        }
+
+        if (!latestByMarket.has(candidate.normalizedMarketId)) {
+          latestByMarket.set(candidate.normalizedMarketId, candidate);
+        }
+      }
+
+      const distinct = new Map<string, (typeof candidates)[number]>();
+      for (const candidate of [...latestByMarket.values()].toSorted((a, b) => {
+        const scoreDiff =
+          (publicScore(b.features) ?? -Infinity) -
+          (publicScore(a.features) ?? -Infinity);
+        return scoreDiff || b.edgeBps - a.edgeBps;
+      })) {
+        const subject =
+          typeof candidate.features.subject === "string"
+            ? candidate.features.subject
+            : "";
+        const matchup =
+          typeof candidate.features.matchup === "string"
+            ? matchupKey(candidate.features.matchup)
+            : candidate.eventTitle;
+        const perspective = recommendedPredictionPerspective(candidate);
+        const distinctKey = [
+          matchup,
+          candidate.family,
+          subject,
+          perspective.side,
+        ].join(":");
+        if (!distinct.has(distinctKey)) {
+          distinct.set(distinctKey, candidate);
+        }
+      }
+
+      const top = [...distinct.values()].slice(0, rule.count);
+      if (top.length < rule.count) continue;
+
+      await db
+        .insert(weeklyScorecardPicks)
+        .values(
+          top.map((candidate, index) => ({
+            id: `${season}-week-${week}-${rule.id}-${index + 1}`,
+            season,
+            week,
+            rank: rule.rankStart + index,
+            bucket: rule.id,
+            bucketRank: index + 1,
+            predictionId: candidate.id,
+            lockedAt: lockAt,
+          })),
+        )
+        .onConflictDoNothing();
+
+      lockedBuckets.add(lockKey);
     }
-
-    const latestByMarket = new Map<string, (typeof candidates)[number]>();
-    for (const candidate of candidates) {
-      if (candidate.predictedAt.getTime() > lockAt.getTime()) continue;
-      if (candidate.predictedAt.getTime() < SCORECARD_LAUNCH_AT.getTime()) {
-        continue;
-      }
-
-      const matchup =
-        typeof candidate.features.matchup === "string"
-          ? matchupKey(candidate.features.matchup)
-          : "";
-      const kickoff = kickoffByMatchup.get(matchup);
-      if (!kickoff || candidate.predictedAt.getTime() >= kickoff.getTime()) {
-        continue;
-      }
-
-      if (!latestByMarket.has(candidate.normalizedMarketId)) {
-        latestByMarket.set(candidate.normalizedMarketId, candidate);
-      }
-    }
-
-    const distinct = new Map<
-      string,
-      (typeof candidates)[number]
-    >();
-    for (const candidate of [...latestByMarket.values()].toSorted((a, b) => {
-      const scoreDiff =
-        (publicScore(b.features) ?? -Infinity) -
-        (publicScore(a.features) ?? -Infinity);
-      return scoreDiff || b.edgeBps - a.edgeBps;
-    })) {
-      const subject =
-        typeof candidate.features.subject === "string"
-          ? candidate.features.subject
-          : "";
-      const matchup =
-        typeof candidate.features.matchup === "string"
-          ? matchupKey(candidate.features.matchup)
-          : candidate.eventTitle;
-      const perspective = recommendedPredictionPerspective(candidate);
-      const distinctKey = [
-        matchup,
-        candidate.family,
-        subject,
-        perspective.side,
-      ].join(":");
-      if (!distinct.has(distinctKey)) {
-        distinct.set(distinctKey, candidate);
-      }
-    }
-
-    const top = [...distinct.values()].slice(0, 10);
-    if (top.length < 10) continue;
-
-    await db
-      .insert(weeklyScorecardPicks)
-      .values(
-        top.map((candidate, index) => ({
-          id: `${season}-week-${week}-rank-${index + 1}`,
-          season,
-          week,
-          rank: index + 1,
-          predictionId: candidate.id,
-          lockedAt: lockAt,
-        })),
-      )
-      .onConflictDoNothing();
-
-    lockedKeys.add(key);
   }
 }
 
@@ -319,6 +391,8 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
     const rows = await db
       .select({
         rank: weeklyScorecardPicks.rank,
+        bucket: weeklyScorecardPicks.bucket,
+        bucketRank: weeklyScorecardPicks.bucketRank,
         season: weeklyScorecardPicks.season,
         week: weeklyScorecardPicks.week,
         lockedAt: weeklyScorecardPicks.lockedAt,
@@ -396,6 +470,7 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
           return {
             id: row.id,
             rank: row.rank,
+            slot: bucketLabel(row.bucket),
             title: pickTitle({
               family: row.family,
               direction: row.direction,
