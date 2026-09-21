@@ -10,10 +10,11 @@ import { getLivePlayerState } from "@/lib/nfl/live-player-stats";
 import { canPublishPlayerProbability, empiricalPlayerProbability, poissonAtLeastProbability } from "./player-probability";
 import {
   conditionalLivePlayerProbability,
+  expectedOvertimeOpportunityFraction,
   liveBlowoutSubstitutionMultiplier,
   liveClockManagementMultiplier,
-  liveExpectedOvertimeFraction,
   liveGameScriptMultiplier,
+  liveOvertimeProbability,
   liveInjuryAvailabilityMultiplier,
   livePossessionOpportunityMultiplier,
 } from "./live-player-probability";
@@ -28,7 +29,7 @@ import type {
   ModelEstimate,
 } from "@/lib/markets/types";
 
-const MODEL_VERSION = "hybrid-consensus-learning-v10";
+const MODEL_VERSION = "hybrid-consensus-learning-v11";
 
 const emptyEvidence: HistoricalEvidence = {
   last5Hits: null,
@@ -121,6 +122,23 @@ function opponentTimeoutsRemaining(
   if (playerTeam === game.home.team) return game.away.timeouts ?? null;
   if (playerTeam === game.away.team) return game.home.timeouts ?? null;
   return null;
+}
+
+function possessionTimeoutsRemaining(game: LiveNflGame | null | undefined) {
+  if (!game || game.state !== "in" || !game.possession) return null;
+  if (game.possession === game.home.team) return game.home.timeouts ?? null;
+  if (game.possession === game.away.team) return game.away.timeouts ?? null;
+  return null;
+}
+
+function possessionTerritory(game: LiveNflGame | null | undefined) {
+  if (!game?.possession || !game.possessionText) return null;
+  const territory = game.possessionText.trim().split(/\s+/)[0]?.toUpperCase();
+  if (!territory) return null;
+  if (territory === "50") return "midfield" as const;
+  return territory === game.possession
+    ? ("own" as const)
+    : ("opponent" as const);
 }
 
 function baselineGameProjection(
@@ -760,10 +778,19 @@ export async function estimateMarket(
       remainingFraction,
       baselineProjection ?? 0,
     );
-    const overtimeFraction = liveExpectedOvertimeFraction(
-      scoreMargin,
+    const overtimeProbability = liveOvertimeProbability({
+      playerScoreMargin: scoreMargin,
       remainingFraction,
-    );
+      playerHasPossession,
+      possessionYardLine: liveGame?.yardLine ?? null,
+      possessionTerritory: possessionTerritory(liveGame),
+      isRedZone: liveGame?.isRedZone ?? null,
+      down: liveGame?.down ?? null,
+      distance: liveGame?.distance ?? null,
+      possessionTimeouts: possessionTimeoutsRemaining(liveGame),
+    });
+    const overtimeFraction =
+      expectedOvertimeOpportunityFraction(overtimeProbability);
     const opportunityRemainingFraction = clamp(
       remainingFraction + overtimeFraction,
       remainingFraction,
@@ -989,11 +1016,13 @@ export async function estimateMarket(
           "% based on score margin, time left, and normal projected role.",
       );
     }
-    if (liveConditional && overtimeFraction > 0) {
+    if (liveConditional && overtimeProbability > 0) {
       factors.push(
-        "Close late-game score adds " +
+        "Estimated overtime chance: " +
+          (overtimeProbability * 100).toFixed(0) +
+          "%. That adds " +
           (overtimeFraction * 60).toFixed(1) +
-          " expected minutes of potential overtime opportunity.",
+          " expected minutes of extra opportunity after accounting for score, clock, possession, field position, down/distance, and timeouts.",
       );
     }
     if (
@@ -1077,6 +1106,9 @@ export async function estimateMarket(
         liveCurrentValue: liveStat,
         liveProjectedFinal: liveConditional?.projectedFinal ?? null,
         liveRemainingFraction: liveConditional ? remainingFraction : null,
+        liveOvertimeProbabilityBps: liveConditional
+          ? Math.round(overtimeProbability * 10_000)
+          : null,
       },
     };
   } catch (error) {
