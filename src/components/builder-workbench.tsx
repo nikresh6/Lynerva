@@ -607,6 +607,7 @@ export function BuilderWorkbench() {
         position.estimatedProbability * grossReturn;
       return {
         id: position.id,
+        stake: position.stake,
         grossReturn,
         expectedProfit: position.stake * (expectedValueMultiplier - 1),
         payoutIfWin: position.stake * grossReturn,
