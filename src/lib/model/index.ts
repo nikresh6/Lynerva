@@ -600,6 +600,7 @@ export async function estimateMarket(
     const sample = history.values.slice(0, 20);
     const values = sample.map((row) => row.value);
     const threshold = canonical.threshold;
+    const isLivePlayerMarket = liveGame?.state === "in";
     const liveStat = livePlayerState?.value ?? null;
 
     if (isLivePlayerMarket && liveStat === null) {
@@ -759,7 +760,6 @@ export async function estimateMarket(
         statisticalProbability * statisticalWeight;
     }
 
-    const isLivePlayerMarket = liveGame?.state === "in";
     let preInjuryProbability: number | null = null;
     let injuryAdjustedProjection: number | null = null;
 
