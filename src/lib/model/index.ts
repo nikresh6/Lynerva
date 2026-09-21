@@ -7,6 +7,7 @@ import { getCurrentSeasonMatchupProjection } from "@/lib/nfl/current-season-team
 import type { NflScheduleGame } from "@/lib/nfl/schedule-match";
 import type { LiveNflGame } from "@/lib/nfl/live";
 import { getLivePlayerState } from "@/lib/nfl/live-player-stats";
+import { getPregamePlayerAvailability } from "@/lib/nfl/pregame-injuries";
 import { canPublishPlayerProbability, empiricalPlayerProbability, poissonAtLeastProbability } from "./player-probability";
 import {
   conditionalLivePlayerProbability,
@@ -29,7 +30,7 @@ import type {
   ModelEstimate,
 } from "@/lib/markets/types";
 
-const MODEL_VERSION = "hybrid-consensus-learning-v11";
+const MODEL_VERSION = "hybrid-consensus-learning-v12";
 
 const emptyEvidence: HistoricalEvidence = {
   last5Hits: null,
@@ -574,25 +575,31 @@ export async function estimateMarket(
   }
 
   try {
-    const [history, external, livePlayerState] = await Promise.all([
-      findPublicPlayerHistory(canonical.subject, canonical.statistic),
-      getExternalProjectionConsensus(
-        canonical,
-        scheduleGame?.week ?? null,
-        scheduleGame?.season ?? 2026,
-      ),
-      liveGame?.state === "in"
-        ? getLivePlayerState(
-            liveGame.id,
-            canonical.subject,
-            canonical.statistic,
-          )
-        : Promise.resolve(null),
-    ]);
+    const [history, external, livePlayerState, pregameAvailability] =
+      await Promise.all([
+        findPublicPlayerHistory(canonical.subject, canonical.statistic),
+        getExternalProjectionConsensus(
+          canonical,
+          scheduleGame?.week ?? null,
+          scheduleGame?.season ?? 2026,
+        ),
+        liveGame?.state === "in"
+          ? getLivePlayerState(
+              liveGame.id,
+              canonical.subject,
+              canonical.statistic,
+            )
+          : Promise.resolve(null),
+        liveGame?.state === "in"
+          ? Promise.resolve(null)
+          : getPregamePlayerAvailability({
+              subject: canonical.subject,
+              espnGameId: liveGame?.id ?? null,
+            }),
+      ]);
     const sample = history.values.slice(0, 20);
     const values = sample.map((row) => row.value);
     const threshold = canonical.threshold;
-    const isLivePlayerMarket = liveGame?.state === "in";
     const liveStat = livePlayerState?.value ?? null;
 
     if (isLivePlayerMarket && liveStat === null) {
@@ -670,31 +677,34 @@ export async function estimateMarket(
       );
     const playerStdDev = adaptivePlayerStdDev(familyPrior, values);
 
+    const countMarket =
+      canonical.family === "touchdowns" ||
+      canonical.family === "rushing_touchdowns" ||
+      canonical.family === "receiving_touchdowns" ||
+      canonical.family === "passing_touchdowns" ||
+      canonical.family === "passing_interceptions";
+    // Receptions are integer-valued. For integer Kalshi thresholds, use a
+    // continuity-corrected boundary so P(X >= 5) is evaluated at 4.5 rather
+    // than pretending receptions are perfectly continuous.
+    const normalBoundary =
+      canonical.family === "receptions" && Number.isInteger(threshold)
+        ? threshold - 0.5
+        : threshold;
+    const probabilityFromProjection = (
+      projection: number,
+      stdDev = playerStdDev,
+    ) => {
+      const overProbability = countMarket
+        ? poissonAtLeastProbability(threshold, projection)
+        : 1 - normalCdf(normalBoundary, projection, stdDev);
+      return canonical.direction === "under"
+        ? 1 - overProbability
+        : overProbability;
+    };
+
     let consensusProbability: number | null = null;
     if (external.projection !== null) {
-      const countMarket =
-        canonical.family === "touchdowns" ||
-        canonical.family === "rushing_touchdowns" ||
-        canonical.family === "receiving_touchdowns" ||
-        canonical.family === "passing_touchdowns" ||
-        canonical.family === "passing_interceptions";
-      // Receptions are integer-valued. For integer Kalshi thresholds, use a
-      // continuity-corrected boundary so P(X >= 5) is evaluated at 4.5 rather
-      // than pretending receptions are perfectly continuous.
-      const normalBoundary =
-        canonical.family === "receptions" && Number.isInteger(threshold)
-          ? threshold - 0.5
-          : threshold;
-      const overProbability = countMarket
-        ? poissonAtLeastProbability(threshold, external.projection)
-        : 1 -
-          normalCdf(
-            normalBoundary,
-            external.projection,
-            playerStdDev,
-          );
-      consensusProbability =
-        canonical.direction === "under" ? 1 - overProbability : overProbability;
+      consensusProbability = probabilityFromProjection(external.projection);
     }
 
     let statisticalProbability: number | null = null;
@@ -731,15 +741,60 @@ export async function estimateMarket(
       consensusProbability ??
       statisticalProbability ??
       0.5;
-    if (consensusProbability !== null && statisticalProbability !== null) {
-      const statisticalWeight = clamp(
-        0.30 + (values.length - 4) * 0.05,
-        0.30,
-        0.55,
-      );
+    const statisticalWeight =
+      consensusProbability !== null && statisticalProbability !== null
+        ? clamp(
+            0.30 + (values.length - 4) * 0.05,
+            0.30,
+            0.55,
+          )
+        : null;
+    if (
+      consensusProbability !== null &&
+      statisticalProbability !== null &&
+      statisticalWeight !== null
+    ) {
       probability =
         consensusProbability * (1 - statisticalWeight) +
         statisticalProbability * statisticalWeight;
+    }
+
+    const isLivePlayerMarket = liveGame?.state === "in";
+    let preInjuryProbability: number | null = null;
+    let injuryAdjustedProjection: number | null = null;
+
+    if (
+      !isLivePlayerMarket &&
+      pregameAvailability &&
+      baselineProjection !== null
+    ) {
+      preInjuryProbability = probability;
+
+      const activeProjection =
+        baselineProjection * pregameAvailability.expectedUsageIfActive;
+      injuryAdjustedProjection =
+        activeProjection * pregameAvailability.playProbability;
+
+      const injuryVolatilityMultiplier =
+        1 +
+        (1 - pregameAvailability.finishProbabilityIfActive) * 0.35;
+      const activeProjectionProbability = probabilityFromProjection(
+        activeProjection,
+        playerStdDev * injuryVolatilityMultiplier,
+      );
+      const activeConditionalProbability =
+        statisticalProbability !== null && statisticalWeight !== null
+          ? activeProjectionProbability * (1 - statisticalWeight) +
+            statisticalProbability * statisticalWeight
+          : activeProjectionProbability;
+
+      const noPlayHits =
+        canonical.direction === "under" || canonical.direction === "no"
+          ? 1
+          : 0;
+      probability =
+        pregameAvailability.playProbability * activeConditionalProbability +
+        (1 - pregameAvailability.playProbability) * noPlayHits;
     }
 
     const remainingFraction = remainingGameFraction(liveGame);
@@ -945,6 +1000,14 @@ export async function estimateMarket(
       values.length >= 4 ? clamp(values.length / 40, 0.08, 0.22) : 0;
     const injuryUncertaintyPenalty =
       injuryMultiplier > 0 && injuryMultiplier < 1 ? 0.08 : 0;
+    const pregameInjuryUncertaintyPenalty = pregameAvailability
+      ? clamp(
+          (1 - pregameAvailability.playProbability) * 0.18 +
+            (1 - pregameAvailability.finishProbabilityIfActive) * 0.08,
+          0,
+          0.18,
+        )
+      : 0;
     const blowoutUncertaintyPenalty =
       blowoutMultiplier < 0.95 ? Math.min(0.12, (1 - blowoutMultiplier) * 0.16) : 0;
     const reliability = clamp(
@@ -953,6 +1016,7 @@ export async function estimateMarket(
         dispersionPenalty +
         (liveConditional ? 0.08 : 0) -
         injuryUncertaintyPenalty -
+        pregameInjuryUncertaintyPenalty -
         blowoutUncertaintyPenalty,
       0.30,
       liveConditional ? 0.92 : 0.88,
@@ -1038,6 +1102,25 @@ export async function estimateMarket(
           "x.",
       );
     }
+    if (pregameAvailability) {
+      factors.push(
+        "Pregame injury model: " +
+          (pregameAvailability.status ?? "injury listed") +
+          ". Estimated chance to play " +
+          (pregameAvailability.playProbability * 100).toFixed(0) +
+          "%, chance to finish a near-normal role if active " +
+          (pregameAvailability.finishProbabilityIfActive * 100).toFixed(0) +
+          "%." +
+          (injuryAdjustedProjection !== null &&
+          baselineProjection !== null
+            ? " Full-role projection " +
+              baselineProjection.toFixed(1) +
+              ", availability-adjusted expected production " +
+              injuryAdjustedProjection.toFixed(1) +
+              "."
+            : ""),
+      );
+    }
     if (gameProjection) {
       factors.push(
         `Game context retained: projected scoring environment ${gameProjection.projectedTotal.toFixed(1)} points from current regular-season team data.`,
@@ -1109,6 +1192,32 @@ export async function estimateMarket(
         liveOvertimeProbabilityBps: liveConditional
           ? Math.round(overtimeProbability * 10_000)
           : null,
+        preInjuryProbabilityBps:
+          preInjuryProbability === null
+            ? null
+            : Math.round(preInjuryProbability * 10_000),
+        injuryAdjustedProjection,
+        injuryStatus: pregameAvailability?.status ?? null,
+        injuryDetail: pregameAvailability?.detail ?? null,
+        injuryBodyPart: pregameAvailability?.bodyPart ?? null,
+        injuryPracticeParticipation:
+          pregameAvailability?.practiceParticipation ?? null,
+        injuryPlayProbabilityBps: pregameAvailability
+          ? Math.round(pregameAvailability.playProbability * 10_000)
+          : null,
+        injuryFinishProbabilityBps: pregameAvailability
+          ? Math.round(
+              pregameAvailability.finishProbabilityIfActive * 10_000,
+            )
+          : null,
+        injuryFullRoleProbabilityBps: pregameAvailability
+          ? Math.round(pregameAvailability.fullRoleProbability * 10_000)
+          : null,
+        injuryExpectedUsageIfActiveBps: pregameAvailability
+          ? Math.round(pregameAvailability.expectedUsageIfActive * 10_000)
+          : null,
+        injuryRisk: pregameAvailability?.risk ?? null,
+        injurySources: pregameAvailability?.sources ?? [],
       },
     };
   } catch (error) {
