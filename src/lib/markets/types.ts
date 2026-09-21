@@ -105,6 +105,9 @@ export interface ModelEstimate {
     learnedSourceWeightWeek?: number | null;
     learnedCalibrationSample: number;
     learnedCalibrationActive: boolean;
+    liveCurrentValue?: number | null;
+    liveProjectedFinal?: number | null;
+    liveRemainingFraction?: number | null;
   };
 }
 

@@ -6,7 +6,9 @@ import { getMatchupProjection } from "@/lib/nfl/team-history";
 import { getCurrentSeasonMatchupProjection } from "@/lib/nfl/current-season-team";
 import type { NflScheduleGame } from "@/lib/nfl/schedule-match";
 import type { LiveNflGame } from "@/lib/nfl/live";
+import { getLivePlayerStat } from "@/lib/nfl/live-player-stats";
 import { canPublishPlayerProbability, empiricalPlayerProbability, poissonAtLeastProbability } from "./player-probability";
+import { conditionalLivePlayerProbability } from "./live-player-probability";
 import { getExternalProjectionConsensus } from "./external-projections";
 import { getEspnGameProbability } from "./game-projections";
 import { selfCalibrateProbability } from "./self-learning";
@@ -18,7 +20,7 @@ import type {
   ModelEstimate,
 } from "@/lib/markets/types";
 
-const MODEL_VERSION = "hybrid-consensus-learning-v6";
+const MODEL_VERSION = "hybrid-consensus-learning-v7";
 
 const emptyEvidence: HistoricalEvidence = {
   last5Hits: null,
@@ -483,6 +485,9 @@ async function estimateGameMarket(
       learnedSourceWeightWeek: null,
       learnedCalibrationSample: calibrated.sampleSize,
       learnedCalibrationActive: calibrated.learned,
+      liveCurrentValue: liveStat,
+      liveProjectedFinal: liveConditional?.projectedFinal ?? null,
+      liveRemainingFraction: liveConditional ? remainingFraction : null,
     },
   };
 }
@@ -523,21 +528,44 @@ export async function estimateMarket(
   }
 
   try {
-    const history = await findPublicPlayerHistory(
-      canonical.subject,
-      canonical.statistic,
-    );
+    const [history, external, liveStat] = await Promise.all([
+      findPublicPlayerHistory(canonical.subject, canonical.statistic),
+      getExternalProjectionConsensus(
+        canonical,
+        scheduleGame?.week ?? null,
+        scheduleGame?.season ?? 2026,
+      ),
+      liveGame?.state === "in"
+        ? getLivePlayerStat(
+            liveGame.id,
+            canonical.subject,
+            canonical.statistic,
+          )
+        : Promise.resolve(null),
+    ]);
     const sample = history.values.slice(0, 20);
     const values = sample.map((row) => row.value);
     const threshold = canonical.threshold;
+    const isLivePlayerMarket = liveGame?.state === "in";
 
-    const external = await getExternalProjectionConsensus(
-      canonical,
-      scheduleGame?.week ?? null,
-      scheduleGame?.season ?? 2026,
-    );
+    if (isLivePlayerMarket && liveStat === null) {
+      return {
+        probabilityBps: null,
+        reliabilityBps: 0,
+        version: MODEL_VERSION,
+        evidence: {
+          ...emptyEvidence,
+          sampleSize: values.length,
+          recentValues: values.slice(0, 10),
+        },
+        factors: [
+          "Live player box-score data is unavailable, so Lynerva will not price this in-game player prop from pregame inputs alone.",
+        ],
+      };
+    }
 
     if (
+      liveStat === null &&
       !canPublishPlayerProbability({
         hasExternalProjection: external.projection !== null,
         projectionSourceCount: external.points.length,
@@ -582,6 +610,19 @@ export async function estimateMarket(
       longest_reception: 8.5,
     };
 
+    const historicalMean = values.length
+      ? values.slice(0, 10).reduce((sum, value) => sum + value, 0) /
+        Math.min(values.length, 10)
+      : null;
+    const baselineProjection = external.projection ?? historicalMean;
+    const familyPrior =
+      distributionStdDev[canonical.family] ??
+      Math.max(
+        1,
+        Math.abs(baselineProjection ?? threshold) * 0.35,
+      );
+    const playerStdDev = adaptivePlayerStdDev(familyPrior, values);
+
     let consensusProbability: number | null = null;
     if (external.projection !== null) {
       const countMarket =
@@ -590,10 +631,6 @@ export async function estimateMarket(
         canonical.family === "receiving_touchdowns" ||
         canonical.family === "passing_touchdowns" ||
         canonical.family === "passing_interceptions";
-      const familyPrior =
-        distributionStdDev[canonical.family] ??
-        Math.max(1, Math.abs(external.projection) * 0.35);
-      const playerStdDev = adaptivePlayerStdDev(familyPrior, values);
       // Receptions are integer-valued. For integer Kalshi thresholds, use a
       // continuity-corrected boundary so P(X >= 5) is evaluated at 4.5 rather
       // than pretending receptions are perfectly continuous.
@@ -658,6 +695,40 @@ export async function estimateMarket(
         statisticalProbability * statisticalWeight;
     }
 
+    const remainingFraction = remainingGameFraction(liveGame);
+    const liveConditional =
+      liveStat !== null && baselineProjection !== null
+        ? conditionalLivePlayerProbability({
+            family: canonical.family,
+            direction: canonical.direction,
+            threshold,
+            currentValue: liveStat,
+            baselineFullGameProjection: baselineProjection,
+            fullGameStdDev: playerStdDev,
+            remainingFraction,
+          })
+        : null;
+
+    if (isLivePlayerMarket && liveStat !== null && liveConditional === null) {
+      return {
+        probabilityBps: null,
+        reliabilityBps: 0,
+        version: MODEL_VERSION,
+        evidence: {
+          ...emptyEvidence,
+          sampleSize: values.length,
+          recentValues: values.slice(0, 10),
+        },
+        factors: [
+          "Lynerva has the live player stat but cannot safely condition this prop family yet, so it is hidden instead of using a stale pregame probability.",
+        ],
+      };
+    }
+
+    if (liveConditional) {
+      probability = liveConditional.probability;
+    }
+
     // Keep the model estimate independent from the executable market price.
     // Previously, a one-source player projection was shrunk 28% toward the
     // current market midpoint. A price tick could therefore move both the
@@ -720,11 +791,20 @@ export async function estimateMarket(
       }
     }
 
+    if (liveConditional) {
+      contextAdjustment *= remainingFraction;
+    }
     probability = clamp(probability + contextAdjustment, 0.001, 0.999);
-    const calibrated = await selfCalibrateProbability(
-      probability,
-      canonical.family,
-    );
+    const calibrated = liveConditional
+      ? {
+          probability,
+          sampleSize: 0,
+          learned: false,
+        }
+      : await selfCalibrateProbability(
+          probability,
+          canonical.family,
+        );
     probability = calibrated.probability;
 
     const sourceCount = external.points.length;
@@ -756,12 +836,30 @@ export async function estimateMarket(
     const historyBoost =
       values.length >= 4 ? clamp(values.length / 40, 0.08, 0.22) : 0;
     const reliability = clamp(
-      sourceReliability + historyBoost - dispersionPenalty,
+      sourceReliability +
+        historyBoost -
+        dispersionPenalty +
+        (liveConditional ? 0.08 : 0),
       0.30,
-      0.88,
+      liveConditional ? 0.92 : 0.88,
     );
 
     const factors = [
+      ...(liveConditional && liveStat !== null
+        ? [
+            "Live player state: " +
+              canonical.subject +
+              " has " +
+              liveStat +
+              " " +
+              canonical.statistic.replaceAll("_", " ") +
+              " with " +
+              (remainingFraction * 100).toFixed(0) +
+              "% of regulation remaining. Conditional projected final: " +
+              liveConditional.projectedFinal.toFixed(1) +
+              ".",
+          ]
+        : []),
       external.projection !== null
         ? `Independent projection consensus: ${external.projection.toFixed(1)} from ${sourceCount} source${sourceCount === 1 ? "" : "s"} (${external.points.map((point) => point.source).join(", ")}).`
         : statisticalProbability !== null
