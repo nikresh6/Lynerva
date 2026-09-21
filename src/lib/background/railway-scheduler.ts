@@ -10,9 +10,10 @@ import {
   type SourceLearningActualRow,
 } from "@/lib/model/source-learning";
 import { settleKalshiPredictions } from "@/lib/model/results";
+import { lockEligibleScorecards } from "@/lib/model/scorecard";
 
 const MARKET_INITIAL_DELAY_MS = 15_000;
-const MARKET_INTERVAL_MS = 20 * 60_000;
+const MARKET_INTERVAL_MS = 5 * 60_000;
 const NFLVERSE_INITIAL_DELAY_MS = 90_000;
 const NFLVERSE_INTERVAL_MS = 12 * 60 * 60_000;
 const FINAL_GRADING_INITIAL_DELAY_MS = 60_000;
@@ -48,6 +49,7 @@ async function persistCurrentMarkets() {
   try {
     const payload = await getMarketOpportunities();
     const stored = await persistMarkets(payload);
+    await lockEligibleScorecards();
     logJob("markets", "completed", {
       sourceProjectionsStored: stored.sourceProjectionsStored,
       listingsStored: stored.listingsStored,
@@ -173,11 +175,13 @@ export function startRailwayBackgroundJobs() {
   globalState.__lynervaRailwaySchedulerStarted = true;
 
   console.info(
-    "[lynerva-background] Railway scheduler active: markets every 20m, ESPN final grading every 30m, nflverse backfill every 12h.",
+    "[lynerva-background] Railway scheduler active: markets and scorecard locks every 5m, ESPN final grading every 30m, nflverse backfill every 12h.",
   );
 
-  // Market persistence captures the latest pregame source projections used by
-  // the learning loop. Final ESPN box scores grade completed games quickly,
+  // Market persistence runs every five minutes so each scorecard slate can
+  // freeze against the latest snapshot at its five-minute pre-kickoff cutoff.
+  // Source projections themselves remain first-capture immutable for learning.
+  // Final ESPN box scores grade completed games quickly,
   // while nflverse remains the durable historical backfill. Learned weights
   // remain effective for the following week, so partial Sunday results never
   // leak into later games from the same NFL week.
