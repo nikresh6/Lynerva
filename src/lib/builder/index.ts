@@ -800,6 +800,15 @@ function searchCombinations(
       );
     });
 
+  // Feed the diversity selector a much wider pool than the number of
+  // cards we ultimately display. Capping this map at resultLimit meant the
+  // top few candidates could all be one-leg variants of the same thesis, so
+  // the distinctness pass correctly rejected them and returned only one card.
+  const diversityPoolLimit = Math.min(
+    240,
+    Math.max(resultLimit * 16, 64),
+  );
+
   for (const combination of [best, ...bucketLeaders, ...extras]) {
     const key = combination.legs
       .map(
@@ -810,10 +819,10 @@ function searchCombinations(
       .toSorted()
       .join("|");
     if (!unique.has(key)) unique.set(key, combination);
-    if (unique.size >= resultLimit) break;
+    if (unique.size >= diversityPoolLimit) break;
   }
 
-  if (unique.size < resultLimit) {
+  if (unique.size < diversityPoolLimit) {
     for (const fallback of rankedFallbacks) {
       const key = fallback.legs
         .map(
@@ -824,7 +833,7 @@ function searchCombinations(
         .toSorted()
         .join("|");
       if (!unique.has(key)) unique.set(key, fallback);
-      if (unique.size >= resultLimit) break;
+      if (unique.size >= diversityPoolLimit) break;
     }
   }
 
