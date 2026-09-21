@@ -21,6 +21,8 @@ import {
 } from "./live-player-probability";
 import { getExternalProjectionConsensus } from "./external-projections";
 import { getEspnGameProbability } from "./game-projections";
+import { estimatePlayerStatStdDev } from "./player-variance";
+import { getTeammateContextAdjustment } from "./teammate-context";
 import { selfCalibrateProbability } from "./self-learning";
 import { weatherProbabilityAdjustment } from "./weather-adjustment";
 import { getGameWeather } from "@/lib/weather";
@@ -30,7 +32,7 @@ import type {
   ModelEstimate,
 } from "@/lib/markets/types";
 
-const MODEL_VERSION = "hybrid-consensus-learning-v12";
+const MODEL_VERSION = "hybrid-consensus-learning-v13";
 
 const emptyEvidence: HistoricalEvidence = {
   last5Hits: null,
@@ -70,26 +72,6 @@ function erf(value: number) {
 
 function normalCdf(value: number, mean: number, stdDev: number) {
   return 0.5 * (1 + erf((value - mean) / (stdDev * Math.sqrt(2))));
-}
-
-function sampleStdDev(values: number[]) {
-  if (values.length < 2) return null;
-  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-  const variance =
-    values.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
-    (values.length - 1);
-  return Number.isFinite(variance) ? Math.sqrt(Math.max(variance, 0)) : null;
-}
-
-function adaptivePlayerStdDev(prior: number, values: number[]) {
-  const observed = sampleStdDev(values);
-  if (observed === null || observed <= 0 || values.length < 4) return prior;
-
-  // Start from a family-level volatility prior, then gradually let the
-  // player's own regular-season variance matter as the sample grows.
-  const historyWeight = clamp((values.length - 3) / 18, 0.12, 0.58);
-  const blended = prior * (1 - historyWeight) + observed * historyWeight;
-  return clamp(blended, prior * 0.65, prior * 1.75);
 }
 
 function remainingGameFraction(game: LiveNflGame | null | undefined) {
@@ -657,26 +639,35 @@ export async function estimateMarket(
       };
     }
 
-    const distributionStdDev: Partial<Record<CanonicalMarket["family"], number>> = {
-      passing_yards: 58,
-      rushing_yards: 26,
-      receiving_yards: 29,
-      receptions: 2.25,
-      longest_reception: 8.5,
-    };
-
     const historicalMean = values.length
       ? values.slice(0, 10).reduce((sum, value) => sum + value, 0) /
         Math.min(values.length, 10)
       : null;
-    const baselineProjection = external.projection ?? historicalMean;
-    const familyPrior =
-      distributionStdDev[canonical.family] ??
-      Math.max(
-        1,
-        Math.abs(baselineProjection ?? threshold) * 0.35,
-      );
-    const playerStdDev = adaptivePlayerStdDev(familyPrior, values);
+    const rawBaselineProjection = external.projection ?? historicalMean;
+
+    const teammateContext =
+      !isLivePlayerMarket && external.projection !== null
+        ? await getTeammateContextAdjustment({
+            market: canonical,
+            season: scheduleGame?.season ?? 2026,
+            week: scheduleGame?.week ?? 1,
+            baselineProjection: external.projection,
+            position: external.position,
+            projectionPoints: external.points,
+            sourceWeights: external.sourceWeights,
+            espnGameId: liveGame?.id ?? null,
+          }).catch(() => null)
+        : null;
+    const baselineProjection =
+      teammateContext?.adjustedProjection ?? rawBaselineProjection;
+
+    const varianceEstimate = estimatePlayerStatStdDev({
+      family: canonical.family,
+      projection: baselineProjection ?? threshold,
+      position: external.position,
+      currentSeasonValues: values,
+    });
+    const playerStdDev = varianceEstimate.stdDev;
 
     const countMarket =
       canonical.family === "touchdowns" ||
@@ -704,8 +695,8 @@ export async function estimateMarket(
     };
 
     let consensusProbability: number | null = null;
-    if (external.projection !== null) {
-      consensusProbability = probabilityFromProjection(external.projection);
+    if (external.projection !== null && baselineProjection !== null) {
+      consensusProbability = probabilityFromProjection(baselineProjection);
     }
 
     let statisticalProbability: number | null = null;
@@ -1047,6 +1038,45 @@ export async function estimateMarket(
         ? `Four-game statistical model active using ${values.length} current-season regular-season games.`
         : `Statistical model locked until four current-season games; ${values.length} available now.`,
     ];
+    if (teammateContext) {
+      factors.push(
+        "Teammate availability context moved the working projection from " +
+          (external.projection ?? baselineProjection ?? 0).toFixed(1) +
+          " to " +
+          (baselineProjection ?? 0).toFixed(1) +
+          ". " +
+          teammateContext.notes.join(" "),
+      );
+    }
+    if (
+      ["passing_yards", "rushing_yards", "receiving_yards", "receptions", "longest_reception"].includes(
+        canonical.family,
+      )
+    ) {
+      factors.push(
+        "Volatility model: " +
+          varianceEstimate.priorSeason +
+          " projection/position prior SD " +
+          varianceEstimate.priorStdDev.toFixed(1) +
+          ", current working SD " +
+          varianceEstimate.stdDev.toFixed(1) +
+          (varianceEstimate.observedStdDev !== null
+            ? ", player 2026 observed SD " +
+              varianceEstimate.observedStdDev.toFixed(1) +
+              " with " +
+              (varianceEstimate.playerHistoryWeight * 100).toFixed(0) +
+              "% player-specific weight."
+            : ". Player-specific variance begins after four completed 2026 games."),
+      );
+    }
+    if (pregameAvailability?.newsText) {
+      factors.push(
+        "Late injury reporting from " +
+          pregameAvailability.sources.join(" + ") +
+          " is included in availability: " +
+          pregameAvailability.newsText.slice(0, 260),
+      );
+    }
     if (liveConditional && gameScriptMultiplier !== 1) {
       factors.push(
         "Live game script adjusted remaining opportunity by " +
@@ -1164,7 +1194,15 @@ export async function estimateMarket(
       },
       factors,
       components: {
-        consensusProjection: external.projection,
+        consensusProjection:
+          external.projection !== null ? baselineProjection : external.projection,
+        rawConsensusProjection: external.projection,
+        teammateContextAdjustment: teammateContext?.adjustment ?? null,
+        teammateContextNotes: teammateContext?.notes ?? [],
+        projectionStdDev: playerStdDev,
+        projectionStdDevPrior: varianceEstimate.priorStdDev,
+        projectionStdDevObserved: varianceEstimate.observedStdDev,
+        projectionStdDevPlayerWeight: varianceEstimate.playerHistoryWeight,
         consensusProbabilityBps:
           consensusProbability === null
             ? null
