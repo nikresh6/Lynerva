@@ -5,6 +5,7 @@ import { persistMarkets } from "@/lib/markets/persist";
 import { ingestNflverseSeason } from "@/lib/nfl/nflverse";
 import { getLiveNflGames } from "@/lib/nfl/live";
 import { getEspnPlayerGameStats } from "@/lib/nfl/live-player-stats";
+import { recordEspnFinalPlayerStats } from "@/lib/nfl/history";
 import {
   runSourceLearningFromActuals,
   type SourceLearningActualRow,
@@ -110,6 +111,12 @@ async function gradeFinalEspnGames() {
       const season = game.seasonYear;
       const week = game.week;
       if (season === null || week === null) continue;
+
+      // Feed completed ESPN box scores into the current-season history cache
+      // immediately. The player variance model can then learn after every game
+      // instead of waiting for the slower nflverse durability backfill.
+      recordEspnFinalPlayerStats(season, week, rows);
+
       const actuals = bySeason.get(season) ?? [];
       actuals.push(
         ...rows.map((row) => ({
