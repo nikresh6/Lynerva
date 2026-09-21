@@ -1,6 +1,6 @@
-# Lynerva
+# Huddlemark
 
-Lynerva is an NFL prediction-market research app. It normalizes live contracts from Kalshi, adds public NFL and weather context, estimates fair probabilities without copying market prices, and includes a private position tracker.
+Huddlemark is an NFL prediction-market research app. It normalizes live contracts from Kalshi, adds public NFL and weather context, estimates fair probabilities without copying market prices, and includes a private position tracker.
 
 ## Features
 
@@ -10,6 +10,9 @@ Lynerva is an NFL prediction-market research app. It normalizes live contracts f
 - Contract detail drawer with implied odds, spread, model edge, and freshness
 - Live NFL scoreboard and in-game market view
 - Multi-leg return-range builder
+- Permanent weekly top-ten scorecards with settled results and fixed-stake ROI
+- Source accuracy, freshness, and learned influence by player-stat category
+- Manual realized P/L overrides for straights, parlays, pushes, and cashouts
 - Email/password accounts and a private, server-authorized position tracker
 - Turso/libSQL persistence through Drizzle ORM
 - Current nflverse schedule and weekly player-stat ingestion
@@ -38,7 +41,7 @@ Open [http://localhost:3000](http://localhost:3000). Live provider data is used 
 | `TURSO_DATABASE_URL` | Turso libSQL database URL |
 | `TURSO_AUTH_TOKEN` | Turso database auth token |
 | `RESEND_API_KEY` | Resend key used for password resets |
-| `EMAIL_FROM` | Verified Resend sender, such as `Lynerva <account@example.com>` |
+| `EMAIL_FROM` | Verified Resend sender, such as `Huddlemark <account@example.com>` |
 | `BETTER_AUTH_URL` | Canonical app URL; use the deployed HTTPS URL in production |
 | `BETTER_AUTH_SECRET` | Long random secret used to sign auth data |
 | `CRON_SECRET` | Secret used to authorize scheduled ingestion |
@@ -50,7 +53,7 @@ Do not commit `.env.local`; it is ignored by Git.
 
 The Markets page fetches current Kalshi data directly on the server and refreshes while visible. The Live page refreshes more frequently during active games. Kalshi market reads and ESPN live-game reads bypass the Next.js data cache.
 
-The database is not used as the source of truth for current prices. It stores history, model inputs, predictions, and tracker data. The long-lived Railway process runs Lynerva's background scheduler for market snapshots, projection capture, ESPN final-game grading every 30 minutes, source-weight learning, and a 12-hour nflverse historical backfill. Source accuracy metrics can update after individual games finish, while learned weights only become active for the following NFL week.
+The database is not used as the source of truth for current prices. It stores history, model inputs, predictions, and tracker data. The long-lived Railway process runs Huddlemark's background scheduler for market snapshots, projection capture, Kalshi result settlement, ESPN final-game grading every 30 minutes, source-weight learning, and a 12-hour nflverse historical backfill. Source accuracy metrics can update after individual games finish, while learned weights only become active for the following NFL week.
 
 ## Data and scheduled jobs
 
@@ -86,6 +89,6 @@ npm run build
 
 ## Deployment
 
-Deploy the GitHub `main` branch to Railway, add every runtime variable from `.env.example`, and set `BETTER_AUTH_URL=https://lynerva-production.up.railway.app`. Railway also exposes `RAILWAY_PUBLIC_DOMAIN`, which Lynerva trusts automatically. The production start command applies pending Drizzle migrations before Next.js starts. Public market pages can build without database secrets, but authentication, the private tracker, historical ingestion, and model persistence require `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `BETTER_AUTH_SECRET` at runtime.
+Deploy the GitHub `main` branch to Railway, add every runtime variable from `.env.example`, and set `BETTER_AUTH_URL=https://lynerva-production.up.railway.app` until the Railway domain is renamed. Railway also exposes `RAILWAY_PUBLIC_DOMAIN`, which Huddlemark trusts automatically. The production start command applies pending Drizzle migrations before Next.js starts. Public market pages can build without database secrets, but authentication, the private tracker, historical ingestion, and model persistence require `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `BETTER_AUTH_SECRET` at runtime.
 
-Lynerva is a research tool, not financial advice. It does not place trades or hold funds.
+Huddlemark is a research tool, not financial advice. It does not place trades or hold funds.

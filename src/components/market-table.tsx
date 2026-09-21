@@ -2,6 +2,7 @@
 
 import { ChevronDown, CloudSun, ExternalLink, FlaskConical, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { MarketOpportunity } from "@/lib/markets/types";
 import { cn, formatPercent, relativeTime, titleCase } from "@/lib/utils";
 import { PlatformMark } from "./platform-mark";
@@ -206,7 +207,7 @@ function PastPerformance({ market }: { market: MarketOpportunity }) {
               </span>
             </div>
             <p className="mt-2 text-xs leading-5 text-muted">
-              Lynerva uses only completed 2026 regular-season games for team form. Older seasons, preseason, and playoffs are excluded.
+              Huddlemark uses only completed 2026 regular-season games for team form. Older seasons, preseason, and playoffs are excluded.
             </p>
           </>
         ) : (
@@ -281,14 +282,12 @@ interface WeatherPayload {
 
 function WeatherCard({ market }: { market: MarketOpportunity }) {
   const [weather, setWeather] = useState<WeatherPayload | null>(null);
-  const [loading, setLoading] = useState(true);
   const matchup = market.canonical?.matchup;
+  const canLoad = Boolean(matchup && market.canonical);
+  const [loading, setLoading] = useState(canLoad);
 
   useEffect(() => {
-    if (!matchup || !market.canonical) {
-      setLoading(false);
-      return;
-    }
+    if (!matchup || !market.canonical) return;
 
     const controller = new AbortController();
     const params = new URLSearchParams({
@@ -351,6 +350,125 @@ function WeatherCard({ market }: { market: MarketOpportunity }) {
   );
 }
 
+function LiveCheckpoint({ market }: { market: MarketOpportunity }) {
+  const components = market.model.components;
+  const current = components?.liveCurrentValue ?? null;
+  const projected = components?.liveProjectedFinal ?? null;
+  const remaining = components?.liveRemainingFraction ?? null;
+  const threshold = market.canonical?.threshold ?? null;
+  const subject = market.canonical?.subject ?? "The player";
+  const pick = displayPickSide(market);
+
+  if (!market.isLive) return null;
+
+  if (current === null || threshold === null) {
+    return (
+      <section className="rounded-2xl border border-warning/25 bg-warning-bg p-4">
+        <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-warning">
+          Live checkpoint
+        </p>
+        <h3 className="mt-2 text-sm font-semibold">
+          Current player stat unavailable
+        </h3>
+        <p className="mt-2 text-xs leading-5 text-muted">
+          Huddlemark will not explain this pick with a stale pregame stat.
+          Reopen the card after the next live-data refresh.
+        </p>
+      </section>
+    );
+  }
+
+  const over = pick === "Over" || pick === "Yes";
+  const gap = threshold - current;
+  const projectedMargin = projected === null ? null : projected - threshold;
+  const gameComplete =
+    remaining === null ? null : Math.round((1 - remaining) * 100);
+  const progress = Math.max(
+    0,
+    Math.min(100, threshold === 0 ? 100 : (current / threshold) * 100),
+  );
+  const neededText = over
+    ? gap <= 0
+      ? "Already past the line"
+      : gap.toFixed(1) + " more"
+    : gap <= 0
+      ? "Already past the line"
+      : "Fewer than " + gap.toFixed(1) + " more";
+  const projectionExplanation =
+    projectedMargin === null
+      ? "The model is using the current " +
+        current.toFixed(1) +
+        " plus the time left, but a stable final projection is not ready yet."
+      : "Based on the current pace and time left, Huddlemark projects " +
+        projected!.toFixed(1) +
+        "—" +
+        Math.abs(projectedMargin).toFixed(1) +
+        (projectedMargin >= 0 ? " above " : " below ") +
+        "the line. That live path is why the model currently prefers " +
+        pick.toLowerCase() +
+        ".";
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-accent/25 bg-background">
+      <div className="border-b bg-accent-bg/55 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-accent">
+              Live checkpoint
+            </p>
+            <h3 className="mt-1 text-base font-semibold">
+              {subject} has {current.toFixed(1)} right now.
+            </h3>
+          </div>
+          <span className="rounded-full border bg-surface px-2.5 py-1 text-[10px] font-semibold">
+            {gameComplete === null
+              ? "Game in progress"
+              : gameComplete + "% complete"}
+          </span>
+        </div>
+        <div className="mt-4 h-2 overflow-hidden rounded-full bg-surface">
+          <div
+            className="h-full rounded-full bg-accent transition-[width] duration-300"
+            style={{ width: String(progress) + "%" }}
+          />
+        </div>
+        <div className="mt-2 flex justify-between text-[9px] text-faint">
+          <span>Current {current.toFixed(1)}</span>
+          <span>Line {threshold}</span>
+        </div>
+      </div>
+      <div className="grid gap-3 p-4 sm:grid-cols-3">
+        <div>
+          <p className="text-[9px] uppercase tracking-[0.08em] text-faint">
+            What is needed
+          </p>
+          <p className="mt-1 text-sm font-semibold">{neededText}</p>
+        </div>
+        <div>
+          <p className="text-[9px] uppercase tracking-[0.08em] text-faint">
+            Projected finish
+          </p>
+          <p className="mt-1 text-sm font-semibold">
+            {projected === null ? "Still calculating" : projected.toFixed(1)}
+          </p>
+        </div>
+        <div>
+          <p className="text-[9px] uppercase tracking-[0.08em] text-faint">
+            Model vs market
+          </p>
+          <p className="mt-1 text-sm font-semibold text-positive">
+            {formatPercent(market.recommendedProbabilityBps)} vs{" "}
+            {formatPercent(market.executablePriceBps)}
+          </p>
+        </div>
+      </div>
+      <p className="border-t px-4 py-3 text-[11px] leading-5 text-muted">
+        {projectionExplanation}
+      </p>
+    </section>
+  );
+}
+
 function pickFacingBps(
   bps: number | null | undefined,
   side: MarketOpportunity["recommendedSide"],
@@ -406,7 +524,7 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
               <div className="text-[9px] font-semibold uppercase tracking-[0.1em] text-accent">
                 Win model
               </div>
-              <h3 className="mt-1 text-sm font-semibold">How Lynerva sees this game</h3>
+              <h3 className="mt-1 text-sm font-semibold">How Huddlemark sees this game</h3>
             </div>
             <div className="rounded-full border bg-surface px-2.5 py-1 text-[9px] font-medium text-muted">
               {gameSources.length} signal{gameSources.length === 1 ? "" : "s"}
@@ -425,7 +543,7 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
               </div>
             </div>
             <div className="rounded-xl border border-positive/25 bg-positive-bg/45 p-3">
-              <div className="text-[9px] uppercase tracking-[0.08em] text-positive">Lynerva</div>
+              <div className="text-[9px] uppercase tracking-[0.08em] text-positive">Huddlemark</div>
               <div className="mt-1 text-xl font-bold tabular text-positive">{formatPercent(lynervaChance)}</div>
               <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-background">
                 <div
@@ -494,7 +612,7 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
 
   return (
     <section className="rounded-2xl border bg-background p-4">
-      <h3 className="text-sm font-semibold">How Lynerva got here</h3>
+      <h3 className="text-sm font-semibold">How Huddlemark got here</h3>
 
       <div className="mt-4 space-y-3">
         <div className="rounded-xl border bg-surface p-3.5">
@@ -502,7 +620,7 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
           {components?.consensusProjection === null ||
           components?.consensusProjection === undefined ? (
             <p className="mt-1.5 text-[11px] leading-5 text-muted">
-              Independent weekly projections are unavailable for this stat. Lynerva only publishes the pick when separate current-season evidence is strong enough to support it.
+              Independent weekly projections are unavailable for this stat. Huddlemark only publishes the pick when separate current-season evidence is strong enough to support it.
             </p>
           ) : (
             <>
@@ -551,7 +669,7 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
           </div>
           <p className="mt-1 text-[11px] leading-5 text-muted">
             {statisticalChance === null
-              ? "Lynerva waits for four current-season games before using player history."
+              ? "Huddlemark waits for four current-season games before using player history."
               : "Current-season player history is now part of the estimate."}
           </p>
         </div>
@@ -569,6 +687,7 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
 }
 
 export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose: () => void }) {
+  const router = useRouter();
   const title = displayMarketTitle(market);
   const subject = market.canonical?.subject ?? "";
   const visuals = usePlayerVisuals(subject ? [subject] : []);
@@ -610,7 +729,7 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
         }),
       );
     } catch {}
-    window.location.href = "/tracker";
+    router.push("/tracker");
   };
 
   return (
@@ -655,7 +774,7 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
                 ) : null}
                 {market.scoreMovement.probabilityDeltaBps !== null ? (
                   <span>
-                    Lynerva probability {market.scoreMovement.probabilityDeltaBps > 0 ? "+" : ""}
+                    Huddlemark probability {market.scoreMovement.probabilityDeltaBps > 0 ? "+" : ""}
                     {(market.scoreMovement.probabilityDeltaBps / 100).toFixed(1)}pp
                   </span>
                 ) : null}
@@ -669,11 +788,13 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
             </section>
           ) : null}
 
+          <LiveCheckpoint market={market} />
+
           <section className="rounded-2xl border bg-background p-4">
             <h3 className="text-sm font-semibold">At a glance</h3>
             <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-5">
               <Metric label="Market chance" value={formatPercent(market.executablePriceBps)} />
-              <Metric label="Lynerva chance" value={formatPercent(market.recommendedProbabilityBps)} emphasis />
+              <Metric label="Model chance" value={formatPercent(market.recommendedProbabilityBps)} emphasis />
               <Metric
                 label="Edge"
                 value={edgeBps === null ? "—" : `${edgeBps >= 0 ? "+" : ""}${(edgeBps / 100).toFixed(1)}pp`}
@@ -689,7 +810,7 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
 
           <section className="overflow-hidden rounded-2xl border bg-background">
             <div className="border-b bg-[linear-gradient(135deg,var(--accent-bg),transparent_70%)] p-4">
-              <h3 className="text-sm font-semibold">Why Lynerva likes it</h3>
+              <h3 className="text-sm font-semibold">Why Huddlemark likes it</h3>
               {edgeBps !== null ? (
                 <div className="mt-3 flex flex-wrap items-end gap-x-3 gap-y-1">
                   <span className="text-2xl font-bold tabular text-positive">
@@ -706,7 +827,7 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
                 <strong className="text-foreground">Market chance</strong> is the
                 probability implied by the current price:{" "}
                 <strong className="text-foreground">{formatPercent(market.executablePriceBps)}</strong>.
-                Lynerva estimates this side at{" "}
+                Huddlemark estimates this side at{" "}
                 <strong className="text-foreground">{formatPercent(market.recommendedProbabilityBps)}</strong>.
               </p>
               {edgeBps !== null ? (
@@ -715,10 +836,10 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
                   <strong className="text-foreground">
                     {Math.abs(edgeBps / 100).toFixed(1)} percentage points
                   </strong>
-                  . "pp" means percentage points, not percent.{" "}
+                  . &ldquo;pp&rdquo; means percentage points, not percent.{" "}
                   {relativeEdge !== null && relativeEdge > 0
-                    ? `Relative to the market-implied chance, Lynerva's estimate is about ${(relativeEdge * 100).toFixed(0)}% higher.`
-                    : "A negative edge means the current price is richer than Lynerva's estimate."}
+                    ? `Relative to the market-implied chance, Huddlemark's estimate is about ${(relativeEdge * 100).toFixed(0)}% higher.`
+                    : "A negative edge means the current price is richer than Huddlemark's estimate."}
                 </p>
               ) : null}
               {count ? (
@@ -742,14 +863,14 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
 
           <ModelInputs market={market} />
           <PastPerformance market={market} />
-          <WeatherCard market={market} />
+          <WeatherCard key={market.platformMarketId} market={market} />
 
           <section className="rounded-2xl border bg-background p-4">
             <h3 className="text-sm font-semibold">Bet details</h3>
             <div className="mt-3 grid grid-cols-2 gap-4 text-xs">
               <div><div className="text-faint">Platform</div><div className="mt-1 font-medium capitalize">{market.platform}</div></div>
               <div><div className="text-faint">Updated</div><div className="mt-1 font-medium">{relativeTime(market.updatedAt)}</div></div>
-              <div><div className="text-faint">Lynerva score</div><div className="mt-1 font-medium">{market.lynervaScore ?? "—"} / 100</div></div>
+              <div><div className="text-faint">Pick score</div><div className="mt-1 font-medium">{market.lynervaScore ?? "—"} / 100</div></div>
               <div><div className="text-faint">Games in model</div><div className="mt-1 font-medium">{market.model.evidence.sampleSize || "—"}</div></div>
             </div>
           </section>
@@ -762,7 +883,7 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
           </div>
 
           <p className="text-[10px] leading-4 text-faint">
-            Lynerva Score is a ranking tool, not the chance that the bet wins. Weather is loaded separately so it does not slow the main market feed.
+            Pick Score ranks opportunities; it is not the chance that the bet wins. Weather loads separately so it does not slow the main board.
           </p>
         </div>
       </aside>
@@ -779,6 +900,7 @@ export function MarketTable({
 }) {
   const [selected, setSelected] = useState<MarketOpportunity | null>(null);
   const [alternateGroup, setAlternateGroup] = useState<{ key: string; lines: MarketOpportunity[] } | null>(null);
+  const [visibleCount, setVisibleCount] = useState(12);
 
   const groups = useMemo(() => {
     const sorted = markets.toSorted((a, b) => (b.lynervaScore ?? -1) - (a.lynervaScore ?? -1));
@@ -806,11 +928,13 @@ export function MarketTable({
   const playerNames = useMemo(
     () =>
       groups
+        .slice(0, visibleCount)
         .map(({ best }) => best.canonical?.subject ?? "")
         .filter(Boolean),
-    [groups],
+    [groups, visibleCount],
   );
   const visuals = usePlayerVisuals(playerNames);
+  const visibleGroups = groups.slice(0, visibleCount);
 
   if (!groups.length) {
     return (
@@ -824,7 +948,7 @@ export function MarketTable({
   return (
     <>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {groups.map(({ key, lines, best: market }, index) => {
+        {visibleGroups.map(({ key, lines, best: market }, index) => {
           const rate = hitRate(market);
           const profit = profitOn100(market);
           const alternates = lines.slice(1);
@@ -878,7 +1002,7 @@ export function MarketTable({
 
                 <div className="metric-strip mt-4 grid grid-cols-2 gap-x-5 gap-y-3 rounded-xl border border-transparent bg-background p-3.5 sm:grid-cols-4 sm:gap-3">
                   <Metric label="Market" value={formatPercent(market.executablePriceBps)} />
-                  <Metric label="Lynerva" value={formatPercent(market.recommendedProbabilityBps)} emphasis />
+                  <Metric label="Model" value={formatPercent(market.recommendedProbabilityBps)} emphasis />
                   <Metric label="Hit rate" value={rate === null ? "—" : `${rate}%`} />
                   <Metric label="$100 profit" value={profit === null ? "—" : `$${profit.toFixed(0)}`} />
                 </div>
@@ -909,6 +1033,21 @@ export function MarketTable({
         })}
       </div>
 
+      {visibleGroups.length < groups.length ? (
+        <div className="mt-5 flex flex-col items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setVisibleCount((count) => Math.min(count + 12, groups.length))}
+            className="h-11 rounded-xl border bg-surface px-5 text-xs font-semibold transition-colors hover:border-border-strong hover:bg-surface-raised"
+          >
+            Show 12 more
+          </button>
+          <span className="text-[10px] text-faint">
+            Showing {visibleGroups.length} of {groups.length} ranked picks
+          </span>
+        </div>
+      ) : null}
+
       {alternateGroup ? (
         <div className="fixed inset-0 z-[65] grid place-items-center p-4 sm:p-6" role="dialog" aria-modal="true" aria-label="Alternate lines">
           <button type="button" className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-[2px]" onClick={() => setAlternateGroup(null)} aria-label="Close alternate lines" />
@@ -936,7 +1075,7 @@ export function MarketTable({
                         {alt.canonical?.threshold ?? displayMarketTitle(alt)}
                       </div>
                       <div className="mt-1 text-[11px] text-muted">
-                        {formatPercent(alt.executablePriceBps)} market · <span className="font-medium text-positive">{formatPercent(alt.recommendedProbabilityBps)} Lynerva</span>
+                        {formatPercent(alt.executablePriceBps)} market · <span className="font-medium text-positive">{formatPercent(alt.recommendedProbabilityBps)} model</span>
                       </div>
                       <div className="mt-2 text-[11px] text-muted">
                         $100 profit <span className="font-semibold tabular text-foreground">{altProfit === null ? "—" : `${altProfit.toFixed(0)}`}</span>

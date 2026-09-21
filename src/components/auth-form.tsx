@@ -69,7 +69,7 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
     <div className="premium-panel mx-auto w-full max-w-sm rounded-[24px] p-5 sm:mt-8 sm:p-7">
       <div className="mb-7">
         <p className="page-kicker text-[10px] font-semibold tracking-[0.14em]">
-          LYNERVA ACCESS
+          HUDDLEMARK ACCESS
         </p>
         <h1 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">
           {mode === "sign-in" ? "Sign in" : "Create an account"}

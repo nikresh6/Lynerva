@@ -85,12 +85,12 @@ function createAuth() {
 
   if (process.env.NODE_ENV === "production" && !secret) {
     throw new Error(
-      "BETTER_AUTH_SECRET is required for Lynerva account authentication.",
+      "BETTER_AUTH_SECRET is required for Huddlemark account authentication.",
     );
   }
 
   return betterAuth({
-    appName: "Lynerva",
+    appName: "Huddlemark",
     baseURL,
     trustedOrigins: [...new Set(trustedOrigins)],
     secret,
@@ -113,9 +113,9 @@ function createAuth() {
         const { error } = await resend.emails.send({
           from: process.env.EMAIL_FROM,
           to: user.email,
-          subject: "Reset your Lynerva password",
-          text: `Reset your Lynerva password: ${url}\n\nThis link expires in one hour. If you did not request it, you can ignore this email.`,
-          html: `<p>Reset your Lynerva password using the link below.</p><p><a href="${url}">Reset password</a></p><p>This link expires in one hour. If you did not request it, you can ignore this email.</p>`,
+          subject: "Reset your Huddlemark password",
+          text: `Reset your Huddlemark password: ${url}\n\nThis link expires in one hour. If you did not request it, you can ignore this email.`,
+          html: `<p>Reset your Huddlemark password using the link below.</p><p><a href="${url}">Reset password</a></p><p>This link expires in one hour. If you did not request it, you can ignore this email.</p>`,
         });
 
         if (error) throw new Error(`Resend failed: ${error.message}`);

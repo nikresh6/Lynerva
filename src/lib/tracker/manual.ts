@@ -12,6 +12,12 @@ export interface ManualTrackerBet {
   platform: "kalshi";
   stake: number;
   payout: number;
+  /**
+   * The exact realized profit/loss entered by the user. This intentionally
+   * lives beside (rather than overwriting) the calculated payout so a manual
+   * correction can always be audited or reset.
+   */
+  manualProfitOverride: number | null;
   status: ManualTrackerStatus;
   marketId: string | null;
   side: "yes" | "no" | null;
@@ -110,6 +116,7 @@ export function normalizeManualTrackerBet(
     platform: "kalshi",
     stake,
     payout,
+    manualProfitOverride: nullableNumber(raw.manualProfitOverride),
     status,
     marketId: typeof raw.marketId === "string" && raw.marketId ? raw.marketId : null,
     side: raw.side === "yes" || raw.side === "no" ? raw.side : null,
@@ -130,4 +137,16 @@ export function normalizeManualTrackerBet(
           ? 1 + toWin / stake
           : null,
   };
+}
+
+export function calculatedManualTrackerProfit(bet: ManualTrackerBet) {
+  if (bet.status === "open") return null;
+  if (bet.status === "loss") return -bet.stake;
+  if (bet.status === "push") return 0;
+  return bet.payout - bet.stake;
+}
+
+export function manualTrackerProfit(bet: ManualTrackerBet) {
+  if (bet.status === "open") return null;
+  return bet.manualProfitOverride ?? calculatedManualTrackerProfit(bet);
 }

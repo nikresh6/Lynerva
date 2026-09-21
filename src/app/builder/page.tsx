@@ -8,8 +8,8 @@ export default function BuilderPage() {
   return (
     <>
       <PageHeading
-        title="Builder"
-        description="Build one parlay, or give Lynerva an amount and target payout to split across straight bets and parlays while controlling concentration and risk."
+        title="Build a ticket without the guesswork."
+        description="Choose one parlay or a diversified bankroll plan. Huddlemark explains what it selected, the tradeoffs, and why a setup was rejected."
       />
       <BuilderWorkbench />
     </>

@@ -11,7 +11,7 @@ export interface TeamRosterPlayer extends PlayerVisual {
   footballName: string | null;
 }
 
-interface RosterPlayer extends TeamRosterPlayer {}
+type RosterPlayer = TeamRosterPlayer;
 
 let rosterPromise: Promise<Map<string, RosterPlayer>> | null = null;
 

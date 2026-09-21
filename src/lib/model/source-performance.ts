@@ -17,7 +17,7 @@ export const PROJECTION_SOURCE_INFO = {
     href: "https://www.fantasypros.com/nfl/projections/",
     logo: "https://www.fantasypros.com/favicon.ico",
     access: "Free public weekly tables",
-    note: "Weekly player stat projections. Lynerva rejects the page unless it explicitly matches the requested NFL week.",
+    note: "Weekly player stat projections. Huddlemark rejects the page unless it explicitly matches the requested NFL week.",
   },
   numberfire: {
     name: "numberFire",
@@ -33,7 +33,7 @@ export const PROJECTION_SOURCE_INFO = {
     href: "https://fantasy.espn.com/football/",
     logo: "https://a.espncdn.com/i/espn/misc_logos/500/espn.png",
     access: "No paid key or account used",
-    note: "Lynerva accepts only the exact requested scoring period from ESPN's public fantasy feed.",
+    note: "Huddlemark accepts only the exact requested scoring period from ESPN's public fantasy feed.",
   },
   cbs: {
     name: "CBS Sports",
@@ -57,7 +57,7 @@ export const PROJECTION_SOURCE_INFO = {
     href: "https://sleeper.com/",
     logo: "https://sleeper.com/favicon.ico",
     access: "No paid key or account used",
-    note: "Weekly stat lines from Sleeper's public projection endpoint. Lynerva ignores bye/filler rows and requires a real game plus a published projection.",
+    note: "Weekly stat lines from Sleeper's public projection endpoint. Huddlemark ignores bye/filler rows and requires a real game plus a published projection.",
   },
 } as const;
 
@@ -92,7 +92,13 @@ export async function getProjectionSourcePerformance(season = 2026) {
     await ensureSourceLearningSchema();
     const db = getDb();
 
-    const [gradeRows, weightRows, latestProjectionWeekRows] = await Promise.all([
+    const [
+      gradeRows,
+      weightRows,
+      latestProjectionWeekRows,
+      latestProjectionRows,
+      latestGradeRows,
+    ] = await Promise.all([
       db
         .select({
           source: sourceProjections.source,
@@ -123,6 +129,26 @@ export async function getProjectionSourcePerformance(season = 2026) {
         .select({ week: max(sourceProjections.week) })
         .from(sourceProjections)
         .where(eq(sourceProjections.season, season)),
+      db
+        .select({
+          source: sourceProjections.source,
+          capturedAt: max(sourceProjections.capturedAt),
+        })
+        .from(sourceProjections)
+        .where(eq(sourceProjections.season, season))
+        .groupBy(sourceProjections.source),
+      db
+        .select({
+          source: sourceProjections.source,
+          gradedAt: max(sourceProjectionGrades.gradedAt),
+        })
+        .from(sourceProjectionGrades)
+        .innerJoin(
+          sourceProjections,
+          eq(sourceProjectionGrades.projectionId, sourceProjections.id),
+        )
+        .where(eq(sourceProjections.season, season))
+        .groupBy(sourceProjections.source),
     ]);
 
     const coverageWeek = latestProjectionWeekRows[0]?.week ?? null;
@@ -144,6 +170,26 @@ export async function getProjectionSourcePerformance(season = 2026) {
             .groupBy(sourceProjections.source);
     const coverageBySource = new Map(
       coverageRows.map((row) => [row.source, Number(row.count)]),
+    );
+    const projectionUpdatedBySource = new Map(
+      latestProjectionRows.map((row) => [
+        row.source,
+        row.capturedAt instanceof Date
+          ? row.capturedAt.toISOString()
+          : row.capturedAt
+            ? new Date(row.capturedAt).toISOString()
+            : null,
+      ]),
+    );
+    const gradeUpdatedBySource = new Map(
+      latestGradeRows.map((row) => [
+        row.source,
+        row.gradedAt instanceof Date
+          ? row.gradedAt.toISOString()
+          : row.gradedAt
+            ? new Date(row.gradedAt).toISOString()
+            : null,
+      ]),
     );
 
     const latestWeights = new Map<
@@ -275,6 +321,8 @@ export async function getProjectionSourcePerformance(season = 2026) {
         id: source,
         ...PROJECTION_SOURCE_INFO[source],
         coverageCount: coverageBySource.get(source) ?? 0,
+        lastCapturedAt: projectionUpdatedBySource.get(source) ?? null,
+        lastGradedAt: gradeUpdatedBySource.get(source) ?? null,
       })),
     };
   } catch (error) {
@@ -287,6 +335,8 @@ export async function getProjectionSourcePerformance(season = 2026) {
         id: source,
         ...PROJECTION_SOURCE_INFO[source],
         coverageCount: 0,
+        lastCapturedAt: null as string | null,
+        lastGradedAt: null as string | null,
       })),
     };
   }

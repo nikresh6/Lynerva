@@ -8,23 +8,28 @@ import {
   Database,
   Layers3,
   Radio,
+  Trophy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AccountMenu } from "./account-menu";
 import { ThemeToggle } from "./theme-toggle";
 import {
-  DesktopScoreTicker,
-  MobileScoreTicker,
+  ScoreTicker,
   useTickerGames,
 } from "./score-ticker";
 
-const links = [
-  ["Markets", "/", BarChart3],
+const desktopLinks = [
+  ["Picks", "/", BarChart3],
   ["Live", "/live", Radio],
   ["Builder", "/builder", Layers3],
+  ["Results", "/results", Trophy],
   ["Sources", "/sources", Database],
   ["Tracker", "/tracker", Activity],
 ] as const;
+
+const mobileLinks = desktopLinks.filter(
+  ([, href]) => href !== "/sources",
+);
 
 export function SiteHeader() {
   const pathname = usePathname();
@@ -34,7 +39,7 @@ export function SiteHeader() {
     <>
       <header className="sticky top-0 z-40 border-b bg-[var(--header)] backdrop-blur-2xl">
         <div className="mx-auto max-w-[1480px] px-4 sm:px-6 lg:px-8">
-          <div className="flex h-14 items-center gap-4">
+          <div className="flex min-h-14 flex-wrap items-center gap-x-4">
           <Link
             href="/"
             className="group inline-flex items-center gap-2.5 text-[15px] font-semibold tracking-[0.14em]"
@@ -43,14 +48,14 @@ export function SiteHeader() {
               <span className="absolute inset-[5px] rotate-45 rounded-[3px] border border-accent/45" />
               <span className="size-1.5 rounded-full bg-accent shadow-[0_0_10px_var(--accent-glow)]" />
             </span>
-            LYNERVA
+            HUDDLEMARK
           </Link>
 
           <nav
             className="hidden shrink-0 items-center gap-1 sm:flex"
             aria-label="Primary navigation"
           >
-            {links.map(([label, href]) => {
+            {desktopLinks.map(([label, href]) => {
               const active = pathname === href;
               return (
                 <Link
@@ -73,15 +78,23 @@ export function SiteHeader() {
             })}
           </nav>
 
-          <DesktopScoreTicker games={tickerGames} />
+          <ScoreTicker games={tickerGames} />
 
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            <Link
+              href="/sources"
+              aria-label="Projection sources"
+              className={cn(
+                "grid size-9 place-items-center rounded-lg text-muted transition-colors hover:bg-surface hover:text-foreground sm:hidden",
+                pathname === "/sources" && "bg-accent-bg text-accent",
+              )}
+            >
+              <Database className="size-4" />
+            </Link>
             <ThemeToggle />
             <AccountMenu />
           </div>
           </div>
-
-          <MobileScoreTicker games={tickerGames} />
         </div>
       </header>
 
@@ -89,7 +102,7 @@ export function SiteHeader() {
         className="mobile-nav-shell fixed inset-x-0 bottom-0 z-50 grid min-h-[64px] grid-cols-5 border-t px-2 pt-1.5 pb-[max(6px,env(safe-area-inset-bottom))] sm:hidden"
         aria-label="Mobile navigation"
       >
-        {links.map(([label, href, Icon]) => {
+        {mobileLinks.map(([label, href, Icon]) => {
           const active = pathname === href;
           return (
             <Link

@@ -5,8 +5,8 @@ export default function MarketsPage() {
   return (
     <>
       <PageHeading
-        title="Today’s top player props"
-        description="Lynerva ranks current NFL player props using independent projection consensus, live game context, weather, market pricing, and, after four games, a separate current-season statistical model."
+        title="Today’s NFL board, ranked."
+        description="Start with the strongest model-versus-market disagreements. Every card separates the market price from Huddlemark’s estimate and opens into a plain-English explanation."
       />
       <MarketExplorer
         emptyMessage="No positive-edge NFL player props are available in the current snapshot."

@@ -1,6 +1,5 @@
 import "server-only";
 
-import { createHash } from "node:crypto";
 import { and, desc, eq, isNull, lte, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
@@ -153,11 +152,15 @@ export function ensureSourceLearningSchema() {
   return schemaPromise;
 }
 
-function stableId(prefix: string, value: string) {
-  return `${prefix}_${createHash("sha256")
-    .update(value)
-    .digest("hex")
-    .slice(0, 24)}`;
+async function stableId(prefix: string, value: string) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  const hex = [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return `${prefix}_${hex.slice(0, 24)}`;
 }
 
 export async function getLearnedSourceWeights(
@@ -501,7 +504,7 @@ async function recomputeSourceWeights(season: number) {
     const weights = calculateSourceWeights(samples);
 
     for (const weight of weights) {
-      const id = stableId(
+      const id = await stableId(
         "source_weight",
         `${season}:${effectiveWeek}:${statistic}:${weight.source}`,
       );

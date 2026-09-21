@@ -450,7 +450,7 @@ export function BuilderWorkbench() {
                   ? "Scanning the full Kalshi board"
                   : "Building ranked parlays"}
             </span>
-            <span className="tabular">LYNERVA</span>
+            <span className="tabular">HUDDLEMARK</span>
           </div>
           <div className="mt-2 h-1 overflow-hidden rounded-full bg-surface">
             <div className="builder-progress h-full rounded-full bg-accent" />
@@ -506,14 +506,15 @@ export function BuilderWorkbench() {
         </button>
       </section>
 
-      <div className={builderView === "parlay" ? "space-y-5" : "hidden"}>
+      {builderView === "parlay" ? (
+      <div className="space-y-5">
       <section className="premium-panel overflow-hidden rounded-2xl">
         <div className="border-b bg-[linear-gradient(135deg,var(--surface-raised),var(--surface))] px-4 py-4 sm:px-5">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-semibold">Build setup</p>
               <p className="mt-1 text-[11px] leading-5 text-muted">
-                Pick the structure first, then tell Lynerva what kind of build
+                Pick the structure first, then tell Huddlemark what kind of build
                 you want.
               </p>
             </div>
@@ -541,7 +542,7 @@ export function BuilderWorkbench() {
                   : "Show me the best parlays of the week"}
               </span>
               <span className="mt-0.5 block text-[10px] leading-4 text-muted">
-                No filters. Lynerva searches every eligible pregame market and
+                No filters. Huddlemark searches every eligible pregame market and
                 ranks the strongest combinations by parlay score.
               </span>
             </span>
@@ -753,7 +754,7 @@ export function BuilderWorkbench() {
 
         <div className="flex flex-col gap-2 border-t bg-surface-raised/45 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
           <p className="text-[10px] leading-4 text-muted">
-            Adjust anything above first. Lynerva only runs the optimizer when
+            Adjust anything above first. Huddlemark only runs the optimizer when
             you click Build, so changing settings stays instant.
           </p>
           <button
@@ -815,7 +816,7 @@ export function BuilderWorkbench() {
                       {rankingMode ? "Best parlays this week" : "Top matching parlays"}
                     </p>
                     <p className="mt-0.5 text-[9px] text-muted">
-                      Ranked by Lynerva parlay score. Tap one to inspect every leg.
+                      Ranked by combination quality. Tap one to inspect every leg.
                     </p>
                   </div>
                   <span className="rounded-full border bg-surface px-2.5 py-1 text-[9px] font-semibold text-muted">
@@ -1075,15 +1076,17 @@ export function BuilderWorkbench() {
         )}
       </section>
       </div>
+      ) : null}
 
-      <div className={builderView === "portfolio" ? "space-y-5" : "hidden"}>
+      {builderView === "portfolio" ? (
+      <div className="space-y-5">
         <section className="premium-panel overflow-hidden rounded-2xl">
           <div className="border-b bg-[linear-gradient(135deg,var(--surface-raised),var(--surface))] px-4 py-4 sm:px-5">
             <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm font-semibold">Bankroll plan</p>
                 <p className="mt-1 text-[11px] leading-5 text-muted">
-                  Tell Lynerva how much you want to put in and the payout you
+                  Tell Huddlemark how much you want to put in and the payout you
                   want to aim for. It spreads the money across straight bets and
                   model-backed parlays instead of forcing everything into one ticket.
                 </p>
@@ -1146,7 +1149,7 @@ export function BuilderWorkbench() {
                 </div>
                 <p className="mt-1.5 text-[10px] leading-4 text-faint">
                   This is an all-win payout target, not a guaranteed return.
-                  Lynerva moves more capital toward parlays only when a higher
+                  Huddlemark moves more capital toward parlays only when a higher
                   target requires it.
                 </p>
               </div>
@@ -1206,7 +1209,7 @@ export function BuilderWorkbench() {
                   current={mode}
                   onClick={setMode}
                   title="Either"
-                  description="Let Lynerva compare both parlay structures."
+                  description="Let Huddlemark compare both parlay structures."
                   icon={<Sparkles className="size-3.5" />}
                 />
               </div>
@@ -1287,7 +1290,7 @@ export function BuilderWorkbench() {
               </div>
               <p className="font-medium">Building your plan...</p>
               <p className="mt-1 text-xs text-muted">
-                Lynerva needs the current market snapshot first.
+                Huddlemark needs the current market snapshot first.
               </p>
             </div>
           ) : !portfolioRequest ? (
@@ -1309,7 +1312,7 @@ export function BuilderWorkbench() {
               <p className="font-medium">No diversified plan fits this target</p>
               <p className="mx-auto mt-1 max-w-lg text-xs leading-5 text-muted">
                 Try a lower wanted payout, allow more parlay legs, use either
-                parlay type, or raise the risk limit. Lynerva will not fill a
+                parlay type, or raise the risk limit. Huddlemark will not fill a
                 target with a bad one-leg longshot just to make the math work.
               </p>
             </div>
@@ -1521,6 +1524,7 @@ export function BuilderWorkbench() {
           )}
         </section>
       </div>
+      ) : null}
 
       {selectedMarket ? (
         <BetLab

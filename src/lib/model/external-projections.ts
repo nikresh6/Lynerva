@@ -1,5 +1,7 @@
 import "server-only";
 
+/* eslint-disable @typescript-eslint/no-unused-vars -- dormant provider adapters are intentionally retained for rapid source failover */
+
 import type { CanonicalMarket } from "@/lib/markets/types";
 import { getLearnedSourceWeights } from "./source-learning";
 import {

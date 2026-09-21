@@ -9,8 +9,8 @@ export default function LivePage() {
   return (
     <>
       <PageHeading
-        title="Live NFL"
-        description="Tonight’s game state and currently executable Kalshi prices. Live picks update as the score, clock, and market prices move."
+        title="The live board."
+        description="See the score, the player’s current stat, what is still needed, and why the probability moved—without decoding model jargon."
       />
       <LiveGameStrip games={[]} />
       <MarketExplorer

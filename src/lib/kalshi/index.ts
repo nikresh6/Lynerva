@@ -20,6 +20,8 @@ const marketSchema = z
     yes_sub_title: z.string().optional().default("Yes"),
     no_sub_title: z.string().optional().default("No"),
     status: z.string().optional().default("open"),
+    result: z.string().nullish(),
+    settlement_ts: z.string().nullish(),
     yes_bid_dollars: z.union([z.string(), z.number()]).nullish(),
     yes_ask_dollars: z.union([z.string(), z.number()]).nullish(),
     no_bid_dollars: z.union([z.string(), z.number()]).nullish(),
@@ -42,6 +44,8 @@ const marketsResponseSchema = z.object({
   markets: z.array(marketSchema),
   cursor: z.string().optional().default(""),
 });
+
+const marketResponseSchema = z.object({ market: marketSchema });
 
 const CORE_NFL_SERIES = [
   "KXNFLGAME",
@@ -181,4 +185,27 @@ export async function fetchKalshiNflMarkets(): Promise<ProviderResult> {
       error: message,
     };
   }
+}
+
+export async function fetchKalshiMarketSettlement(ticker: string) {
+  const payload = await fetchValidated(
+    "Kalshi",
+    `${KALSHI_BASE}/markets/${encodeURIComponent(ticker)}`,
+    marketResponseSchema,
+    { cache: "no-store" },
+  );
+  const result = payload.market.result?.toLowerCase();
+  if (result !== "yes" && result !== "no") return null;
+
+  const settledAt =
+    payload.market.settlement_ts ??
+    payload.market.expiration_time ??
+    payload.market.updated_time ??
+    new Date().toISOString();
+
+  return {
+    ticker: payload.market.ticker,
+    result,
+    settledAt: new Date(settledAt),
+  } as const;
 }

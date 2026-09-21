@@ -1,48 +1,48 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f7f7f5;
+  --background: #f4f6f8;
   --surface: #ffffff;
-  --surface-raised: #fbfbfa;
-  --foreground: #151515;
-  --muted: #6f6f6a;
-  --faint: #9b9b94;
-  --border: #e3e3df;
-  --border-strong: #d0d0ca;
-  --positive: #16845b;
-  --positive-bg: #eaf7f0;
-  --negative: #c2413a;
-  --negative-bg: #fcefee;
-  --warning: #986a18;
-  --warning-bg: #fbf4e5;
-  --accent: #5f6ee8;
-  --accent-strong: #4856d4;
-  --accent-bg: #eef0ff;
-  --accent-glow: rgb(95 110 232 / 16%);
-  --header: rgb(247 247 245 / 88%);
+  --surface-raised: #f9fafb;
+  --foreground: #11151b;
+  --muted: #66707d;
+  --faint: #929ba6;
+  --border: #e1e5e9;
+  --border-strong: #cbd2d9;
+  --positive: #087d57;
+  --positive-bg: #e8f6f0;
+  --negative: #c03d43;
+  --negative-bg: #fbecee;
+  --warning: #946416;
+  --warning-bg: #faf2df;
+  --accent: #2563eb;
+  --accent-strong: #1d4ed8;
+  --accent-bg: #eaf0ff;
+  --accent-glow: rgb(37 99 235 / 14%);
+  --header: rgb(244 246 248 / 90%);
   --overlay: rgb(0 0 0 / 28%);
 }
 
 .dark {
-  --background: #0d0d0d;
-  --surface: #141414;
-  --surface-raised: #181818;
-  --foreground: #f3f3f1;
-  --muted: #a2a29c;
-  --faint: #74746f;
-  --border: #2a2a28;
-  --border-strong: #3a3a37;
-  --positive: #66c99a;
-  --positive-bg: #10251d;
-  --negative: #ef817a;
-  --negative-bg: #2a1717;
-  --warning: #d4a855;
-  --warning-bg: #282012;
-  --accent: #9aa6ff;
-  --accent-strong: #7f8cff;
-  --accent-bg: #1b1f38;
-  --accent-glow: rgb(127 140 255 / 18%);
-  --header: rgb(13 13 13 / 90%);
+  --background: #0b0e12;
+  --surface: #12161c;
+  --surface-raised: #171c23;
+  --foreground: #f4f7fa;
+  --muted: #a1aab5;
+  --faint: #6f7a87;
+  --border: #262d35;
+  --border-strong: #39434e;
+  --positive: #58c99a;
+  --positive-bg: #10251e;
+  --negative: #f07f86;
+  --negative-bg: #2a171a;
+  --warning: #d6a957;
+  --warning-bg: #282014;
+  --accent: #76a2ff;
+  --accent-strong: #4f82f3;
+  --accent-bg: #17233d;
+  --accent-glow: rgb(79 130 243 / 18%);
+  --header: rgb(11 14 18 / 91%);
   --overlay: rgb(0 0 0 / 60%);
 }
 
@@ -69,11 +69,17 @@
 }
 
 * { border-color: var(--border); }
-html { color-scheme: light; background: var(--background); }
+html {
+  color-scheme: light;
+  background: var(--background);
+  scroll-padding-top: 84px;
+}
 html.dark { color-scheme: dark; }
 body {
   min-height: 100vh;
-  background: var(--background);
+  background:
+    radial-gradient(circle at 50% -240px, color-mix(in srgb, var(--accent) 8%, transparent), transparent 520px),
+    var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
   font-size: 14px;
@@ -83,6 +89,11 @@ body {
 }
 button, input, select, textarea { font: inherit; }
 button, a, input, select, textarea { outline-offset: 3px; }
+button, a { -webkit-tap-highlight-color: transparent; }
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
 ::selection { background: color-mix(in srgb, var(--foreground) 18%, transparent); }
 .tabular { font-variant-numeric: tabular-nums; }
 .scrollbar-subtle { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
@@ -507,99 +518,44 @@ button, a, input, select, textarea { outline-offset: 3px; }
 }
 
 
-/* NFL score ticker */
-.score-ticker-window {
-  mask-image: linear-gradient(
-    90deg,
-    transparent 0,
-    black 14px,
-    black calc(100% - 14px),
-    transparent 100%
-  );
-  -webkit-mask-image: linear-gradient(
-    90deg,
-    transparent 0,
-    black 14px,
-    black calc(100% - 14px),
-    transparent 100%
-  );
-}
-
-.score-ticker-item-desktop,
-.score-ticker-item-mobile {
+/* Compact scoreboard navigation. One DOM copy, horizontally scrollable. */
+.score-ticker-item {
   border: 1px solid transparent;
   color: var(--foreground);
-}
-
-.score-ticker-item-desktop:hover,
-.score-ticker-item-mobile:hover {
-  border-color: color-mix(in srgb, var(--border-strong) 72%, transparent);
-}
-
-.score-ticker-item-desktop {
   background: color-mix(in srgb, var(--surface) 48%, transparent);
 }
 
-.score-ticker-item-mobile {
-  background: color-mix(in srgb, var(--surface) 62%, transparent);
-}
-
-.score-ticker-track-moving {
-  animation: lynerva-score-ticker 52s linear infinite;
-  will-change: transform;
-}
-
-.score-ticker-window:hover .score-ticker-track-moving,
-.score-ticker-window:focus-within .score-ticker-track-moving {
-  animation-play-state: paused;
-}
-
-@keyframes lynerva-score-ticker {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-50%);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .score-ticker-track-moving {
-    animation: none;
-  }
-
-  .score-ticker-window {
-    overflow-x: auto;
-    mask-image: none;
-    -webkit-mask-image: none;
-  }
+.score-ticker-item:hover {
+  border-color: color-mix(in srgb, var(--border-strong) 72%, transparent);
+  background: var(--surface);
 }
 
 @media (max-width: 639px) {
-  .score-ticker-mobile {
+  .score-ticker-responsive {
     min-height: 38px;
   }
+}
 
-  .score-ticker-track-moving {
-    animation-duration: 60s;
-  }
+.eyebrow {
+  color: var(--accent);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
 
-  .score-ticker-window {
-    mask-image: linear-gradient(
-      90deg,
-      transparent 0,
-      black 8px,
-      black calc(100% - 8px),
-      transparent 100%
-    );
-    -webkit-mask-image: linear-gradient(
-      90deg,
-      transparent 0,
-      black 8px,
-      black calc(100% - 8px),
-      transparent 100%
-    );
-  }
+.source-hero,
+.results-hero {
+  background:
+    radial-gradient(circle at 90% 0%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 42%),
+    linear-gradient(145deg, color-mix(in srgb, var(--surface-raised) 72%, transparent), transparent 55%),
+    var(--surface);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 0.055);
+}
+
+.dark .source-hero,
+.dark .results-hero {
+  box-shadow: 0 24px 70px rgb(0 0 0 / 0.26);
 }
 
 

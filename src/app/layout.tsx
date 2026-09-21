@@ -6,20 +6,20 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "Lynerva — NFL prediction-market research",
-    template: "%s — Lynerva",
+    default: "Huddlemark — NFL market intelligence",
+    template: "%s — Huddlemark",
   },
   description:
     "Research executable Kalshi NFL prediction-market prices with disciplined probability estimates.",
-  applicationName: "Lynerva",
+  applicationName: "Huddlemark",
   robots: { index: true, follow: true },
 };
 
 export const viewport: Viewport = {
   colorScheme: "light dark",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f7f7f5" },
-    { media: "(prefers-color-scheme: dark)", color: "#0d0d0d" },
+    { media: "(prefers-color-scheme: light)", color: "#f4f6f8" },
+    { media: "(prefers-color-scheme: dark)", color: "#0b0e12" },
   ],
 };
 
@@ -45,7 +45,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           </main>
         </MarketDataProvider>
         <footer className="mx-auto mb-20 max-w-[1480px] border-t px-4 py-6 text-xs text-muted sm:mb-0 sm:px-6 lg:px-8">
-          Probabilities are model estimates, not guarantees. Lynerva does not place trades.
+          Huddlemark is a research tool, not a sportsbook. Probabilities are model estimates, not guarantees.
         </footer>
       </body>
     </html>

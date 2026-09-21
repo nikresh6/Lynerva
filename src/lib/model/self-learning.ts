@@ -4,6 +4,7 @@ import { desc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { normalizedMarkets, predictionResults, predictions } from "@/db/schema";
 import { clamp } from "@/lib/utils";
+import { recommendedPredictionPerspective } from "./prediction-perspective";
 
 type CalibrationBucket = { count: number; wins: number };
 type CalibrationByFamily = Record<string, CalibrationBucket[]>;
@@ -21,6 +22,9 @@ async function queryBuckets() {
     const rows = await db
       .select({
         probability: predictions.predictedProbabilityBps,
+        executablePriceBps: predictions.executablePriceBps,
+        edgeBps: predictions.edgeBps,
+        features: predictions.features,
         outcome: predictionResults.outcome,
         family: normalizedMarkets.family,
       })
@@ -38,8 +42,17 @@ async function queryBuckets() {
 
     const bucketsByFamily: CalibrationByFamily = {};
     for (const row of rows) {
+      const perspective = recommendedPredictionPerspective({
+        predictedProbabilityBps: row.probability,
+        executablePriceBps: row.executablePriceBps,
+        edgeBps: row.edgeBps,
+        features: row.features,
+      });
       const buckets = bucketsByFamily[row.family] ?? emptyBuckets();
-      const bucket = Math.min(9, Math.max(0, Math.floor(row.probability / 1000)));
+      const bucket = Math.min(
+        9,
+        Math.max(0, Math.floor(perspective.probabilityBps / 1000)),
+      );
       buckets[bucket]!.count += 1;
       buckets[bucket]!.wins += row.outcome;
       bucketsByFamily[row.family] = buckets;

@@ -1,6 +1,8 @@
 "use client";
 
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
+import { useSearchParams } from "next/navigation";
 import { Search, SlidersHorizontal, X } from "lucide-react";
 import { getNflTeam } from "@/lib/nfl/teams";
 import { isPricedOpportunity } from "@/lib/markets/eligibility";
@@ -167,51 +169,26 @@ export function MarketExplorer({
   topOnly?: boolean;
 }) {
   const { opportunities, loading } = useMarketData();
+  const searchParams = useSearchParams();
+  const initialGame = normalizeGameKey(searchParams.get("game"));
+  const initialTeam = getNflTeam(searchParams.get("team") ?? "");
+  const initialQuery =
+    initialGame?.replace("-", " vs ") ??
+    initialTeam?.fullName ??
+    searchParams.get("q")?.trim() ??
+    "";
   const [filters, setFilters] = useState<MarketFilters>({
     ...DEFAULT_FILTERS,
+    query: initialQuery,
     status: forceStatus ?? "all",
   });
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [urlGame, setUrlGame] = useState<string | null>(null);
+  const [urlGame, setUrlGame] = useState<string | null>(initialGame);
   const [teamRosterNames, setTeamRosterNames] = useState<Set<string> | null>(
     null,
   );
   const [teamRosterLoading, setTeamRosterLoading] = useState(false);
   const deferredQuery = useDeferredValue(filters.query);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const game = normalizeGameKey(params.get("game"));
-    const team = getNflTeam(params.get("team") ?? "");
-    const query = params.get("q")?.trim() ?? "";
-
-    if (game) {
-      setUrlGame(game);
-      setFilters((current) => ({
-        ...current,
-        query: game.replace("-", " vs "),
-        status: forceStatus ?? current.status,
-      }));
-      return;
-    }
-
-    if (team) {
-      setFilters((current) => ({
-        ...current,
-        query: team.fullName,
-        status: forceStatus ?? current.status,
-      }));
-      return;
-    }
-
-    if (query) {
-      setFilters((current) => ({
-        ...current,
-        query,
-        status: forceStatus ?? current.status,
-      }));
-    }
-  }, [forceStatus]);
 
   const searchIntent = useMemo(
     () => parseMarketSearchQuery(deferredQuery),
@@ -236,19 +213,22 @@ export function MarketExplorer({
     !activeGame &&
     filters.family !== "moneyline" &&
     !searchMoneylineOnly;
+  const resolvedTeamCode = resolvedTeam?.code ?? null;
+  const activeRosterNames = needsTeamRoster ? teamRosterNames : null;
+  const activeRosterLoading = needsTeamRoster ? teamRosterLoading : false;
 
   useEffect(() => {
-    if (!resolvedTeam || activeGame || !needsTeamRoster) {
-      setTeamRosterNames(null);
-      setTeamRosterLoading(false);
-      return;
-    }
+    if (!resolvedTeamCode || activeGame || !needsTeamRoster) return;
 
     const controller = new AbortController();
-    setTeamRosterLoading(true);
-    fetch(`/api/team-roster?team=${encodeURIComponent(resolvedTeam.code)}`, {
-      signal: controller.signal,
-    })
+    Promise.resolve()
+      .then(() => {
+        if (!controller.signal.aborted) setTeamRosterLoading(true);
+        return fetch(
+          `/api/team-roster?team=${encodeURIComponent(resolvedTeamCode)}`,
+          { signal: controller.signal },
+        );
+      })
       .then((response) => (response.ok ? response.json() : Promise.reject()))
       .then(
         (payload: {
@@ -272,7 +252,7 @@ export function MarketExplorer({
       });
 
     return () => controller.abort();
-  }, [activeGame, needsTeamRoster, resolvedTeam?.code]);
+  }, [activeGame, needsTeamRoster, resolvedTeamCode]);
 
   const visible = useMemo(() => {
     const activeFilters: MarketFilters = {
@@ -305,7 +285,7 @@ export function MarketExplorer({
 
     if (searchIntent.normalized) {
       eligible = eligible.filter((market) =>
-        marketMatchesSearchIntent(market, searchIntent, teamRosterNames),
+        marketMatchesSearchIntent(market, searchIntent, activeRosterNames),
       );
     }
 
@@ -318,7 +298,7 @@ export function MarketExplorer({
     opportunities,
     searchIntent,
     searchMoneylineOnly,
-    teamRosterNames,
+    activeRosterNames,
     topOnly,
   ]);
 
@@ -418,9 +398,12 @@ export function MarketExplorer({
                       key={team}
                       className="grid size-7 place-items-center rounded-lg border bg-surface p-1"
                     >
-                      <img
+                      <Image
+                        unoptimized
                         src={teamLogo(team)}
                         alt=""
+                        width={28}
+                        height={28}
                         className="size-full object-contain"
                       />
                     </span>
@@ -432,14 +415,17 @@ export function MarketExplorer({
               ) : resolvedTeam ? (
                 <>
                   <span className="grid size-7 place-items-center rounded-lg border bg-surface p-1">
-                    <img
+                    <Image
+                      unoptimized
                       src={teamLogo(resolvedTeam.code)}
                       alt=""
+                      width={28}
+                      height={28}
                       className="size-full object-contain"
                     />
                   </span>
                   <span className="text-[11px] font-medium">
-                    {teamRosterLoading
+                    {activeRosterLoading
                       ? `Loading ${resolvedTeam.name} players…`
                       : searchMoneylineOnly || filters.family === "moneyline"
                         ? `${resolvedTeam.fullName} moneyline`
@@ -464,7 +450,7 @@ export function MarketExplorer({
         {advancedOpen ? (
           <div className="mt-2 grid grid-cols-2 gap-2 border-t pt-2 sm:grid-cols-4">
             {[
-              ["minModelBps", "Min Lynerva chance %"],
+              ["minModelBps", "Min model chance %"],
               ["minEdgeBps", "Min advantage %"],
               ["minLiquidityCents", "Min market activity $"],
               ["minHitRateBps", "Min hit rate %"],
@@ -513,7 +499,7 @@ export function MarketExplorer({
 
       <FeedStatus />
 
-      {(loading && opportunities.length === 0) || teamRosterLoading ? (
+      {(loading && opportunities.length === 0) || activeRosterLoading ? (
         <LoadingTable />
       ) : (
         <MarketTable

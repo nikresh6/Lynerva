@@ -9,6 +9,7 @@ import {
   runSourceLearningFromActuals,
   type SourceLearningActualRow,
 } from "@/lib/model/source-learning";
+import { settleKalshiPredictions } from "@/lib/model/results";
 
 const MARKET_INITIAL_DELAY_MS = 15_000;
 const MARKET_INTERVAL_MS = 20 * 60_000;
@@ -137,11 +138,14 @@ async function gradeFinalEspnGames() {
       }
     }
 
+    const predictionSettlement = await settleKalshiPredictions();
+
     logJob("espn-final-grading", "completed", {
       finalGamesChecked: finals.length,
       graded,
       weightsStored,
       effectiveWeeks: [...effectiveWeeks],
+      predictionSettlement,
     });
   } catch (error) {
     logJob("espn-final-grading", "failed", error);

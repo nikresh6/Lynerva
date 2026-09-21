@@ -135,6 +135,9 @@ function baselineGameProjection(
   };
 }
 
+// Retained as a tested fallback implementation while current-season routing is
+// being validated against the newer estimate path below.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function estimateGameFromDistribution(
   canonical: CanonicalMarket,
   scheduleGame: NflScheduleGame,
@@ -385,7 +388,7 @@ async function estimateGameMarket(
       ) / totalWeight;
 
     factors.push(
-      `Lynerva current-season margin model: ${(statisticalProbability * 100).toFixed(1)}% for ${canonical.subject} (${subjectMarginMean >= 0 ? "+" : ""}${subjectMarginMean.toFixed(1)} projected margin).`,
+      `Huddlemark current-season margin model: ${(statisticalProbability * 100).toFixed(1)}% for ${canonical.subject} (${subjectMarginMean >= 0 ? "+" : ""}${subjectMarginMean.toFixed(1)} projected margin).`,
     );
   } else if (canonical.family === "spread" && canonical.threshold !== null) {
     const subjectIsHome = canonical.subject === scheduleGame.homeTeam;
@@ -571,7 +574,7 @@ export async function estimateMarket(
           recentValues: values.slice(0, 10),
         },
         factors: [
-          "Live player box-score data is unavailable, so Lynerva will not price this in-game player prop from pregame inputs alone.",
+          "Live player box-score data is unavailable, so Huddlemark will not price this in-game player prop from pregame inputs alone.",
         ],
       };
     }
@@ -596,7 +599,7 @@ export async function estimateMarket(
           recentValues: values.slice(0, 10),
         },
         factors: [
-          "Lynerva does not publish a player-prop probability when there is no independent weekly projection and fewer than four current-season results.",
+          "Huddlemark does not publish a player-prop probability when there is no independent weekly projection and fewer than four current-season results.",
         ],
         components: {
           consensusProjection: null,
@@ -743,7 +746,7 @@ export async function estimateMarket(
           recentValues: values.slice(0, 10),
         },
         factors: [
-          "Lynerva has the live player stat but cannot safely condition this prop family yet, so it is hidden instead of using a stale pregame probability.",
+          "Huddlemark has the live player stat but cannot safely condition this prop family yet, so it is hidden instead of using a stale pregame probability.",
         ],
       };
     }

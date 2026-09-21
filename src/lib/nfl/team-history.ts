@@ -36,8 +36,9 @@ export function getMatchupProjection(
   homeTeam: string,
   awayTeam: string,
   currentSeason?: number,
-  _currentWeek?: number,
+  currentWeek?: number,
 ) {
+  void currentWeek;
   const home = getTeamProfile(homeTeam, currentSeason);
   const away = getTeamProfile(awayTeam, currentSeason);
   if (!home || !away) return null;

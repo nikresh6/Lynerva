@@ -41,6 +41,16 @@ const STORAGE_KEY = "lynerva-market-snapshot-v6";
 // live refresh replaced an old score with the current market.
 const STORAGE_MAX_AGE = 5 * 60_000;
 
+function routeNeedsMarkets(pathname: string) {
+  return (
+    pathname === "/" ||
+    pathname.startsWith("/live") ||
+    pathname.startsWith("/games") ||
+    pathname.startsWith("/builder") ||
+    pathname.startsWith("/tracker")
+  );
+}
+
 function readStored(): MarketClientPayload | null {
   try {
     for (const key of [STORAGE_KEY, "lynerva-market-snapshot-v5", "lynerva-market-snapshot-v4"]) {
@@ -127,7 +137,7 @@ function movementBetween(
     Math.abs(probabilityDeltaBps) >= 75
   ) {
     reason = "model_probability";
-    detail = `Lynerva probability moved ${probabilityDeltaBps > 0 ? "+" : ""}${(
+    detail = `Huddlemark probability moved ${probabilityDeltaBps > 0 ? "+" : ""}${(
       probabilityDeltaBps / 100
     ).toFixed(1)} percentage points.`;
   } else if (priceDeltaBps !== null && Math.abs(priceDeltaBps) >= 50) {
@@ -260,7 +270,7 @@ export function MarketDataProvider({
     displayedCount: 0,
     fetchedAt: "",
   });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => routeNeedsMarkets(pathname));
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inflight = useRef<Promise<void> | null>(null);
@@ -302,7 +312,7 @@ export function MarketDataProvider({
         });
         setError(
           caught instanceof DOMException && caught.name === "AbortError"
-            ? "Live refresh delayed. Showing the last verified snapshot while Lynerva retries."
+            ? "Live refresh delayed. Showing the last verified snapshot while Huddlemark retries."
             : caught instanceof Error
               ? caught.message
               : "Market feed unavailable",
@@ -320,6 +330,10 @@ export function MarketDataProvider({
   };
 
   useEffect(() => {
+    if (!routeNeedsMarkets(pathname)) {
+      return;
+    }
+
     const intervalMs = pathname === "/live" ? 10_000 : 60_000;
     const elapsed = Date.now() - lastSuccessfulRefreshAt.current;
 

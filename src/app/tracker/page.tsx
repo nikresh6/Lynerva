@@ -8,8 +8,8 @@ export default function TrackerPage() {
   return (
     <>
       <PageHeading
-        title="Tracker"
-        description="Manual P/L tracking for your own bets. No betting account connection required."
+        title="Your bets. Your real record."
+        description="Track straights and parlays, compare the model’s entry estimate with the live market, and correct any final P/L without erasing the automatic calculation."
       />
       <ManualTracker />
     </>

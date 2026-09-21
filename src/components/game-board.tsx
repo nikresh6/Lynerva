@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import Image from "next/image";
 import { ChevronLeft, ChevronRight, Sparkles, Target, Zap } from "lucide-react";
 import type { LiveNflGame } from "@/lib/nfl/live";
 import type { MarketOpportunity } from "@/lib/markets/types";
@@ -61,7 +62,14 @@ function Team({
   return (
     <div className="flex items-center gap-2.5">
       <span className="grid size-10 place-items-center rounded-xl border bg-surface p-1.5">
-        <img src={teamLogo(code)} alt="" className="size-full object-contain" />
+        <Image
+          unoptimized
+          src={teamLogo(code)}
+          alt=""
+          width={40}
+          height={40}
+          className="size-full object-contain"
+        />
       </span>
       <span className="text-base font-semibold">{code}</span>
       {showScore ? <span className="text-xl font-bold tabular">{score}</span> : null}
@@ -122,33 +130,20 @@ export function GameBoard() {
     [games],
   );
 
-  useEffect(() => {
-    if (requested) setSelectedKey(requested);
-  }, [requested]);
+  const activeKey = requested || selectedKey;
 
   const selectedIndex = Math.max(
     0,
-    slate.findIndex((game) => keyFor(game) === selectedKey),
+    slate.findIndex((game) => keyFor(game) === activeKey),
   );
   const game = slate[selectedIndex] ?? null;
-
-  useEffect(() => {
-    if (!game || selectedKey) return;
-    const key = keyFor(game);
-    setSelectedKey(key);
-    window.history.replaceState(
-      window.history.state,
-      "",
-      `/games?game=${encodeURIComponent(key)}`,
-    );
-  }, [game, selectedKey]);
 
   useEffect(() => {
     if (game?.state !== "in") return;
     void refresh();
     const timer = window.setInterval(() => void refresh(), 10_000);
     return () => window.clearInterval(timer);
-  }, [game?.id, game?.state]);
+  }, [game?.id, game?.state, refresh]);
 
   const markets = useMemo(() => {
     if (!game) return [];
@@ -435,7 +430,7 @@ export function GameBoard() {
                                   {leg.marketTitle}
                                 </span>
                                 <span className="mt-0.5 block text-[9px] text-muted">
-                                  Market {formatPercent(leg.executablePriceBps)} · Lynerva{" "}
+                                  Market {formatPercent(leg.executablePriceBps)} · Model{" "}
                                   {formatPercent(leg.recommendedProbabilityBps)}
                                 </span>
                               </span>
@@ -461,7 +456,7 @@ export function GameBoard() {
             {game.state === "in" ? "Best live bets" : "Best bets"}
           </h1>
           <p className="mt-1 text-xs text-muted">
-            {game.away.team} at {game.home.team}, ranked by Lynerva Score.
+            {game.away.team} at {game.home.team}, ranked by Pick Score.
           </p>
         </div>
         {refreshing ? <span className="text-[10px] text-faint">Refreshing</span> : null}

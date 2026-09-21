@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import type { LiveNflGame } from "@/lib/nfl/live";
 import { teamLogo } from "./subject-visual";
 
@@ -18,11 +19,8 @@ function gameLabel(game: LiveNflGame) {
 
 export function LiveGameStrip({ games }: { games: LiveNflGame[] }) {
   const [current, setCurrent] = useState(games);
+  const [clock, setClock] = useState(() => new Date());
   const router = useRouter();
-
-  useEffect(() => {
-    setCurrent(games);
-  }, [games]);
 
   useEffect(() => {
     let cancelled = false;
@@ -32,14 +30,17 @@ export function LiveGameStrip({ games }: { games: LiveNflGame[] }) {
         const response = await fetch("/api/live-nfl", { cache: "no-store" });
         if (!response.ok) return;
         const payload = (await response.json()) as { games: LiveNflGame[] };
-        if (!cancelled) setCurrent(payload.games);
+        if (!cancelled) {
+          setCurrent(payload.games);
+          setClock(new Date());
+        }
       } catch {
         // Keep the last good scoreboard state.
       }
     };
 
     void refresh();
-    const timer = window.setInterval(refresh, 3_000);
+    const timer = window.setInterval(refresh, 10_000);
     const onVisibility = () => {
       if (document.visibilityState === "visible") void refresh();
     };
@@ -53,7 +54,7 @@ export function LiveGameStrip({ games }: { games: LiveNflGame[] }) {
   }, []);
 
   const visible = useMemo(() => {
-    const now = Date.now();
+    const now = clock.getTime();
     const live = current.filter((game) => game.state === "in");
     if (live.length) return live;
 
@@ -62,7 +63,7 @@ export function LiveGameStrip({ games }: { games: LiveNflGame[] }) {
       const start = new Date(game.startsAt).getTime();
       return Number.isFinite(start) && start >= now && start - now <= 12 * 60 * 60 * 1_000;
     });
-  }, [current]);
+  }, [clock, current]);
 
   if (!visible.length) return null;
 
@@ -107,9 +108,12 @@ export function LiveGameStrip({ games }: { games: LiveNflGame[] }) {
               >
                 <span className="flex items-center gap-2.5">
                   <span className="grid size-7 place-items-center rounded-lg border bg-surface p-1">
-                    <img
+                    <Image
+                      unoptimized
                       src={teamLogo(String(team))}
                       alt=""
+                      width={28}
+                      height={28}
                       className="size-full object-contain"
                     />
                   </span>

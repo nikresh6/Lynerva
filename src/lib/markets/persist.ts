@@ -1,7 +1,6 @@
 import "server-only";
 
-import { createHash } from "node:crypto";
-import { desc, eq, sql } from "drizzle-orm";
+import { desc, eq, gte, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   marketEvents,
@@ -18,8 +17,15 @@ import { getWeeklyProjectionStatSnapshots } from "@/lib/model/external-projectio
 import { normalizeLearningPlayer } from "@/lib/model/source-weighting";
 import type { MarketsPayload } from "./service";
 
-function stableId(prefix: string, value: string) {
-  return `${prefix}_${createHash("sha256").update(value).digest("hex").slice(0, 24)}`;
+async function stableId(prefix: string, value: string) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  const hex = [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return `${prefix}_${hex.slice(0, 24)}`;
 }
 
 const MODEL_ID = "model_hybrid_consensus_learning_v3";
@@ -32,11 +38,33 @@ export async function persistMarkets(payload: MarketsPayload) {
   let predictionsStored = 0;
   let sourceProjectionsStored = 0;
 
+  // One bounded read replaces a per-market lookup. Anything older than two
+  // hours is due for a fresh frozen prediction anyway.
+  const recentPredictions = await db
+    .select({
+      listingId: predictions.listingId,
+      predictedProbabilityBps: predictions.predictedProbabilityBps,
+      executablePriceBps: predictions.executablePriceBps,
+      predictedAt: predictions.predictedAt,
+    })
+    .from(predictions)
+    .where(gte(predictions.predictedAt, new Date(now.getTime() - 2 * 60 * 60_000)))
+    .orderBy(desc(predictions.predictedAt));
+  const latestPredictionByListing = new Map<
+    string,
+    (typeof recentPredictions)[number]
+  >();
+  for (const prediction of recentPredictions) {
+    if (!latestPredictionByListing.has(prediction.listingId)) {
+      latestPredictionByListing.set(prediction.listingId, prediction);
+    }
+  }
+
   await db
     .insert(modelVersions)
     .values({
       id: MODEL_ID,
-      name: "Lynerva hybrid player prop model",
+      name: "Huddlemark hybrid player prop model",
       version: "hybrid-consensus-learning-v3",
       family: "player_props",
       coefficients: {
@@ -88,7 +116,7 @@ export async function persistMarkets(payload: MarketsPayload) {
     const statistic = opportunity.canonical.family;
 
     for (const point of components.projectionSources) {
-      const id = stableId(
+      const id = await stableId(
         "source_projection",
         `${season}:${week}:${playerKey}:${statistic}:${point.source}`,
       );
@@ -117,7 +145,7 @@ export async function persistMarkets(payload: MarketsPayload) {
   for (const { season, week } of projectionWindows.values()) {
     const sourceStatLines = await getWeeklyProjectionStatSnapshots(season, week);
     for (const point of sourceStatLines) {
-      const id = stableId(
+      const id = await stableId(
         "source_projection",
         `${season}:${week}:${point.playerKey}:${point.statistic}:${point.source}`,
       );
@@ -177,7 +205,7 @@ export async function persistMarkets(payload: MarketsPayload) {
   }
 
   for (const opportunity of payload.opportunities) {
-    const eventId = stableId(
+    const eventId = await stableId(
       "event",
       `${opportunity.eventTitle}:${opportunity.canonical?.settlementDate ?? opportunity.closesAt ?? "unknown"}`,
     );
@@ -195,7 +223,7 @@ export async function persistMarkets(payload: MarketsPayload) {
       });
 
     const normalizedId = opportunity.canonical
-      ? stableId("market", opportunity.canonical.key)
+      ? await stableId("market", opportunity.canonical.key)
       : null;
     if (opportunity.canonical && normalizedId) {
       await db
@@ -225,7 +253,7 @@ export async function persistMarkets(payload: MarketsPayload) {
         });
     }
 
-    const listingId = stableId(
+    const listingId = await stableId(
       "listing",
       `${opportunity.platform}:${opportunity.platformMarketId}:${opportunity.platformOutcomeId ?? "yes"}`,
     );
@@ -306,12 +334,28 @@ export async function persistMarkets(payload: MarketsPayload) {
       opportunity.executablePriceBps !== null &&
       opportunity.edgeBps !== null
     ) {
+      const latestPrediction = latestPredictionByListing.get(listingId);
+      const recommendedProbabilityBps =
+        opportunity.recommendedProbabilityBps ??
+        opportunity.model.probabilityBps;
+      const predictionChanged =
+        !latestPrediction ||
+        Math.abs(
+          latestPrediction.predictedProbabilityBps - recommendedProbabilityBps,
+        ) >= 100 ||
+        Math.abs(
+          latestPrediction.executablePriceBps - opportunity.executablePriceBps,
+        ) >= 100 ||
+        now.getTime() - latestPrediction.predictedAt.getTime() >= 2 * 60 * 60_000;
+
+      if (!predictionChanged) continue;
+
       await db.insert(predictions).values({
         id: crypto.randomUUID(),
         normalizedMarketId: normalizedId,
         listingId,
         modelVersionId: MODEL_ID,
-        predictedProbabilityBps: opportunity.model.probabilityBps,
+        predictedProbabilityBps: recommendedProbabilityBps,
         executablePriceBps: opportunity.executablePriceBps,
         edgeBps: opportunity.edgeBps,
         reliabilityBps: opportunity.model.reliabilityBps,
@@ -319,6 +363,14 @@ export async function persistMarkets(payload: MarketsPayload) {
         sampleSize: opportunity.model.evidence.sampleSize,
         features: {
           threshold: opportunity.canonical?.threshold ?? null,
+          recommendedSide: opportunity.recommendedSide,
+          recommendedProbabilityBps,
+          modelYesProbabilityBps: opportunity.model.probabilityBps,
+          probabilityPerspective: "recommended_side",
+          projectionSeason: opportunity.model.components?.projectionSeason ?? null,
+          projectionWeek: opportunity.model.components?.projectionWeek ?? null,
+          matchup: opportunity.canonical?.matchup ?? null,
+          subject: opportunity.canonical?.subject ?? null,
           historicalSampleSize: opportunity.model.evidence.sampleSize,
           live: opportunity.isLive,
           consensusProjection: opportunity.model.components?.consensusProjection ?? null,
@@ -330,6 +382,12 @@ export async function persistMarkets(payload: MarketsPayload) {
           learnedCalibrationActive: opportunity.model.components?.learnedCalibrationActive ?? false,
         },
         explanation: opportunity.model.factors,
+        predictedAt: now,
+      });
+      latestPredictionByListing.set(listingId, {
+        listingId,
+        predictedProbabilityBps: recommendedProbabilityBps,
+        executablePriceBps: opportunity.executablePriceBps,
         predictedAt: now,
       });
       predictionsStored += 1;

@@ -8,7 +8,7 @@ async function prepareAuthDatabase() {
   const url = process.env.TURSO_DATABASE_URL;
   if (!url) {
     throw new Error(
-      "TURSO_DATABASE_URL is required for Lynerva account authentication.",
+      "TURSO_DATABASE_URL is required for Huddlemark account authentication.",
     );
   }
 

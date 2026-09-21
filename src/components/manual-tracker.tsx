@@ -24,6 +24,8 @@ import {
 import { expectedRoi, lynervaScore, riskReturn } from "@/lib/markets/math";
 import type { MarketOpportunity, MarketSide } from "@/lib/markets/types";
 import {
+  calculatedManualTrackerProfit,
+  manualTrackerProfit,
   normalizeManualTrackerBet,
   type ManualTrackerBet,
   type ManualTrackerStatus,
@@ -39,13 +41,6 @@ type ManualBet = ManualTrackerBet;
 const STORAGE_KEY = "lynerva-manual-tracker-v2";
 const LEGACY_STORAGE_KEY = "lynerva-manual-tracker-v1";
 const CLOUD_MIGRATION_KEY = "lynerva-manual-tracker-cloud-migrated-v1";
-
-function profit(bet: ManualBet) {
-  if (bet.status === "open") return null;
-  if (bet.status === "loss") return -bet.stake;
-  if (bet.status === "push") return 0;
-  return bet.payout - bet.stake;
-}
 
 function money(value: number | null) {
   if (value === null) return "n/a";
@@ -392,7 +387,7 @@ function MarketPicker({
                         <span>{market.canonical?.matchup?.replace("-", " vs ") ?? "NFL"}</span>
                         <span>Kalshi {formatPercent(market.executablePriceBps)}</span>
                         <span className="text-positive">
-                          Lynerva {formatPercent(market.recommendedProbabilityBps)}
+                          Model {formatPercent(market.recommendedProbabilityBps)}
                         </span>
                       </span>
                     </span>
@@ -435,7 +430,7 @@ function SelectedMarketCard({
         <p className="truncate text-xs font-semibold">{marketPickLabel(market)}</p>
         <p className="mt-1 text-[9px] text-muted">
           {market.canonical?.matchup?.replace("-", " vs ") ?? "NFL"} · Market{" "}
-          {formatPercent(market.executablePriceBps)} · Lynerva{" "}
+          {formatPercent(market.executablePriceBps)} · Model{" "}
           {formatPercent(market.recommendedProbabilityBps)} · Score{" "}
           {market.lynervaScore ?? "—"}
         </p>
@@ -810,6 +805,10 @@ export function ManualTracker() {
       return;
     }
     setSelectedMarketId(nextId);
+    const market = realMarkets.find(
+      (candidate) => candidate.platformMarketId === nextId,
+    );
+    if (market) setDescription(marketPickLabel(market));
   }
 
   function removeParlayMarket(marketId: string) {
@@ -833,6 +832,10 @@ export function ManualTracker() {
   useEffect(() => {
     let cancelled = false;
     let localBets: ManualBet[] = [];
+    let draft: {
+      description?: string;
+      platformMarketId?: string;
+    } | null = null;
 
     try {
       const raw =
@@ -849,13 +852,10 @@ export function ManualTracker() {
 
       const draftRaw = localStorage.getItem("lynerva-track-draft");
       if (draftRaw) {
-        const draft = JSON.parse(draftRaw) as {
+        draft = JSON.parse(draftRaw) as {
           description?: string;
           platformMarketId?: string;
         };
-        setDescription(draft.description ?? "");
-        setSelectedMarketId(draft.platformMarketId ?? "");
-        setShowForm(true);
         localStorage.removeItem("lynerva-track-draft");
       }
     } catch {}
@@ -895,6 +895,11 @@ export function ManualTracker() {
       }
 
       if (cancelled) return;
+      if (draft) {
+        setDescription(draft.description ?? "");
+        setSelectedMarketId(draft.platformMarketId ?? "");
+        setShowForm(true);
+      }
       setCloudBacked(accountBacked);
       setBets(merged);
       setHydrated(true);
@@ -920,50 +925,51 @@ export function ManualTracker() {
   }, [bets, cloudBacked, hydrated]);
 
   useEffect(() => {
-    if (!selectedMarket || betType !== "straight") return;
-    setDescription(marketPickLabel(selectedMarket));
-  }, [selectedMarket, betType]);
-
-  useEffect(() => {
     if (!currentById.size) return;
-    setBets((current) => {
-      let changed = false;
-      const next = current.map((bet) => {
-        if (!bet.isParlay || !bet.legMarketIds.length) return bet;
-        const needsRepair =
-          bet.legSides.length !== bet.legMarketIds.length ||
-          bet.legEntryPriceBps.length !== bet.legMarketIds.length ||
-          bet.legSides.some((side) => side === null) ||
-          bet.legEntryPriceBps.some((price) => price === null);
-        if (!needsRepair) return bet;
+    const timer = window.setTimeout(() => {
+      setBets((current) => {
+        let changed = false;
+        const next = current.map((bet) => {
+          if (!bet.isParlay || !bet.legMarketIds.length) return bet;
+          const needsRepair =
+            bet.legSides.length !== bet.legMarketIds.length ||
+            bet.legEntryPriceBps.length !== bet.legMarketIds.length ||
+            bet.legSides.some((side) => side === null) ||
+            bet.legEntryPriceBps.some((price) => price === null);
+          if (!needsRepair) return bet;
 
-        const legSides = bet.legMarketIds.map((marketId, index) => {
-          const market = currentById.get(marketId);
-          return (
-            bet.legSides[index] ??
-            inferLegSide(market, bet.legs[index]) ??
-            market?.recommendedSide ??
-            null
-          );
+          const legSides = bet.legMarketIds.map((marketId, index) => {
+            const market = currentById.get(marketId);
+            return (
+              bet.legSides[index] ??
+              inferLegSide(market, bet.legs[index]) ??
+              market?.recommendedSide ??
+              null
+            );
+          });
+          const legEntryPriceBps = bet.legMarketIds.map((marketId, index) => {
+            if (bet.legEntryPriceBps[index] !== undefined) {
+              return bet.legEntryPriceBps[index] ?? null;
+            }
+            const market = currentById.get(marketId);
+            return sidePrice(market, legSides[index]);
+          });
+          changed = true;
+          return { ...bet, legSides, legEntryPriceBps };
         });
-        const legEntryPriceBps = bet.legMarketIds.map((marketId, index) => {
-          if (bet.legEntryPriceBps[index] !== undefined) {
-            return bet.legEntryPriceBps[index] ?? null;
-          }
-          const market = currentById.get(marketId);
-          return sidePrice(market, legSides[index]);
-        });
-        changed = true;
-        return { ...bet, legSides, legEntryPriceBps };
+        return changed ? next : current;
       });
-      return changed ? next : current;
-    });
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [currentById]);
 
   const summary = useMemo(() => {
     const settled = bets.filter((bet) => bet.status !== "open");
     const totalRisked = settled.reduce((sum, bet) => sum + bet.stake, 0);
-    const net = settled.reduce((sum, bet) => sum + (profit(bet) ?? 0), 0);
+    const net = settled.reduce(
+      (sum, bet) => sum + (manualTrackerProfit(bet) ?? 0),
+      0,
+    );
     const wins = settled.filter((bet) => bet.status === "win").length;
     const decisions = settled.filter(
       (bet) => bet.status === "win" || bet.status === "loss",
@@ -1095,6 +1101,7 @@ export function ManualTracker() {
         platform: "kalshi",
         stake: stakeValue,
         payout: automaticPayout,
+        manualProfitOverride: null,
         status,
         marketId:
           betType === "straight" ? market?.platformMarketId ?? null : null,
@@ -1134,7 +1141,6 @@ export function ManualTracker() {
     const amount = Number(actualProfitAmount);
     if (
       !bet ||
-      bet.isParlay ||
       !Number.isFinite(amount) ||
       amount < -bet.stake
     ) {
@@ -1144,12 +1150,20 @@ export function ManualTracker() {
     setBets((current) =>
       current.map((item) =>
         item.id === bet.id
-          ? { ...item, payout: Math.max(0, item.stake + amount) }
+          ? { ...item, manualProfitOverride: amount }
           : item,
       ),
     );
     setActualProfitBetId(null);
     setActualProfitAmount("");
+  };
+
+  const resetActualProfit = (id: string) => {
+    setBets((current) =>
+      current.map((item) =>
+        item.id === id ? { ...item, manualProfitOverride: null } : item,
+      ),
+    );
   };
 
   const confirmCashout = () => {
@@ -1231,7 +1245,7 @@ export function ManualTracker() {
             <p className="mt-1 max-w-2xl text-[11px] leading-5 text-muted">
               Pick a real Kalshi market for a straight, or autofill Kalshi legs
               into a parlay and enter the exact amount you risked and can win.
-              Linked bets preserve their original Lynerva and market chances so
+              Linked bets preserve their original model and market chances so
               you can compare them with the current live probabilities.
             </p>
           </div>
@@ -1438,7 +1452,8 @@ export function ManualTracker() {
                 bet.status === "open" &&
                 bet.isParlay &&
                 bet.legMarketIds.length > 0;
-              const pl = profit(bet);
+              const pl = manualTrackerProfit(bet);
+              const calculatedPl = calculatedManualTrackerProfit(bet);
               const straightChances = !bet.isParlay
                 ? straightProbabilitySnapshot(bet, current)
                 : null;
@@ -1469,6 +1484,11 @@ export function ManualTracker() {
                         {bet.isParlay ? (
                           <span className="rounded-full border bg-accent-bg px-2 py-0.5 text-[8px] font-semibold text-accent">
                             Parlay
+                          </span>
+                        ) : null}
+                        {bet.manualProfitOverride !== null ? (
+                          <span className="rounded-full border border-accent/25 bg-accent-bg px-2 py-0.5 text-[8px] font-semibold text-accent">
+                            Manual P/L
                           </span>
                         ) : null}
                         {isLinkedOpen ? (
@@ -1559,9 +1579,16 @@ export function ManualTracker() {
                           Returned
                         </p>
                         <p className="mt-1 text-xs font-semibold tabular">
-                          {bet.status === "open" || bet.status === "loss"
+                          {bet.status === "open"
                             ? "n/a"
-                            : money(bet.payout)}
+                            : money(
+                                bet.manualProfitOverride === null
+                                  ? bet.payout
+                                  : Math.max(
+                                      0,
+                                      bet.stake + bet.manualProfitOverride,
+                                    ),
+                              )}
                         </p>
                       </div>
                       <div className="rounded-xl border bg-background p-2.5">
@@ -1580,6 +1607,11 @@ export function ManualTracker() {
                         >
                           {money(pl)}
                         </p>
+                        {bet.manualProfitOverride !== null ? (
+                          <p className="mt-0.5 text-[8px] text-faint">
+                            Auto {money(calculatedPl)}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                   )}
@@ -1587,7 +1619,7 @@ export function ManualTracker() {
                   {bet.isParlay ? (
                     <div className="mt-2 grid grid-cols-2 gap-2">
                       <ProbabilityTrend
-                        label="Lynerva chance"
+                        label="Model chance"
                         original={parlay?.originalLynerva}
                         current={parlay?.currentLynerva}
                       />
@@ -1600,7 +1632,7 @@ export function ManualTracker() {
                   ) : bet.marketId && straightChances ? (
                     <div className="mt-2 grid grid-cols-2 gap-2">
                       <ProbabilityTrend
-                        label="Lynerva chance"
+                        label="Model chance"
                         original={straightChances.originalLynerva}
                         current={straightChances.currentLynerva}
                       />
@@ -1667,19 +1699,33 @@ export function ManualTracker() {
                     </details>
                   ) : null}
 
-                  {!bet.isParlay &&
-                  bet.status !== "open" &&
-                  bet.status !== "push" ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActualProfitBetId(bet.id);
-                        setActualProfitAmount(String(profit(bet) ?? 0));
-                      }}
-                      className="mt-3 h-9 w-full rounded-lg border bg-background text-[10px] font-semibold text-muted transition-colors hover:text-foreground"
-                    >
-                      Override actual P/L
-                    </button>
+                  {bet.status !== "open" ? (
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActualProfitBetId(bet.id);
+                          setActualProfitAmount(String(pl ?? 0));
+                        }}
+                        className={cn(
+                          "h-9 rounded-lg border bg-background text-[10px] font-semibold text-muted transition-colors hover:text-foreground",
+                          bet.manualProfitOverride === null && "col-span-2",
+                        )}
+                      >
+                        {bet.manualProfitOverride === null
+                          ? "Enter actual P/L"
+                          : "Edit actual P/L"}
+                      </button>
+                      {bet.manualProfitOverride !== null ? (
+                        <button
+                          type="button"
+                          onClick={() => resetActualProfit(bet.id)}
+                          className="h-9 rounded-lg border bg-background text-[10px] font-semibold text-muted transition-colors hover:text-foreground"
+                        >
+                          Reset to automatic
+                        </button>
+                      ) : null}
+                    </div>
                   ) : null}
 
                   {bet.status === "open" ? (
@@ -1736,7 +1782,7 @@ export function ManualTracker() {
               <h3 className="text-sm font-semibold">Cashout amount</h3>
             </div>
             <p className="mt-2 text-[11px] leading-5 text-muted">
-              Enter the total amount returned to you when you cashed out. Lynerva
+              Enter the total amount returned to you when you cashed out. Huddlemark
               will use it to calculate realized P/L.
             </p>
             <label className="mt-4 block">
@@ -1782,12 +1828,12 @@ export function ManualTracker() {
           <div className="premium-panel w-full max-w-sm rounded-2xl p-5">
             <div className="flex items-center gap-2">
               <CircleDollarSign className="size-4 text-accent" />
-              <h3 className="text-sm font-semibold">Actual straight-bet P/L</h3>
+              <h3 className="text-sm font-semibold">Actual bet P/L</h3>
             </div>
             <p className="mt-2 text-[11px] leading-5 text-muted">
-              Enter the exact profit or loss from the bet. This overrides
-              Lynerva&apos;s inferred payout without changing the saved entry
-              probabilities.
+              Enter the exact profit or loss shown by the sportsbook. This
+              works for straights, parlays, pushes, and cashouts. The automatic
+              result stays saved so you can reset this correction later.
             </p>
             <label className="mt-4 block">
               <span className="mb-1.5 block text-[10px] font-medium text-muted">

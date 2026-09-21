@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
+import Image from "next/image";
 import type { LiveNflGame } from "@/lib/nfl/live";
 import { teamLogo } from "./subject-visual";
 
@@ -26,9 +28,19 @@ function shortStatus(game: LiveNflGame) {
 }
 
 export function useTickerGames() {
+  const pathname = usePathname();
   const [games, setGames] = useState<LiveNflGame[]>([]);
+  // Live and Games already own a faster scoreboard. Avoid running a second
+  // header poll on those routes.
+  const enabled = ["/", "/builder", "/tracker"].some(
+    (route) => pathname === route || pathname.startsWith(`${route}/`),
+  );
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     let cancelled = false;
 
     const refresh = async () => {
@@ -55,23 +67,28 @@ export function useTickerGames() {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, []);
+  }, [enabled]);
 
   return useMemo(
     () =>
-      games
-        .filter((game) => game.home.team !== "—" && game.away.team !== "—")
-        .toSorted((first, second) => {
-          const stateRank = (state: string) =>
-            state === "in" ? 0 : state === "pre" ? 1 : 2;
-          const rankDiff = stateRank(first.state) - stateRank(second.state);
-          if (rankDiff !== 0) return rankDiff;
-          return (
-            new Date(first.startsAt).getTime() -
-            new Date(second.startsAt).getTime()
-          );
-        }),
-    [games],
+      enabled
+        ? games
+            .filter(
+              (game) => game.home.team !== "—" && game.away.team !== "—",
+            )
+            .toSorted((first, second) => {
+              const stateRank = (state: string) =>
+                state === "in" ? 0 : state === "pre" ? 1 : 2;
+              const rankDiff =
+                stateRank(first.state) - stateRank(second.state);
+              if (rankDiff !== 0) return rankDiff;
+              return (
+                new Date(first.startsAt).getTime() -
+                new Date(second.startsAt).getTime()
+              );
+            })
+        : [],
+    [enabled, games],
   );
 }
 
@@ -86,9 +103,12 @@ function TeamScore({
 }) {
   return (
     <span className="flex items-center gap-1.5">
-      <img
+      <Image
+        unoptimized
         src={teamLogo(team)}
         alt=""
+        width={16}
+        height={16}
         className="size-4 shrink-0 object-contain"
       />
       <span className="font-semibold">{team}</span>
@@ -101,11 +121,9 @@ function TeamScore({
 
 function TickerItem({
   game,
-  mobile = false,
   onOpen,
 }: {
   game: LiveNflGame;
-  mobile?: boolean;
   onOpen: (game: LiveNflGame) => void;
 }) {
   const showScore = game.state !== "pre";
@@ -114,11 +132,7 @@ function TickerItem({
     <button
       type="button"
       onClick={() => onOpen(game)}
-      className={
-        mobile
-          ? "score-ticker-item-mobile flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-[10px] transition-colors hover:bg-surface"
-          : "score-ticker-item-desktop flex shrink-0 items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[10px] transition-colors hover:bg-surface"
-      }
+      className="score-ticker-item flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-[10px] transition-colors hover:bg-surface"
       aria-label={`Open best bets for ${game.away.team} at ${game.home.team}`}
     >
       <TeamScore
@@ -147,67 +161,30 @@ function TickerItem({
   );
 }
 
-function Track({
-  games,
-  mobile = false,
-  onOpen,
-}: {
-  games: LiveNflGame[];
-  mobile?: boolean;
-  onOpen: (game: LiveNflGame) => void;
-}) {
-  if (!games.length) return null;
-  const repeated = games.length > (mobile ? 2 : 3);
-  const items = repeated ? [...games, ...games] : games;
-
-  return (
-    <div className="score-ticker-window min-w-0 flex-1 overflow-hidden">
-      <div
-        className={
-          repeated
-            ? "score-ticker-track score-ticker-track-moving flex w-max items-center gap-1.5"
-            : "score-ticker-track flex w-max items-center gap-1.5"
-        }
-      >
-        {items.map((game, index) => (
-          <TickerItem
-            key={`${game.id}:${index}`}
-            game={game}
-            mobile={mobile}
-            onOpen={onOpen}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-export function DesktopScoreTicker({ games }: { games: LiveNflGame[] }) {
+export function ScoreTicker({ games }: { games: LiveNflGame[] }) {
   const router = useRouter();
   if (!games.length) return null;
   const openGame = (game: LiveNflGame) =>
     router.push(`/games?game=${encodeURIComponent(matchupKey(game))}`);
 
+  // A score strip is navigation, not a second scoreboard. Keeping the most
+  // relevant eight games makes it quick to scan and prevents hidden duplicate
+  // marquees from adding hundreds of DOM nodes on every route.
+  const visible = games.slice(0, 8);
+
   return (
-    <div className="hidden min-w-0 flex-1 items-center lg:flex">
+    <div className="score-ticker-responsive order-3 -mx-1 flex w-full min-w-0 items-center overflow-hidden pb-2 lg:order-none lg:mx-0 lg:w-auto lg:flex-1 lg:pb-0">
       <span className="mr-2 flex shrink-0 items-center gap-1.5 text-[8px] font-bold uppercase tracking-[0.12em] text-faint">
         <span className="size-1.5 rounded-full bg-positive" />
         NFL
       </span>
-      <Track games={games} onOpen={openGame} />
-    </div>
-  );
-}
-
-export function MobileScoreTicker({ games }: { games: LiveNflGame[] }) {
-  const router = useRouter();
-  if (!games.length) return null;
-  const openGame = (game: LiveNflGame) =>
-    router.push(`/games?game=${encodeURIComponent(matchupKey(game))}`);
-
-  return (
-    <div className="score-ticker-mobile -mx-1 flex min-w-0 items-center overflow-hidden pb-2 sm:hidden">
-      <Track games={games} mobile onOpen={openGame} />
+      <div className="scrollbar-subtle min-w-0 flex-1 overflow-x-auto overscroll-x-contain">
+        <div className="flex w-max items-center gap-1.5">
+          {visible.map((game) => (
+            <TickerItem key={game.id} game={game} onOpen={openGame} />
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

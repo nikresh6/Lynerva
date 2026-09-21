@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowUpRight, X } from "lucide-react";
 import type { LiveNflGame } from "@/lib/nfl/live";
@@ -138,7 +139,14 @@ function TeamLine({
   return (
     <div className="flex min-w-0 items-center gap-2.5">
       <span className="grid size-9 shrink-0 place-items-center rounded-xl border bg-background p-1.5">
-        <img src={teamLogo(team)} alt="" className="size-full object-contain" />
+        <Image
+          unoptimized
+          src={teamLogo(team)}
+          alt=""
+          width={36}
+          height={36}
+          className="size-full object-contain"
+        />
       </span>
       <span className="truncate text-[15px] font-semibold">{team}</span>
       {showScore ? (
@@ -157,6 +165,10 @@ function BetRow({
   visual: PlayerVisualData | null | undefined;
   onOpen: () => void;
 }) {
+  const liveCurrent = market.model.components?.liveCurrentValue ?? null;
+  const liveProjected = market.model.components?.liveProjectedFinal ?? null;
+  const line = market.canonical?.threshold ?? null;
+
   return (
     <button
       type="button"
@@ -180,9 +192,18 @@ function BetRow({
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-faint">
           <span>Market {formatPercent(market.executablePriceBps)}</span>
-          <span>Lynerva {formatPercent(market.recommendedProbabilityBps)}</span>
+          <span>Model {formatPercent(market.recommendedProbabilityBps)}</span>
           <span>{edgeLabel(market)} edge</span>
         </div>
+        {market.isLive && liveCurrent !== null ? (
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[10px] font-medium text-accent">
+            <span>Now {liveCurrent.toFixed(1)}</span>
+            {line !== null ? <span>Line {line}</span> : null}
+            {liveProjected !== null ? (
+              <span>Projected {liveProjected.toFixed(1)}</span>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div className="flex items-center gap-2.5 pl-2">
@@ -222,7 +243,7 @@ export function GameBetsModal({
       if (document.visibilityState === "visible") void refresh();
     }, 10_000);
     return () => window.clearInterval(timer);
-  }, [liveOnly]);
+  }, [liveOnly, refresh]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -325,7 +346,7 @@ export function GameBetsModal({
                 {liveOnly ? "Best live bets" : "Best bets"}
               </div>
               <div className="mt-0.5 text-[10px] text-faint">
-                Ranked by Lynerva Score for this game only
+                Ranked by Pick Score for this game only
               </div>
             </div>
             {refreshing ? (
@@ -367,7 +388,7 @@ export function GameBetsModal({
                     : "No rated bets for this game right now."}
                 </div>
                 <p className="mx-auto mt-2 max-w-sm text-xs leading-5 text-muted">
-                  Lynerva only shows markets with a model-backed probability and an executable price.
+                  Huddlemark only shows markets with a model-backed probability and an executable price.
                 </p>
               </div>
             )}

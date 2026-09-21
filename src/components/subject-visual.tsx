@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import type { MarketOpportunity } from "@/lib/markets/types";
 import { cn } from "@/lib/utils";
 import type { PlayerVisualData } from "./player-visuals";
@@ -43,10 +44,12 @@ export function SubjectVisual({
           className,
         )}
       >
-        <img
-          loading="lazy"
+        <Image
+          unoptimized
           src={teamLogo(subject)}
           alt={subject}
+          width={64}
+          height={64}
           className="size-full object-contain"
         />
       </div>
@@ -74,10 +77,12 @@ export function SubjectVisual({
     >
       <div className="absolute inset-0 overflow-hidden rounded-[14px] border bg-[linear-gradient(145deg,var(--surface-raised),var(--background))] shadow-[inset_0_1px_0_rgb(255_255_255/0.05)]">
         {showImage ? (
-          <img
-            loading="lazy"
+          <Image
+            unoptimized
             src={visual?.imageUrl ?? ""}
             alt={subject}
+            width={96}
+            height={96}
             onError={() => setImageFailed(true)}
             className="size-full object-cover object-top"
           />
@@ -101,10 +106,12 @@ export function SubjectVisual({
               index ? "-ml-1.5" : "",
             )}
           >
-            <img
-              loading="lazy"
+            <Image
+              unoptimized
               src={teamLogo(team)}
               alt=""
+              width={20}
+              height={20}
               className="size-full object-contain"
             />
           </span>

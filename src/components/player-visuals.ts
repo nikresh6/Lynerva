@@ -14,7 +14,14 @@ export function usePlayerVisuals(names: string[]) {
   const namesKey = names.join("|");
   const stableNames = useMemo(
     () =>
-      [...new Set(names.map((name) => name.trim()).filter(Boolean))].toSorted(),
+      [
+        ...new Set(
+          namesKey
+            .split("|")
+            .map((name) => name.trim())
+            .filter(Boolean),
+        ),
+      ].toSorted(),
     [namesKey],
   );
   const [version, setVersion] = useState(0);
@@ -50,6 +57,8 @@ export function usePlayerVisuals(names: string[]) {
   }, [stableNames]);
 
   return useMemo(() => {
+    // The cache is external to React; version invalidates this snapshot after a fetch.
+    void version;
     const result: Record<string, PlayerVisualData | null> = {};
     for (const name of stableNames) {
       result[name] = cache.get(name) ?? null;
