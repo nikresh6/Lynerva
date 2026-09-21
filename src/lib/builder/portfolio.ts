@@ -26,6 +26,8 @@ export interface PortfolioPlanOptions {
   mode: BuilderMode;
   maxLegs: number;
   subjectTeams?: Record<string, string | null | undefined>;
+  singleGame?: boolean;
+  maxPositions?: number;
 }
 
 export interface PortfolioPosition {
@@ -110,6 +112,67 @@ function pickDirection(market: MarketOpportunity) {
   if (canonical.direction === "under") return "over";
   if (canonical.direction === "yes") return "no";
   return "yes";
+}
+
+const YARDAGE_FAMILIES = new Set([
+  "passing_yards",
+  "rushing_yards",
+  "receiving_yards",
+]);
+
+const TOUCHDOWN_FAMILIES = new Set([
+  "passing_touchdowns",
+  "rushing_touchdowns",
+  "receiving_touchdowns",
+  "touchdowns",
+]);
+
+function allowedSingleGameSubjectPair(
+  first: MarketOpportunity,
+  second: MarketOpportunity,
+) {
+  const firstSubject = first.canonical?.subject?.toLowerCase();
+  const secondSubject = second.canonical?.subject?.toLowerCase();
+  if (!firstSubject || !secondSubject || firstSubject !== secondSubject) {
+    return true;
+  }
+
+  const firstFamily = first.canonical?.family ?? "other";
+  const secondFamily = second.canonical?.family ?? "other";
+  return (
+    (YARDAGE_FAMILIES.has(firstFamily) &&
+      TOUCHDOWN_FAMILIES.has(secondFamily)) ||
+    (TOUCHDOWN_FAMILIES.has(firstFamily) &&
+      YARDAGE_FAMILIES.has(secondFamily))
+  );
+}
+
+function candidateSingleGameCompatible(
+  candidate: Candidate,
+  selected: Candidate[],
+) {
+  for (let left = 0; left < candidate.legs.length; left += 1) {
+    for (let right = left + 1; right < candidate.legs.length; right += 1) {
+      const first = candidate.legs[left];
+      const second = candidate.legs[right];
+      if (first && second && !allowedSingleGameSubjectPair(first, second)) {
+        return false;
+      }
+    }
+  }
+
+  for (const existing of selected) {
+    for (const candidateLeg of candidate.legs) {
+      for (const existingLeg of existing.legs) {
+        if (marketKey(candidateLeg) === marketKey(existingLeg)) return false;
+        if (!allowedSingleGameSubjectPair(candidateLeg, existingLeg)) {
+          return false;
+        }
+      }
+    }
+  }
+
+  return true;
 }
 
 function subjectTeam(
@@ -593,6 +656,79 @@ function selectPortfolioCandidates(
   return selected;
 }
 
+function selectSingleGamePortfolioCandidates(
+  straights: Candidate[],
+  parlays: Candidate[],
+  risk: PortfolioRisk,
+  targetReturn: number,
+  subjectTeams: PortfolioPlanOptions["subjectTeams"],
+  maxPositions: number,
+) {
+  const seeded = selectPortfolioCandidates(
+    straights,
+    parlays,
+    risk,
+    targetReturn,
+    subjectTeams,
+  );
+
+  const pool = [
+    ...seeded,
+    ...straights.slice(0, 28),
+    ...parlays.slice(0, 36),
+  ];
+  const unique = new Map<string, Candidate>();
+  for (const candidate of pool) {
+    if (!unique.has(candidate.id)) unique.set(candidate.id, candidate);
+  }
+
+  const ranked = [...unique.values()].toSorted((first, second) => {
+    const firstDistance = Math.abs(
+      Math.log(Math.max(first.grossReturn, 1.001) / Math.max(targetReturn, 1.001)),
+    );
+    const secondDistance = Math.abs(
+      Math.log(Math.max(second.grossReturn, 1.001) / Math.max(targetReturn, 1.001)),
+    );
+    const firstUtility =
+      first.score +
+      (first.displayScore / 100) * 0.28 +
+      Math.log(Math.max(first.expectedValueMultiplier, 1e-6)) * 0.35 -
+      firstDistance * 0.08;
+    const secondUtility =
+      second.score +
+      (second.displayScore / 100) * 0.28 +
+      Math.log(Math.max(second.expectedValueMultiplier, 1e-6)) * 0.35 -
+      secondDistance * 0.08;
+    return secondUtility - firstUtility;
+  });
+
+  const chosen: Candidate[] = [];
+
+  const bestStraight = ranked.find(
+    (candidate) =>
+      candidate.kind === "straight" &&
+      candidateSingleGameCompatible(candidate, chosen),
+  );
+  if (bestStraight) chosen.push(bestStraight);
+
+  const bestParlay = ranked.find(
+    (candidate) =>
+      candidate.kind === "parlay" &&
+      !chosen.some((row) => row.id === candidate.id) &&
+      candidateSingleGameCompatible(candidate, chosen),
+  );
+  if (bestParlay && chosen.length < maxPositions) chosen.push(bestParlay);
+
+  for (const candidate of ranked) {
+    if (chosen.length >= maxPositions) break;
+    if (chosen.some((row) => row.id === candidate.id)) continue;
+    if (!candidateSingleGameCompatible(candidate, chosen)) continue;
+    chosen.push(candidate);
+  }
+
+  return chosen.slice(0, maxPositions);
+}
+
 function shareBounds(
   role: PortfolioRole,
   risk: PortfolioRisk,
@@ -801,13 +937,26 @@ export function buildPortfolioPlan(
 
   if (!straights.length || !parlays.length) return null;
 
-  const selected = selectPortfolioCandidates(
-    straights,
-    parlays,
-    options.risk,
-    targetReturn,
-    options.subjectTeams,
+  const maxPositions = Math.max(
+    1,
+    Math.min(options.maxPositions ?? (options.singleGame ? 3 : 12), 12),
   );
+  const selected = options.singleGame
+    ? selectSingleGamePortfolioCandidates(
+        straights,
+        parlays,
+        options.risk,
+        targetReturn,
+        options.subjectTeams,
+        maxPositions,
+      )
+    : selectPortfolioCandidates(
+        straights,
+        parlays,
+        options.risk,
+        targetReturn,
+        options.subjectTeams,
+      ).slice(0, maxPositions);
 
   const selectedStraights = selected.filter(
     (candidate) => candidate.kind === "straight",
