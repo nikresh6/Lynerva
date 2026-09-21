@@ -110,6 +110,8 @@ export interface ModelEstimate {
     liveRemainingFraction?: number | null;
     liveOvertimeProbabilityBps?: number | null;
     preInjuryProbabilityBps?: number | null;
+    injuryConditionalProbabilityBps?: number | null;
+    injuryDnpSettlementBps?: number | null;
     injuryAdjustedProjection?: number | null;
     injuryStatus?: string | null;
     injuryDetail?: string | null;
