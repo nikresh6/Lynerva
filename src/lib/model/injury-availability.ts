@@ -26,6 +26,25 @@ export interface InjuryAvailabilityEstimate {
   reasons: string[];
 }
 
+export function blendConditionalWithDnpFairValueBps(input: {
+  conditionalProbabilityBps: number | null;
+  playProbabilityBps: number | null;
+  dnpFairValueBps: number | null;
+}) {
+  if (input.conditionalProbabilityBps === null) return null;
+  if (
+    input.playProbabilityBps === null ||
+    input.dnpFairValueBps === null
+  ) {
+    return input.conditionalProbabilityBps;
+  }
+  const play = clamp(input.playProbabilityBps / 10_000, 0, 1);
+  return Math.round(
+    play * input.conditionalProbabilityBps +
+      (1 - play) * input.dnpFairValueBps,
+  );
+}
+
 function normalizedText(signals: InjuryAvailabilitySignals) {
   return [
     signals.status,
@@ -59,6 +78,14 @@ export function estimateInjuryAvailability(
   const text = normalizedText(signals);
   const status = signals.status?.trim() || null;
   const reasons: string[] = [];
+
+  const onlyRestSignal =
+    !signals.status &&
+    !signals.detail &&
+    !signals.bodyPart &&
+    !signals.notes &&
+    /\b(rest|veteran rest|not injury related|non-injury related)\b/.test(text);
+  if (onlyRestSignal) return null;
 
   const ruledOut =
     /\bruled out\b|\bout\b|injured reserve|\bir\b|physically unable to perform|\bpup\b/.test(
