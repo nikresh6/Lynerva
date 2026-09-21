@@ -1,14 +1,19 @@
 import "server-only";
 
-import { desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gte } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   marketListings,
+  nflGames,
   normalizedMarkets,
   predictionResults,
   predictions,
+  weeklyScorecardPicks,
 } from "@/db/schema";
 import { recommendedPredictionPerspective } from "./prediction-perspective";
+
+const SCORECARD_LAUNCH_AT = new Date("2026-09-21T02:46:31.000Z");
+const LOCK_SCAN_WINDOW_MS = 14 * 24 * 60 * 60_000;
 
 export type ScorecardPick = {
   id: string;
@@ -38,49 +43,6 @@ export type WeeklyScorecard = {
   profitOnTen: number;
   roi: number;
 };
-
-function weekStart(date: Date) {
-  const copy = new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
-  );
-  const day = copy.getUTCDay();
-  copy.setUTCDate(copy.getUTCDate() - (day === 0 ? 6 : day - 1));
-  return copy;
-}
-
-function weekIdentity(
-  features: Record<string, number | string | boolean | null>,
-  fallback: Date,
-) {
-  const season =
-    typeof features.projectionSeason === "number"
-      ? features.projectionSeason
-      : null;
-  const week =
-    typeof features.projectionWeek === "number"
-      ? features.projectionWeek
-      : null;
-  if (season && week) {
-    return {
-      key: `${season}-week-${week}`,
-      label: `NFL Week ${week}`,
-      season,
-      week,
-    };
-  }
-
-  const start = weekStart(fallback);
-  return {
-    key: start.toISOString().slice(0, 10),
-    label: `Week of ${new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-      timeZone: "UTC",
-    }).format(start)}`,
-    season: fallback.getUTCFullYear(),
-    week: null,
-  };
-}
 
 const FAMILY_LABELS: Record<string, string> = {
   passing_yards: "passing yards",
@@ -134,13 +96,233 @@ function pickTitle(input: {
   return input.side === "yes" ? input.marketTitle : `No · ${input.marketTitle}`;
 }
 
+function canonicalTeamCode(code: string) {
+  const upper = code.trim().toUpperCase();
+  if (upper === "WSH") return "WAS";
+  if (upper === "JAC") return "JAX";
+  if (upper === "LA") return "LAR";
+  return upper;
+}
+
+function matchupKey(value: string) {
+  return value
+    .split("-")
+    .map(canonicalTeamCode)
+    .filter(Boolean)
+    .toSorted()
+    .join("-");
+}
+
+function publicScore(features: Record<string, number | string | boolean | null>) {
+  return typeof features.lynervaScore === "number"
+    ? features.lynervaScore
+    : null;
+}
+
+async function lockEligibleScorecards() {
+  const db = getDb();
+  const now = new Date();
+
+  const alreadyLocked = await db
+    .select({
+      season: weeklyScorecardPicks.season,
+      week: weeklyScorecardPicks.week,
+    })
+    .from(weeklyScorecardPicks);
+  const lockedKeys = new Set(
+    alreadyLocked.map((row) => `${row.season}:${row.week}`),
+  );
+
+  const scanFrom = new Date(
+    Math.max(
+      SCORECARD_LAUNCH_AT.getTime(),
+      now.getTime() - LOCK_SCAN_WINDOW_MS,
+    ),
+  );
+
+  const rows = await db
+    .select({
+      id: predictions.id,
+      normalizedMarketId: predictions.normalizedMarketId,
+      predictedProbabilityBps: predictions.predictedProbabilityBps,
+      executablePriceBps: predictions.executablePriceBps,
+      edgeBps: predictions.edgeBps,
+      opportunityScore: predictions.opportunityScore,
+      features: predictions.features,
+      predictedAt: predictions.predictedAt,
+      eventTitle: marketListings.eventTitle,
+      marketTitle: marketListings.marketTitle,
+      family: normalizedMarkets.family,
+      direction: normalizedMarkets.direction,
+      threshold: normalizedMarkets.threshold,
+      outcomeLabel: normalizedMarkets.outcomeLabel,
+    })
+    .from(predictions)
+    .innerJoin(
+      marketListings,
+      eq(marketListings.id, predictions.listingId),
+    )
+    .innerJoin(
+      normalizedMarkets,
+      eq(normalizedMarkets.id, predictions.normalizedMarketId),
+    )
+    .where(gte(predictions.predictedAt, scanFrom))
+    .orderBy(desc(predictions.predictedAt));
+
+  const grouped = new Map<
+    string,
+    {
+      season: number;
+      week: number;
+      candidates: typeof rows;
+    }
+  >();
+
+  for (const row of rows) {
+    if (row.features.live === true) continue;
+    const season =
+      typeof row.features.projectionSeason === "number"
+        ? row.features.projectionSeason
+        : null;
+    const week =
+      typeof row.features.projectionWeek === "number"
+        ? row.features.projectionWeek
+        : null;
+    if (!season || !week || publicScore(row.features) === null) continue;
+
+    const key = `${season}:${week}`;
+    if (lockedKeys.has(key)) continue;
+    const group = grouped.get(key) ?? { season, week, candidates: [] };
+    group.candidates.push(row);
+    grouped.set(key, group);
+  }
+
+  for (const { season, week, candidates } of grouped.values()) {
+    const key = `${season}:${week}`;
+    if (lockedKeys.has(key)) continue;
+
+    const games = await db
+      .select({
+        kickoffAt: nflGames.kickoffAt,
+        homeTeam: nflGames.homeTeam,
+        awayTeam: nflGames.awayTeam,
+      })
+      .from(nflGames)
+      .where(
+        and(
+          eq(nflGames.season, season),
+          eq(nflGames.week, week),
+          eq(nflGames.seasonType, "REG"),
+        ),
+      );
+
+    if (!games.length) continue;
+    const firstKickoffMs = Math.min(
+      ...games.map((game) => game.kickoffAt.getTime()),
+    );
+    if (now.getTime() < firstKickoffMs) continue;
+
+    const kickoffByMatchup = new Map(
+      games.map((game) => [
+        matchupKey(`${game.homeTeam}-${game.awayTeam}`),
+        game.kickoffAt,
+      ]),
+    );
+
+    let lockAt = new Date(firstKickoffMs);
+    if (SCORECARD_LAUNCH_AT.getTime() > firstKickoffMs) {
+      const firstEligibleCapture = candidates
+        .map((candidate) => candidate.predictedAt.getTime())
+        .filter((value) => value >= SCORECARD_LAUNCH_AT.getTime())
+        .toSorted((a, b) => a - b)[0];
+      if (firstEligibleCapture === undefined) continue;
+      lockAt = new Date(firstEligibleCapture);
+    }
+
+    const latestByMarket = new Map<string, (typeof candidates)[number]>();
+    for (const candidate of candidates) {
+      if (candidate.predictedAt.getTime() > lockAt.getTime()) continue;
+      if (candidate.predictedAt.getTime() < SCORECARD_LAUNCH_AT.getTime()) {
+        continue;
+      }
+
+      const matchup =
+        typeof candidate.features.matchup === "string"
+          ? matchupKey(candidate.features.matchup)
+          : "";
+      const kickoff = kickoffByMatchup.get(matchup);
+      if (!kickoff || candidate.predictedAt.getTime() >= kickoff.getTime()) {
+        continue;
+      }
+
+      if (!latestByMarket.has(candidate.normalizedMarketId)) {
+        latestByMarket.set(candidate.normalizedMarketId, candidate);
+      }
+    }
+
+    const distinct = new Map<
+      string,
+      (typeof candidates)[number]
+    >();
+    for (const candidate of [...latestByMarket.values()].toSorted((a, b) => {
+      const scoreDiff =
+        (publicScore(b.features) ?? -Infinity) -
+        (publicScore(a.features) ?? -Infinity);
+      return scoreDiff || b.edgeBps - a.edgeBps;
+    })) {
+      const subject =
+        typeof candidate.features.subject === "string"
+          ? candidate.features.subject
+          : "";
+      const matchup =
+        typeof candidate.features.matchup === "string"
+          ? matchupKey(candidate.features.matchup)
+          : candidate.eventTitle;
+      const perspective = recommendedPredictionPerspective(candidate);
+      const distinctKey = [
+        matchup,
+        candidate.family,
+        subject,
+        perspective.side,
+      ].join(":");
+      if (!distinct.has(distinctKey)) {
+        distinct.set(distinctKey, candidate);
+      }
+    }
+
+    const top = [...distinct.values()].slice(0, 10);
+    if (top.length < 10) continue;
+
+    await db
+      .insert(weeklyScorecardPicks)
+      .values(
+        top.map((candidate, index) => ({
+          id: `${season}-week-${week}-rank-${index + 1}`,
+          season,
+          week,
+          rank: index + 1,
+          predictionId: candidate.id,
+          lockedAt: lockAt,
+        })),
+      )
+      .onConflictDoNothing();
+
+    lockedKeys.add(key);
+  }
+}
+
 export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
   try {
     const db = getDb();
+    await lockEligibleScorecards();
+
     const rows = await db
       .select({
+        rank: weeklyScorecardPicks.rank,
+        season: weeklyScorecardPicks.season,
+        week: weeklyScorecardPicks.week,
+        lockedAt: weeklyScorecardPicks.lockedAt,
         id: predictions.id,
-        normalizedMarketId: predictions.normalizedMarketId,
         predictedProbabilityBps: predictions.predictedProbabilityBps,
         executablePriceBps: predictions.executablePriceBps,
         edgeBps: predictions.edgeBps,
@@ -155,9 +337,12 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
         direction: normalizedMarkets.direction,
         threshold: normalizedMarkets.threshold,
         outcomeLabel: normalizedMarkets.outcomeLabel,
-        settlementAt: normalizedMarkets.settlementAt,
       })
-      .from(predictions)
+      .from(weeklyScorecardPicks)
+      .innerJoin(
+        predictions,
+        eq(predictions.id, weeklyScorecardPicks.predictionId),
+      )
       .innerJoin(
         marketListings,
         eq(marketListings.id, predictions.listingId),
@@ -170,65 +355,24 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
         predictionResults,
         eq(predictionResults.predictionId, predictions.id),
       )
-      .orderBy(desc(predictions.predictedAt))
-      .limit(3_000);
-
-    const latestByMarket = new Map<string, (typeof rows)[number]>();
-    for (const row of rows) {
-      if (row.features.live === true) continue;
-      if (!latestByMarket.has(row.normalizedMarketId)) {
-        latestByMarket.set(row.normalizedMarketId, row);
-      }
-    }
-
-    const grouped = new Map<
-      string,
-      {
-        identity: ReturnType<typeof weekIdentity>;
-        candidates: Array<(typeof rows)[number]>;
-      }
-    >();
-    for (const row of latestByMarket.values()) {
-      const identity = weekIdentity(
-        row.features,
-        row.settlementAt ?? row.predictedAt,
+      .orderBy(
+        desc(weeklyScorecardPicks.season),
+        desc(weeklyScorecardPicks.week),
+        asc(weeklyScorecardPicks.rank),
       );
-      const group = grouped.get(identity.key) ?? {
-        identity,
-        candidates: [],
-      };
-      group.candidates.push(row);
-      grouped.set(identity.key, group);
+
+    const grouped = new Map<string, typeof rows>();
+    for (const row of rows) {
+      const key = `${row.season}-week-${row.week}`;
+      const group = grouped.get(key) ?? [];
+      group.push(row);
+      grouped.set(key, group);
     }
 
-    return [...grouped.values()]
-      .map(({ identity, candidates }) => {
-        const distinct = new Map<string, (typeof candidates)[number]>();
-        for (const candidate of candidates.toSorted(
-          (a, b) =>
-            b.opportunityScore - a.opportunityScore ||
-            b.edgeBps - a.edgeBps,
-        )) {
-          const subject =
-            typeof candidate.features.subject === "string"
-              ? candidate.features.subject
-              : "";
-          const matchup =
-            typeof candidate.features.matchup === "string"
-              ? candidate.features.matchup
-              : candidate.eventTitle;
-          const perspective = recommendedPredictionPerspective(candidate);
-          const key = [
-            matchup,
-            candidate.family,
-            subject,
-            perspective.side,
-          ].join(":");
-          if (!distinct.has(key)) distinct.set(key, candidate);
-        }
-
-        const top = [...distinct.values()].slice(0, 10);
-        const picks: ScorecardPick[] = top.map((row, index) => {
+    return [...grouped.entries()]
+      .map(([key, picksRows]) => {
+        const first = picksRows[0]!;
+        const picks: ScorecardPick[] = picksRows.map((row) => {
           const perspective = recommendedPredictionPerspective(row);
           const result =
             row.outcome === null
@@ -248,9 +392,10 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
             typeof row.features.subject === "string"
               ? row.features.subject
               : null;
+
           return {
             id: row.id,
-            rank: index + 1,
+            rank: row.rank,
             title: pickTitle({
               family: row.family,
               direction: row.direction,
@@ -265,13 +410,14 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
             probabilityBps: perspective.probabilityBps,
             executablePriceBps: row.executablePriceBps,
             edgeBps: row.edgeBps,
-            score: row.opportunityScore,
+            score: publicScore(row.features) ?? row.opportunityScore,
             frozenAt: row.predictedAt.toISOString(),
             settledAt: row.settledAt?.toISOString() ?? null,
             result,
             profitOnTen,
           };
         });
+
         const settledPicks = picks.filter((pick) => pick.profitOnTen !== null);
         const profitOnTen = settledPicks.reduce(
           (sum, pick) => sum + (pick.profitOnTen ?? 0),
@@ -279,8 +425,12 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
         );
         const settled = settledPicks.length;
         const hits = picks.filter((pick) => pick.result === "hit").length;
+
         return {
-          ...identity,
+          key,
+          label: `NFL Week ${first.week}`,
+          season: first.season,
+          week: first.week,
           picks,
           settled,
           hits,
@@ -289,8 +439,6 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
           roi: settled ? profitOnTen / (settled * 10) : 0,
         };
       })
-      .filter((week) => week.picks.length > 0)
-      .toSorted((a, b) => b.key.localeCompare(a.key))
       .slice(0, 12);
   } catch (error) {
     console.error("Weekly scorecards unavailable", error);
