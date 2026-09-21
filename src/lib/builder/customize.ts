@@ -23,6 +23,7 @@ export interface MarketReplacementOptions {
   toleranceBps: number;
   existingLegs?: MarketOpportunity[];
   mode?: BuilderMode;
+  singleGame?: boolean;
   limit?: number;
 }
 
@@ -68,6 +69,64 @@ function directionMatches(
     return market.canonical?.family === "moneyline";
   }
   return builderPickDirection(market) === direction;
+}
+
+const CUSTOMIZE_YARDAGE_FAMILIES = new Set([
+  "passing_yards",
+  "rushing_yards",
+  "receiving_yards",
+]);
+
+const CUSTOMIZE_TOUCHDOWN_FAMILIES = new Set([
+  "passing_touchdowns",
+  "rushing_touchdowns",
+  "receiving_touchdowns",
+  "touchdowns",
+]);
+
+function allowedSingleGamePlayerPair(
+  first: MarketOpportunity,
+  second: MarketOpportunity,
+) {
+  const firstSubject = first.canonical?.subject?.toLowerCase();
+  const secondSubject = second.canonical?.subject?.toLowerCase();
+  if (!firstSubject || !secondSubject || firstSubject !== secondSubject) {
+    return true;
+  }
+
+  const firstFamily = first.canonical?.family ?? "other";
+  const secondFamily = second.canonical?.family ?? "other";
+  return (
+    (CUSTOMIZE_YARDAGE_FAMILIES.has(firstFamily) &&
+      CUSTOMIZE_TOUCHDOWN_FAMILIES.has(secondFamily)) ||
+    (CUSTOMIZE_TOUCHDOWN_FAMILIES.has(firstFamily) &&
+      CUSTOMIZE_YARDAGE_FAMILIES.has(secondFamily))
+  );
+}
+
+function singleGameLegSetCompatible(
+  candidateLegs: MarketOpportunity[],
+  existingLegs: MarketOpportunity[],
+) {
+  for (let firstIndex = 0; firstIndex < candidateLegs.length; firstIndex += 1) {
+    for (
+      let secondIndex = firstIndex + 1;
+      secondIndex < candidateLegs.length;
+      secondIndex += 1
+    ) {
+      const first = candidateLegs[firstIndex];
+      const second = candidateLegs[secondIndex];
+      if (first && second && !allowedSingleGamePlayerPair(first, second)) {
+        return false;
+      }
+    }
+  }
+
+  return candidateLegs.every((candidate) =>
+    existingLegs.every((existing) =>
+      allowedSingleGamePlayerPair(candidate, existing),
+    ),
+  );
 }
 
 function structurallyCompatible(
@@ -135,7 +194,14 @@ export function findMarketReplacements(
       ) {
         return false;
       }
-      return structurallyCompatible(market, existingLegs, mode);
+      if (!structurallyCompatible(market, existingLegs, mode)) return false;
+      if (
+        options.singleGame &&
+        !singleGameLegSetCompatible([market], existingLegs)
+      ) {
+        return false;
+      }
+      return true;
     })
     .map((market) => {
       const priceDistance =
@@ -405,6 +471,7 @@ export function findPortfolioBetReplacements(
     mode: BuilderMode;
     live: "all" | "pregame" | "live";
     existingPositions: PortfolioPosition[];
+    singleGame?: boolean;
     limit?: number;
   },
 ) {
@@ -424,6 +491,7 @@ export function findPortfolioBetReplacements(
         (leg) => marketIdentity(leg) !== marketIdentity(target),
       ),
       mode: "any",
+      singleGame: options.singleGame,
       limit,
     }).map((market) => ({ kind: "straight" as const, market }));
   }
@@ -473,6 +541,10 @@ export function findPortfolioBetReplacements(
       return combination.legs.some(
         (leg) => !currentIds.has(marketIdentity(leg)),
       );
+    })
+    .filter((combination) => {
+      if (!options.singleGame) return true;
+      return singleGameLegSetCompatible(combination.legs, excludedLegs);
     })
     .toSorted((first, second) => {
       const firstDistance = Math.abs(
