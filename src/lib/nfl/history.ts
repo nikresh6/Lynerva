@@ -48,41 +48,46 @@ function valueFromTuple(game: number[], statistic: string) {
   }
 }
 
-export async function findPublicPlayerHistory(
-  subject: string,
-  statistic: string,
-) {
+function findStaticPlayer(subject: string) {
   const normalizedSubject = normalizePerson(subject);
   let player = playerMatchCache.get(normalizedSubject);
-  if (player === undefined) {
-    player = PLAYER_REGULAR_SEASON_HISTORY[normalizedSubject] ?? null;
+  if (player !== undefined) return player;
 
-    if (!player && normalizedSubject.length >= 5) {
-      let bestKey = "";
-      for (const [normalized, candidate] of Object.entries(
-        PLAYER_REGULAR_SEASON_HISTORY,
-      )) {
-        if (
-          normalized.length >= 5 &&
-          (normalizedSubject.includes(normalized) ||
-            normalized.includes(normalizedSubject)) &&
-          normalized.length > bestKey.length
-        ) {
-          bestKey = normalized;
-          player = candidate;
-        }
+  player = PLAYER_REGULAR_SEASON_HISTORY[normalizedSubject] ?? null;
+
+  if (!player && normalizedSubject.length >= 5) {
+    let bestKey = "";
+    for (const [normalized, candidate] of Object.entries(
+      PLAYER_REGULAR_SEASON_HISTORY,
+    )) {
+      if (
+        normalized.length >= 5 &&
+        (normalizedSubject.includes(normalized) ||
+          normalized.includes(normalizedSubject)) &&
+        normalized.length > bestKey.length
+      ) {
+        bestKey = normalized;
+        player = candidate;
       }
     }
-
-    playerMatchCache.set(normalizedSubject, player);
   }
 
+  playerMatchCache.set(normalizedSubject, player);
+  return player;
+}
+
+export async function findPublicPlayerSeasonHistory(
+  subject: string,
+  statistic: string,
+  season: number,
+) {
+  const player = findStaticPlayer(subject);
   if (!player) {
     return { playerName: null, values: [] as HistoricalValue[] };
   }
-  const currentSeason = new Date().getUTCFullYear();
+
   const values = player.g
-    .filter((game) => (game[0] ?? 0) === currentSeason)
+    .filter((game) => (game[0] ?? 0) === season)
     .map((game): HistoricalValue | null => {
       const value = valueFromTuple(game, statistic);
       if (value === null) return null;
@@ -96,4 +101,15 @@ export async function findPublicPlayerHistory(
     .slice(0, 24);
 
   return { playerName: player.n, values };
+}
+
+export async function findPublicPlayerHistory(
+  subject: string,
+  statistic: string,
+) {
+  return findPublicPlayerSeasonHistory(
+    subject,
+    statistic,
+    new Date().getUTCFullYear(),
+  );
 }
