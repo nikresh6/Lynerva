@@ -45,6 +45,25 @@ const weightInflight = new Map<string, Promise<WeightValue>>();
 
 let schemaPromise: Promise<void> | null = null;
 
+function errorChainText(error: unknown) {
+  const parts: string[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    if (current instanceof Error) {
+      parts.push(current.message);
+      current = (current as Error & { cause?: unknown }).cause;
+      continue;
+    }
+    parts.push(String(current));
+    break;
+  }
+
+  return parts.join(" ");
+}
+
 export function ensureSourceLearningSchema() {
   if (schemaPromise) return schemaPromise;
 
@@ -57,10 +76,9 @@ export function ensureSourceLearningSchema() {
         ),
       );
     } catch (error) {
-      if (
-        !(error instanceof Error) ||
-        !/duplicate column name/i.test(error.message)
-      ) {
+      // Drizzle wraps libSQL errors, so the useful SQLite message can live in
+      // error.cause rather than the top-level Error.message.
+      if (!/duplicate column name/i.test(errorChainText(error))) {
         throw error;
       }
     }
