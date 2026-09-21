@@ -1,5 +1,3 @@
-import "server-only";
-
 import {
   PLAYER_REGULAR_SEASON_HISTORY,
   type StaticPlayerHistory,
