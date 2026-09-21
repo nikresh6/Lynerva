@@ -10,6 +10,9 @@ import { getLivePlayerState } from "@/lib/nfl/live-player-stats";
 import { canPublishPlayerProbability, empiricalPlayerProbability, poissonAtLeastProbability } from "./player-probability";
 import {
   conditionalLivePlayerProbability,
+  liveBlowoutSubstitutionMultiplier,
+  liveClockManagementMultiplier,
+  liveExpectedOvertimeFraction,
   liveGameScriptMultiplier,
   liveInjuryAvailabilityMultiplier,
   livePossessionOpportunityMultiplier,
@@ -25,7 +28,7 @@ import type {
   ModelEstimate,
 } from "@/lib/markets/types";
 
-const MODEL_VERSION = "hybrid-consensus-learning-v9";
+const MODEL_VERSION = "hybrid-consensus-learning-v10";
 
 const emptyEvidence: HistoricalEvidence = {
   last5Hits: null,
@@ -107,6 +110,16 @@ function playerScoreMargin(
   if (!game || game.state !== "in" || !playerTeam) return null;
   if (playerTeam === game.home.team) return game.home.score - game.away.score;
   if (playerTeam === game.away.team) return game.away.score - game.home.score;
+  return null;
+}
+
+function opponentTimeoutsRemaining(
+  game: LiveNflGame | null | undefined,
+  playerTeam: string | null | undefined,
+) {
+  if (!game || game.state !== "in" || !playerTeam) return null;
+  if (playerTeam === game.home.team) return game.away.timeouts ?? null;
+  if (playerTeam === game.away.team) return game.home.timeouts ?? null;
   return null;
 }
 
@@ -721,13 +734,47 @@ export async function estimateMarket(
       canonical.family,
       scoreMargin,
     );
+    const playerHasPossession =
+      livePlayerState?.team && liveGame?.possession
+        ? livePlayerState.team === liveGame.possession
+        : null;
+    const opponentTimeouts = opponentTimeoutsRemaining(
+      liveGame,
+      livePlayerState?.team,
+    );
     const possessionMultiplier = livePossessionOpportunityMultiplier(
       remainingFraction,
       livePlayerState?.team,
       liveGame?.possession,
     );
+    const clockManagementMultiplier = liveClockManagementMultiplier(
+      canonical.family,
+      scoreMargin,
+      remainingFraction,
+      playerHasPossession,
+      opponentTimeouts,
+    );
+    const blowoutMultiplier = liveBlowoutSubstitutionMultiplier(
+      canonical.family,
+      scoreMargin,
+      remainingFraction,
+      baselineProjection ?? 0,
+    );
+    const overtimeFraction = liveExpectedOvertimeFraction(
+      scoreMargin,
+      remainingFraction,
+    );
+    const opportunityRemainingFraction = clamp(
+      remainingFraction + overtimeFraction,
+      remainingFraction,
+      1,
+    );
     const remainingRateMultiplier =
-      injuryMultiplier * gameScriptMultiplier * possessionMultiplier;
+      injuryMultiplier *
+      gameScriptMultiplier *
+      possessionMultiplier *
+      clockManagementMultiplier *
+      blowoutMultiplier;
     const liveConditional =
       liveStat !== null && baselineProjection !== null
         ? conditionalLivePlayerProbability({
@@ -738,6 +785,7 @@ export async function estimateMarket(
             baselineFullGameProjection: baselineProjection,
             fullGameStdDev: playerStdDev,
             remainingFraction,
+            opportunityRemainingFraction,
             remainingRateMultiplier,
           })
         : null;
@@ -870,12 +918,15 @@ export async function estimateMarket(
       values.length >= 4 ? clamp(values.length / 40, 0.08, 0.22) : 0;
     const injuryUncertaintyPenalty =
       injuryMultiplier > 0 && injuryMultiplier < 1 ? 0.08 : 0;
+    const blowoutUncertaintyPenalty =
+      blowoutMultiplier < 0.95 ? Math.min(0.12, (1 - blowoutMultiplier) * 0.16) : 0;
     const reliability = clamp(
       sourceReliability +
         historyBoost -
         dispersionPenalty +
         (liveConditional ? 0.08 : 0) -
-        injuryUncertaintyPenalty,
+        injuryUncertaintyPenalty -
+        blowoutUncertaintyPenalty,
       0.30,
       liveConditional ? 0.92 : 0.88,
     );
@@ -922,6 +973,27 @@ export async function estimateMarket(
           (liveGame?.possession === livePlayerState?.team
             ? "the player's offense currently has the ball."
             : "the player's offense is currently off the field."),
+      );
+    }
+    if (liveConditional && clockManagementMultiplier !== 1) {
+      factors.push(
+        "Score, clock, possession, and timeout context adjusted remaining opportunity by " +
+          ((clockManagementMultiplier - 1) * 100).toFixed(0) +
+          "% for likely late-game play calling.",
+      );
+    }
+    if (liveConditional && blowoutMultiplier < 0.98) {
+      factors.push(
+        "Blowout rotation risk reduced expected remaining starter usage by " +
+          ((1 - blowoutMultiplier) * 100).toFixed(0) +
+          "% based on score margin, time left, and normal projected role.",
+      );
+    }
+    if (liveConditional && overtimeFraction > 0) {
+      factors.push(
+        "Close late-game score adds " +
+          (overtimeFraction * 60).toFixed(1) +
+          " expected minutes of potential overtime opportunity.",
       );
     }
     if (
