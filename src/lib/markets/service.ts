@@ -48,6 +48,11 @@ interface NormalizedItem {
 
 let warmSnapshot: { payload: MarketsPayload; storedAt: number } | null = null;
 let refreshPromise: Promise<MarketsPayload> | null = null;
+const matchupSnapshots = new Map<
+  string,
+  { payload: MarketsPayload; storedAt: number }
+>();
+const matchupRefreshPromises = new Map<string, Promise<MarketsPayload>>();
 const modelSnapshotCache = new Map<
   string,
   {
@@ -162,7 +167,9 @@ function bestExecutableSide(input: {
       };
 }
 
-async function computeMarketOpportunities(): Promise<MarketsPayload> {
+async function computeMarketOpportunities(
+  matchupFilter?: string,
+): Promise<MarketsPayload> {
   const fixtureMode =
     process.env.NODE_ENV !== "production" &&
     process.env.USE_MARKET_FIXTURES === "true";
@@ -191,9 +198,32 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
     markets: provider.markets.filter(isSingleLegNflProviderMarket),
   }));
 
-  const providerMarkets = coarseProviders.flatMap(
+  const allProviderMarkets = coarseProviders.flatMap(
     (provider) => provider.markets,
   );
+  const normalizedMatchupFilter = matchupFilter
+    ? matchupFilter
+        .split(/[^A-Za-z]+/)
+        .map((team) => team.trim().toUpperCase())
+        .filter(Boolean)
+        .map((team) => (team === "WSH" ? "WAS" : team === "JAC" ? "JAX" : team === "LA" ? "LAR" : team))
+        .toSorted()
+        .join("-")
+    : null;
+  const providerMarkets = normalizedMatchupFilter
+    ? allProviderMarkets.filter((market) => {
+        const canonical = normalizeMarket(market);
+        if (!canonical?.matchup) return false;
+        const key = canonical.matchup
+          .split(/[^A-Za-z]+/)
+          .map((team) => team.trim().toUpperCase())
+          .filter(Boolean)
+          .map((team) => (team === "WSH" ? "WAS" : team === "JAC" ? "JAX" : team === "LA" ? "LAR" : team))
+          .toSorted()
+          .join("-");
+        return key === normalizedMatchupFilter;
+      })
+    : allProviderMarkets;
 
   const marketGameDate = (market: ProviderMarket, fallback: string | null) => {
     const text = `${market.platformMarketId} ${market.eventTitle}`.toUpperCase();
@@ -668,6 +698,53 @@ export async function getMarketOpportunities(): Promise<MarketsPayload> {
 
 export async function getFreshMarketOpportunities() {
   return refreshSnapshot();
+}
+
+async function refreshMatchupSnapshot(matchup: string) {
+  const existing = matchupRefreshPromises.get(matchup);
+  if (existing) return existing;
+
+  const promise = computeMarketOpportunities(matchup)
+    .then((payload) => {
+      matchupSnapshots.set(matchup, { payload, storedAt: Date.now() });
+      return payload;
+    })
+    .finally(() => {
+      matchupRefreshPromises.delete(matchup);
+    });
+  matchupRefreshPromises.set(matchup, promise);
+  return promise;
+}
+
+export async function getMarketOpportunitiesForMatchup(
+  matchup: string,
+): Promise<MarketsPayload> {
+  const key = matchup
+    .split(/[^A-Za-z]+/)
+    .map((team) => team.trim().toUpperCase())
+    .filter(Boolean)
+    .map((team) => (team === "WSH" ? "WAS" : team === "JAC" ? "JAX" : team === "LA" ? "LAR" : team))
+    .toSorted()
+    .join("-");
+  if (!key) {
+    return {
+      opportunities: [],
+      providers: [],
+      fetchedAt: new Date().toISOString(),
+      fixtureMode: false,
+    };
+  }
+
+  const cached = matchupSnapshots.get(key);
+  if (cached && Date.now() - cached.storedAt < 45_000) {
+    return cached.payload;
+  }
+  if (cached) {
+    void refreshMatchupSnapshot(key);
+    return cached.payload;
+  }
+
+  return refreshMatchupSnapshot(key);
 }
 
 export function marketKey(market: ProviderMarket) {
