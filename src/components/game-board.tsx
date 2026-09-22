@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { ChevronLeft, ChevronRight, Sparkles, Target, Zap } from "lucide-react";
 import type { LiveNflGame } from "@/lib/nfl/live";
@@ -93,12 +92,17 @@ function SgpScore({ score }: { score: number }) {
   );
 }
 
-export function GameBoard() {
-  const params = useSearchParams();
-  const requested = params.get("game")?.toUpperCase() ?? "";
+export function GameBoard({
+  initialGames,
+  requestedGame,
+}: {
+  initialGames: LiveNflGame[];
+  requestedGame: string;
+}) {
+  const requested = requestedGame.toUpperCase();
   const { opportunities, loading, refreshing, refresh } = useMarketData();
-  const [games, setGames] = useState<LiveNflGame[]>([]);
-  const [gamesLoading, setGamesLoading] = useState(true);
+  const [games, setGames] = useState<LiveNflGame[]>(initialGames);
+  const [gamesLoading, setGamesLoading] = useState(initialGames.length === 0);
   const [gamesError, setGamesError] = useState(false);
   const [selectedKey, setSelectedKey] = useState(requested);
   const [selectedMarket, setSelectedMarket] = useState<MarketOpportunity | null>(null);
