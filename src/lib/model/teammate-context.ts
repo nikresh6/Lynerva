@@ -198,6 +198,18 @@ async function computeTeammateContextAdjustment(input: {
 
   const material = availabilityRows.filter(({ availability }) => {
     if (!availability) return false;
+
+    // Sleeper is useful as a supplemental player-level injury source, but a
+    // stale Sleeper tag by itself is not strong enough evidence to redistribute
+    // one player's workload to a teammate. For teammate context, require
+    // game-specific ESPN injury data or fresh attributed injury news.
+    const hasCurrentGameEvidence = Boolean(
+      availability.espnStatus ||
+        availability.newsText ||
+        availability.newsPublishedAt,
+    );
+    if (!hasCurrentGameEvidence) return false;
+
     return (
       availability.risk === "out" ||
       availability.risk === "high" ||
