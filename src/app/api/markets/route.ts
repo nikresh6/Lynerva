@@ -137,7 +137,10 @@ export async function GET() {
     },
     {
       headers: {
-        "Cache-Control": "public, s-maxage=15, stale-while-revalidate=120",
+        // Injury and lineup context can change minutes before kickoff. Do not
+        // let an edge cache keep serving a pre-news model after the server has
+        // already recomputed it.
+        "Cache-Control": "no-store, max-age=0",
       },
     },
   );
