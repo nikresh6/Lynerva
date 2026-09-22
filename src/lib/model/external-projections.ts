@@ -1553,7 +1553,18 @@ export function getExternalProjectionConsensus(
   week: number | null,
   season = 2026,
 ) {
-  const resolvedWeek = week ?? 1;
+  if (week === null || !Number.isInteger(week) || week < 1) {
+    return Promise.resolve({
+      projection: null,
+      points: [] as ProjectionPoint[],
+      dispersion: null,
+      sourceWeights: null,
+      weightWeek: null,
+      position: null,
+    });
+  }
+
+  const resolvedWeek = week;
   const key = [
     normalizePerson(market.subject),
     market.family,
