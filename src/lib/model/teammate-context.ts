@@ -7,6 +7,7 @@ import {
   type ProjectionPoint,
 } from "@/lib/model/external-projections";
 import {
+  hasCurrentTeammateInjuryEvidence,
   passingEfficiencyLossRate,
   teammateContextMode,
   teammateVolumeFamily,
@@ -203,11 +204,11 @@ async function computeTeammateContextAdjustment(input: {
     // stale Sleeper tag by itself is not strong enough evidence to redistribute
     // one player's workload to a teammate. For teammate context, require
     // game-specific ESPN injury data or fresh attributed injury news.
-    const hasCurrentGameEvidence = Boolean(
-      availability.espnStatus ||
-        availability.newsText ||
-        availability.newsPublishedAt,
-    );
+    const hasCurrentGameEvidence = hasCurrentTeammateInjuryEvidence({
+      espnStatus: availability.espnStatus,
+      newsText: availability.newsText,
+      newsPublishedAt: availability.newsPublishedAt,
+    });
     if (!hasCurrentGameEvidence) return false;
 
     return (
