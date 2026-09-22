@@ -770,11 +770,14 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
   const rawConsensusProjection =
     components?.rawConsensusProjection ?? components?.consensusProjection ?? null;
 
+  const teammateAdjustmentDigits =
+    market.canonical?.family === "receptions" ? 1 : 0;
+  const teammateAdjustmentLabel =
+    (teammateProjectionAdjustment > 0 ? "+" : "") +
+    teammateProjectionAdjustment.toFixed(teammateAdjustmentDigits);
   const contextText =
-    teammateProjectionAdjustment > 0.05
-      ? `+${teammateProjectionAdjustment.toFixed(
-          market.canonical?.family === "receptions" ? 1 : 0,
-        )} projection adjustment from teammate availability`
+    Math.abs(teammateProjectionAdjustment) > 0.05
+      ? `${teammateAdjustmentLabel} projection adjustment from teammate availability`
       : Math.abs(contextAdjustment) < 25
         ? "No meaningful change"
         : `${signedPercentFromBps(contextAdjustment)} to this bet`;
@@ -800,13 +803,11 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
                   ? ` vs ${market.canonical.threshold} line`
                   : ""}
               </div>
-              {teammateProjectionAdjustment > 0.05 &&
+              {Math.abs(teammateProjectionAdjustment) > 0.05 &&
               rawConsensusProjection !== null ? (
                 <p className="mt-1 text-[10px] leading-4 text-accent">
                   Raw source consensus {rawConsensusProjection.toFixed(2)} · teammate
-                  availability +{teammateProjectionAdjustment.toFixed(
-                    market.canonical?.family === "receptions" ? 1 : 0,
-                  )}
+                  availability {teammateAdjustmentLabel}
                 </p>
               ) : null}
               <p className="mt-1 text-[11px] leading-5 text-muted">
