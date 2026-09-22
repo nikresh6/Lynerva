@@ -1,10 +1,7 @@
 import "server-only";
 
 import { z } from "zod";
-import {
-  attributedInjurySnippet,
-  injuryRelevant,
-} from "./injury-news-rules";
+import { attributedInjurySnippet } from "./injury-news-rules";
 
 export interface InjuryNewsSignal {
   text: string;
@@ -40,16 +37,6 @@ const espnNewsSchema = z
   .passthrough();
 
 type EspnArticle = z.infer<typeof espnArticleSchema>;
-
-function normalizePerson(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[’']/g, "")
-    .replace(/\b(jr|sr|ii|iii|iv)\b/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replace(/\s+/g, " ");
-}
 
 function decodeHtml(value: string) {
   return value
