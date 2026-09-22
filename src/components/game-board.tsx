@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { ChevronLeft, ChevronRight, Sparkles, Target, Zap } from "lucide-react";
 import type { LiveNflGame } from "@/lib/nfl/live";
@@ -31,47 +31,6 @@ function normalizeMatchup(value: string | null | undefined) {
 
 function keyFor(game: LiveNflGame) {
   return normalizeMatchup(`${game.away.team}-${game.home.team}`);
-}
-
-function readCachedMarketsForGame(target: string) {
-  if (typeof window === "undefined") return [] as MarketOpportunity[];
-
-  try {
-    const keys = [
-      "lynerva-market-snapshot-v7",
-      "lynerva-market-snapshot-v5",
-      "lynerva-market-snapshot-v4",
-    ];
-    const maxAgeMs = 5 * 60_000;
-
-    for (const key of keys) {
-      const raw = window.localStorage.getItem(key);
-      if (!raw) continue;
-
-      const parsed = JSON.parse(raw) as {
-        storedAt?: number;
-        opportunities?: MarketOpportunity[];
-      };
-      if (
-        !parsed.storedAt ||
-        Date.now() - parsed.storedAt > maxAgeMs ||
-        !Array.isArray(parsed.opportunities)
-      ) {
-        continue;
-      }
-
-      return parsed.opportunities.filter(
-        (market) =>
-          normalizeMatchup(market.canonical?.matchup) === target &&
-          market.lynervaScore !== null &&
-          market.recommendedSide !== null,
-      );
-    }
-  } catch {
-    // The browser snapshot is only an acceleration layer.
-  }
-
-  return [] as MarketOpportunity[];
 }
 
 function status(game: LiveNflGame) {
@@ -147,13 +106,6 @@ export function GameBoard({
   const [gamesError, setGamesError] = useState(false);
   const initialSelectedKey = normalizeMatchup(requested);
   const [selectedKey, setSelectedKey] = useState(initialSelectedKey);
-  const [marketsByGame, setMarketsByGame] = useState<
-    Record<string, MarketOpportunity[]>
-  >({});
-  const marketsByGameRef = useRef(marketsByGame);
-  const [marketLoading, setMarketLoading] = useState(true);
-  const [marketRefreshing, setMarketRefreshing] = useState(false);
-  const [marketError, setMarketError] = useState<string | null>(null);
   const [selectedMarket, setSelectedMarket] = useState<MarketOpportunity | null>(null);
 
   useEffect(() => {
@@ -205,104 +157,17 @@ export function GameBoard({
   const selectedIndex = requestedIndex >= 0 ? requestedIndex : 0;
   const game = slate[selectedIndex] ?? null;
 
-  useEffect(() => {
-    if (!game) return;
-    const target = keyFor(game);
-    let cancelled = false;
-
-    const loadMarkets = async (showLoading: boolean) => {
-      if (showLoading) setMarketLoading(true);
-      else setMarketRefreshing(true);
-
-      const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), 6_000);
-      try {
-        const response = await fetch(
-          `/api/game-markets?game=${encodeURIComponent(target)}`,
-          {
-            cache: "no-store",
-            headers: { Accept: "application/json" },
-            signal: controller.signal,
-          },
-        );
-        if (!response.ok) {
-          throw new Error(`Game markets returned ${response.status}`);
-        }
-        const payload = (await response.json()) as {
-          opportunities?: MarketOpportunity[];
-        };
-        if (cancelled) return;
-        const rows = Array.isArray(payload.opportunities)
-          ? payload.opportunities
-          : [];
-        setMarketsByGame((current) => {
-          const next = { ...current, [target]: rows };
-          marketsByGameRef.current = next;
-          return next;
-        });
-        setMarketError(null);
-      } catch (error) {
-        if (!cancelled) {
-          setMarketError(
-            error instanceof DOMException && error.name === "AbortError"
-              ? "Game markets took too long to refresh."
-              : error instanceof Error
-                ? error.message
-                : "Game markets unavailable.",
-          );
-        }
-      } finally {
-        window.clearTimeout(timeout);
-        if (!cancelled) {
-          setMarketLoading(false);
-          setMarketRefreshing(false);
-        }
-      }
-    };
-
-    if (!(target in marketsByGameRef.current)) {
-      const cached = readCachedMarketsForGame(target);
-      if (cached.length > 0) {
-        const next = { ...marketsByGameRef.current, [target]: cached };
-        marketsByGameRef.current = next;
-        setMarketsByGame(next);
-        setMarketLoading(false);
-        // Show the already-computed board immediately, then refresh this game
-        // quietly in the background so a click never waits on projection or
-        // injury-source work that the global feed already completed.
-        void loadMarkets(false);
-      } else {
-        void loadMarkets(true);
-      }
-    } else {
-      setMarketLoading(false);
-    }
-
-    const intervalMs = game.state === "in" ? 10_000 : 60_000;
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void loadMarkets(false);
-    }, intervalMs);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [game?.id, game?.state]);
-
   const markets = useMemo(() => {
     if (!game) return [];
     const target = keyFor(game);
-    const shared = sharedMarkets.filter(
-      (market) => normalizeMatchup(market.canonical?.matchup) === target,
-    );
-    const source = shared.length > 0 ? shared : marketsByGame[target] ?? [];
-    return source.filter(
+    return sharedMarkets.filter(
       (market) =>
+        normalizeMatchup(market.canonical?.matchup) === target &&
         market.lynervaScore !== null &&
         market.recommendedSide !== null &&
         (game.state === "in" ? market.isLive : !market.isLive),
     );
-  }, [game, marketsByGame, sharedMarkets]);
+  }, [game, sharedMarkets]);
 
   const sgps = useMemo(() => {
     if (!markets.length || !game) return [];
@@ -631,24 +496,12 @@ export function GameBoard({
             {game.away.team} at {game.home.team}, ranked by Pick Score.
           </p>
         </div>
-        {marketRefreshing ? <span className="text-[10px] text-faint">Refreshing</span> : null}
+
       </div>
 
-      {(marketLoading || sharedMarketsLoading) && !markets.length ? (
+      {sharedMarketsLoading && !markets.length ? (
         <div className="premium-panel rounded-2xl px-6 py-16 text-center text-sm text-muted">
           Loading markets...
-        </div>
-      ) : marketError && !markets.length ? (
-        <div className="premium-panel rounded-2xl px-6 py-16 text-center">
-          <div className="text-sm font-semibold">Game markets are temporarily unavailable.</div>
-          <p className="mt-2 text-xs text-muted">{marketError}</p>
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="mt-4 rounded-lg border px-3 py-2 text-xs font-semibold hover:bg-background"
-          >
-            Retry
-          </button>
         </div>
       ) : (
         <MarketTable
