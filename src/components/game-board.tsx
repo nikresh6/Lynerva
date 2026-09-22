@@ -98,18 +98,33 @@ export function GameBoard() {
   const requested = params.get("game")?.toUpperCase() ?? "";
   const { opportunities, loading, refreshing, refresh } = useMarketData();
   const [games, setGames] = useState<LiveNflGame[]>([]);
+  const [gamesLoading, setGamesLoading] = useState(true);
+  const [gamesError, setGamesError] = useState(false);
   const [selectedKey, setSelectedKey] = useState(requested);
   const [selectedMarket, setSelectedMarket] = useState<MarketOpportunity | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 6_000);
       try {
-        const response = await fetch("/api/live-nfl", { cache: "no-store" });
-        if (!response.ok) return;
-        const payload = (await response.json()) as { games: LiveNflGame[] };
-        if (!cancelled) setGames(payload.games);
-      } catch {}
+        const response = await fetch("/api/live-nfl", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`NFL scoreboard returned ${response.status}`);
+        const payload = (await response.json()) as { games?: LiveNflGame[] };
+        if (!cancelled) {
+          setGames(Array.isArray(payload.games) ? payload.games : []);
+          setGamesError(false);
+        }
+      } catch {
+        if (!cancelled) setGamesError(true);
+      } finally {
+        window.clearTimeout(timeout);
+        if (!cancelled) setGamesLoading(false);
+      }
     };
     void load();
     const timer = window.setInterval(load, 15_000);
@@ -238,7 +253,31 @@ export function GameBoard() {
   if (!game) {
     return (
       <div className="premium-panel rounded-2xl px-6 py-20 text-center">
-        <div className="text-sm font-semibold">Loading NFL games...</div>
+        <div className="text-sm font-semibold">
+          {gamesLoading ? "Loading NFL games..." : "NFL games are temporarily unavailable."}
+        </div>
+        {!gamesLoading ? (
+          <div className="mt-3 flex justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="rounded-lg border px-3 py-2 text-xs font-semibold hover:bg-background"
+            >
+              Retry
+            </button>
+            <a
+              href="/"
+              className="rounded-lg border px-3 py-2 text-xs font-semibold hover:bg-background"
+            >
+              Back to picks
+            </a>
+          </div>
+        ) : null}
+        {gamesError && !gamesLoading ? (
+          <p className="mx-auto mt-3 max-w-md text-xs text-muted">
+            The scoreboard request failed or timed out. The rest of Huddlemark is still available.
+          </p>
+        ) : null}
       </div>
     );
   }
