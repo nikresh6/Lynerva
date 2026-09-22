@@ -32,7 +32,7 @@ import type {
   ModelEstimate,
 } from "@/lib/markets/types";
 
-const MODEL_VERSION = "hybrid-consensus-learning-v14";
+const MODEL_VERSION = "hybrid-consensus-learning-v15";
 
 const emptyEvidence: HistoricalEvidence = {
   last5Hits: null,
