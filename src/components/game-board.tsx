@@ -32,6 +32,47 @@ function keyFor(game: LiveNflGame) {
   return normalizeMatchup(`${game.away.team}-${game.home.team}`);
 }
 
+function readCachedMarketsForGame(target: string) {
+  if (typeof window === "undefined") return [] as MarketOpportunity[];
+
+  try {
+    const keys = [
+      "lynerva-market-snapshot-v7",
+      "lynerva-market-snapshot-v5",
+      "lynerva-market-snapshot-v4",
+    ];
+    const maxAgeMs = 5 * 60_000;
+
+    for (const key of keys) {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) continue;
+
+      const parsed = JSON.parse(raw) as {
+        storedAt?: number;
+        opportunities?: MarketOpportunity[];
+      };
+      if (
+        !parsed.storedAt ||
+        Date.now() - parsed.storedAt > maxAgeMs ||
+        !Array.isArray(parsed.opportunities)
+      ) {
+        continue;
+      }
+
+      return parsed.opportunities.filter(
+        (market) =>
+          normalizeMatchup(market.canonical?.matchup) === target &&
+          market.lynervaScore !== null &&
+          market.recommendedSide !== null,
+      );
+    }
+  } catch {
+    // The browser snapshot is only an acceleration layer.
+  }
+
+  return [] as MarketOpportunity[];
+}
+
 function status(game: LiveNflGame) {
   if (game.state === "in") {
     const q = game.period > 4 ? "OT" : `Q${game.period}`;
@@ -218,7 +259,19 @@ export function GameBoard({
     };
 
     if (!(target in marketsByGameRef.current)) {
-      void loadMarkets(true);
+      const cached = readCachedMarketsForGame(target);
+      if (cached.length > 0) {
+        const next = { ...marketsByGameRef.current, [target]: cached };
+        marketsByGameRef.current = next;
+        setMarketsByGame(next);
+        setMarketLoading(false);
+        // Show the already-computed board immediately, then refresh this game
+        // quietly in the background so a click never waits on projection or
+        // injury-source work that the global feed already completed.
+        void loadMarkets(false);
+      } else {
+        void loadMarkets(true);
+      }
     } else {
       setMarketLoading(false);
     }
