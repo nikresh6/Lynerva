@@ -1,19 +1,23 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
 import { GameBoard } from "@/components/game-board";
+import { getActiveNflSlateGames } from "@/lib/nfl/live";
 
 export const metadata: Metadata = { title: "NFL Games" };
+export const dynamic = "force-dynamic";
 
-export default function GamesPage() {
+export default async function GamesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ game?: string | string[] }>;
+}) {
+  const params = await searchParams;
+  const requestedGame = Array.isArray(params.game) ? params.game[0] : params.game;
+  const initialGames = await getActiveNflSlateGames();
+
   return (
-    <Suspense
-      fallback={
-        <div className="premium-panel rounded-2xl px-6 py-20 text-center text-sm text-muted">
-          Loading NFL games...
-        </div>
-      }
-    >
-      <GameBoard />
-    </Suspense>
+    <GameBoard
+      initialGames={initialGames}
+      requestedGame={requestedGame ?? ""}
+    />
   );
 }
