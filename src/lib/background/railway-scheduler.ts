@@ -5,7 +5,10 @@ import { persistMarkets } from "@/lib/markets/persist";
 import { ingestNflverseSeason } from "@/lib/nfl/nflverse";
 import { getLiveNflGames } from "@/lib/nfl/live";
 import { getEspnPlayerGameStats } from "@/lib/nfl/live-player-stats";
-import { recordEspnFinalPlayerStats } from "@/lib/nfl/history";
+import {
+  invalidatePersistedPlayerHistoryCache,
+  recordEspnFinalPlayerStats,
+} from "@/lib/nfl/history";
 import {
   runSourceLearningFromActuals,
   type SourceLearningActualRow,
@@ -15,8 +18,8 @@ import { lockEligibleScorecards } from "@/lib/model/scorecard";
 
 const MARKET_INITIAL_DELAY_MS = 15_000;
 const MARKET_INTERVAL_MS = 5 * 60_000;
-const NFLVERSE_INITIAL_DELAY_MS = 90_000;
-const NFLVERSE_INTERVAL_MS = 12 * 60 * 60_000;
+const NFLVERSE_INITIAL_DELAY_MS = 30_000;
+const NFLVERSE_INTERVAL_MS = 2 * 60 * 60_000;
 const FINAL_GRADING_INITIAL_DELAY_MS = 60_000;
 const FINAL_GRADING_INTERVAL_MS = 30 * 60_000;
 
@@ -71,6 +74,7 @@ async function refreshNflverseAndLearning() {
   try {
     const season = new Date().getUTCFullYear();
     const result = await ingestNflverseSeason(season);
+    invalidatePersistedPlayerHistoryCache();
     logJob("nflverse", "completed", {
       season,
       gamesStored: result.gamesStored,
@@ -182,7 +186,7 @@ export function startRailwayBackgroundJobs() {
   globalState.__lynervaRailwaySchedulerStarted = true;
 
   console.info(
-    "[lynerva-background] Railway scheduler active: markets and scorecard locks every 5m, ESPN final grading every 30m, nflverse backfill every 12h.",
+    "[lynerva-background] Railway scheduler active: markets and scorecard locks every 5m, ESPN final grading every 30m, nflverse backfill every 2h.",
   );
 
   // Market persistence runs every five minutes so each scorecard slate can
