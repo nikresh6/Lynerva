@@ -287,6 +287,7 @@ export function MarketDataProvider({
         let response: Response;
         try {
           response = await fetch("/api/markets", {
+            cache: "no-store",
             headers: { Accept: "application/json" },
             signal: controller.signal,
           });
