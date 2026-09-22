@@ -86,15 +86,22 @@ export interface LiveNflGame {
 }
 
 export interface LiveNflProvider {
-  getGames(): Promise<LiveNflGame[]>;
+  getGames(options?: { season?: number; week?: number }): Promise<LiveNflGame[]>;
 }
 
 export class EspnLiveNflProvider implements LiveNflProvider {
-  async getGames() {
+  async getGames(options?: { season?: number; week?: number }) {
     const updatedAt = new Date().toISOString();
+    const params = new URLSearchParams();
+    if (options?.season) params.set("dates", String(options.season));
+    if (options?.week) {
+      params.set("seasontype", "2");
+      params.set("week", String(options.week));
+    }
+    const query = params.size ? `?${params.toString()}` : "";
     const payload = await fetchValidated(
       "ESPN",
-      "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard",
+      `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard${query}`,
       scoreboardSchema,
       { cache: "no-store" },
     );
@@ -146,5 +153,43 @@ export async function getLiveNflGames() {
   } catch (error) {
     console.error("Live NFL state unavailable", error);
     return [];
+  }
+}
+
+export async function getActiveNflSlateGames() {
+  const provider = new EspnLiveNflProvider();
+
+  try {
+    const current = await provider.getGames();
+    const regular = current.filter(
+      (game) => game.seasonType === 2 && game.week !== null,
+    );
+
+    // ESPN's default scoreboard can keep the just-finished week selected until
+    // Wednesday. If there is still a live or upcoming regular-season game,
+    // keep that week. Once every game is final, advance immediately.
+    if (
+      regular.length === 0 ||
+      regular.some((game) => game.state === "in" || game.state === "pre")
+    ) {
+      return current;
+    }
+
+    const season = regular.find((game) => game.seasonYear !== null)?.seasonYear;
+    const week = Math.max(...regular.map((game) => game.week ?? 0));
+    if (!season || week < 1 || week >= 18) return current;
+
+    const next = await provider.getGames({ season, week: week + 1 });
+    const nextRegular = next.filter(
+      (game) =>
+        game.seasonType === 2 &&
+        game.seasonYear === season &&
+        game.week === week + 1,
+    );
+
+    return nextRegular.length ? nextRegular : current;
+  } catch (error) {
+    console.error("Active NFL slate unavailable", error);
+    return getLiveNflGames();
   }
 }
