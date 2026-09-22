@@ -46,7 +46,8 @@ function routeNeedsMarkets(pathname: string) {
     pathname === "/" ||
     pathname.startsWith("/live") ||
     pathname.startsWith("/builder") ||
-    pathname.startsWith("/tracker")
+    pathname.startsWith("/tracker") ||
+    pathname.startsWith("/games")
   );
 }
 
