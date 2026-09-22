@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
 import type { LiveNflGame } from "@/lib/nfl/live";
@@ -162,10 +161,14 @@ function TickerItem({
 }
 
 export function ScoreTicker({ games }: { games: LiveNflGame[] }) {
-  const router = useRouter();
   if (!games.length) return null;
-  const openGame = (game: LiveNflGame) =>
-    router.push(`/games?game=${encodeURIComponent(matchupKey(game))}`);
+  const openGame = (game: LiveNflGame) => {
+    const href = `/games?game=${encodeURIComponent(matchupKey(game))}`;
+    // The game board is a relatively heavy interactive route. A normal
+    // navigation keeps a bad client transition from taking down the current
+    // React tree and gives the browser a clean recovery boundary.
+    window.location.assign(href);
+  };
 
   // A score strip is navigation, not a second scoreboard. Keeping the most
   // relevant eight games makes it quick to scan and prevents hidden duplicate
