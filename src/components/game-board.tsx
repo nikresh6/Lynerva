@@ -230,7 +230,6 @@ export function GameBoard({
     // URL with history.replaceState avoids a Next navigation round trip.
     setSelectedKey(key);
     setSelectedMarket(null);
-    setMarketLoading(!(key in marketsByGameRef.current));
     window.history.replaceState(
       window.history.state,
       "",
