@@ -1,6 +1,10 @@
 import "server-only";
 
 import { z } from "zod";
+import {
+  attributedInjurySnippet,
+  injuryRelevant,
+} from "./injury-news-rules";
 
 export interface InjuryNewsSignal {
   text: string;
@@ -59,23 +63,6 @@ function decodeHtml(value: string) {
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function injuryRelevant(value: string) {
-  return /\b(?:injur|questionable|doubtful|inactive|ruled out|will not play|won't play|not expected to play|unlikely to play|expected to play|likely to play|game[- ]time decision|trending|limited|practice|hamstring|groin|hip|knee|ankle|foot|shoulder|back|rib|calf|quad|concussion|illness|ir\b|injured reserve)\b/i.test(
-    value,
-  );
-}
-
-function subjectAppears(value: string, subject: string) {
-  const haystack = normalizePerson(value);
-  const target = normalizePerson(subject);
-  if (!target) return false;
-  if (haystack.includes(target)) return true;
-
-  const parts = target.split(" ").filter(Boolean);
-  const last = parts.at(-1);
-  return Boolean(last && last.length >= 5 && haystack.includes(last));
 }
 
 async function loadFantasyProsText() {
@@ -150,23 +137,7 @@ async function loadEspnArticles() {
 }
 
 function fantasyProsSnippet(text: string, subject: string) {
-  const normalizedSubject = normalizePerson(subject);
-  if (!normalizedSubject || !normalizePerson(text).includes(normalizedSubject)) {
-    return null;
-  }
-
-  const lastRaw = subject.trim().split(/\s+/).at(-1) ?? "";
-  const last = lastRaw.replace(/[.*+?^$(){}|[\]\\]/g, "\\$&");
-  const originalIndex = last
-    ? text.search(new RegExp("\\b" + last + "\\b", "i"))
-    : -1;
-  if (originalIndex < 0) return null;
-
-  const start = Math.max(0, originalIndex - 120);
-  const snippet = text.slice(start, start + 900).trim();
-  return subjectAppears(snippet, subject) && injuryRelevant(snippet)
-    ? snippet
-    : null;
+  return attributedInjurySnippet(text, subject);
 }
 
 function parseFantasyProsTime(value: string) {
@@ -242,7 +213,7 @@ export async function getInjuryNewsSignal(
         const text = [article.headline, article.description]
           .filter(Boolean)
           .join(" ");
-        return subjectAppears(text, subject) && injuryRelevant(text);
+        return attributedInjurySnippet(text, subject) !== null;
       })
       .toSorted((first, second) => {
         const left = Date.parse(first.published ?? first.lastModified ?? "") || 0;
@@ -252,10 +223,11 @@ export async function getInjuryNewsSignal(
       .slice(0, 2);
 
     for (const article of matching) {
-      const text = [article.headline, article.description]
+      const articleText = [article.headline, article.description]
         .filter(Boolean)
         .join(". ")
         .trim();
+      const text = attributedInjurySnippet(articleText, subject);
       if (text) texts.push(text);
       if (!sources.includes("ESPN News")) sources.push("ESPN News");
 
