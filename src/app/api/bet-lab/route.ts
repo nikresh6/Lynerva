@@ -1,4 +1,4 @@
-import { getLiveNflGames } from "@/lib/nfl/live";
+import { getActiveNflSlateGames } from "@/lib/nfl/live";
 import { getWeatherForGame } from "@/lib/nfl/game-context";
 import { weatherProbabilityAdjustment } from "@/lib/model/weather-adjustment";
 import type { Direction, MarketFamily, MarketSide } from "@/lib/markets/types";
@@ -60,7 +60,7 @@ export async function GET(request: Request) {
     return Response.json({ available: false }, { status: 400 });
   }
 
-  const games = await getLiveNflGames();
+  const games = await getActiveNflSlateGames();
   const game = games.find(
     (item) =>
       item.state !== "post" &&
