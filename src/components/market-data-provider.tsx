@@ -35,7 +35,7 @@ interface MarketDataContextValue extends MarketClientPayload {
 
 const MarketDataContext = createContext<MarketDataContextValue | null>(null);
 
-const STORAGE_KEY = "lynerva-market-snapshot-v6";
+const STORAGE_KEY = "lynerva-market-snapshot-v7";
 // Only hydrate from a very recent browser snapshot. A 30-minute cache made
 // cards appear to "randomly" jump seconds after page load when the immediate
 // live refresh replaced an old score with the current market.
