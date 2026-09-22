@@ -60,6 +60,16 @@ const CORE_NFL_SERIES = [
   "KXNFLLONGREC",
 ] as const;
 
+const KALSHI_MIN_REFRESH_MS = 60_000;
+const KALSHI_SERIES_GAP_MS = 150;
+let kalshiSnapshot: ProviderResult | null = null;
+let kalshiSnapshotAt = 0;
+let kalshiRefreshPromise: Promise<ProviderResult> | null = null;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function fetchSeriesMarkets(seriesTicker: string) {
   const markets: z.infer<typeof marketSchema>[] = [];
   let cursor = "";
@@ -91,8 +101,12 @@ async function fetchSeriesMarkets(seriesTicker: string) {
 }
 
 async function fetchCoreSeriesMarkets() {
-  const chunks = await Promise.all(CORE_NFL_SERIES.map(fetchSeriesMarkets));
-  return chunks.flat();
+  const markets: z.infer<typeof marketSchema>[] = [];
+  for (const seriesTicker of CORE_NFL_SERIES) {
+    markets.push(...(await fetchSeriesMarkets(seriesTicker)));
+    await sleep(KALSHI_SERIES_GAP_MS);
+  }
+  return markets;
 }
 
 function isLiveMarket(market: z.infer<typeof marketSchema>) {
@@ -144,7 +158,7 @@ function toProviderMarket(
   };
 }
 
-export async function fetchKalshiNflMarkets(): Promise<ProviderResult> {
+async function refreshKalshiNflMarkets(): Promise<ProviderResult> {
   const fetchedAt = new Date().toISOString();
   try {
     const raw = new Map<string, z.infer<typeof marketSchema>>();
@@ -185,6 +199,52 @@ export async function fetchKalshiNflMarkets(): Promise<ProviderResult> {
       error: message,
     };
   }
+}
+
+export async function fetchKalshiNflMarkets(): Promise<ProviderResult> {
+  const now = Date.now();
+
+  // Game pages, the market API, and the background scheduler can all ask for
+  // Kalshi at nearly the same time. Never turn those callers into duplicate
+  // upstream bursts.
+  if (kalshiSnapshot && now - kalshiSnapshotAt < KALSHI_MIN_REFRESH_MS) {
+    return kalshiSnapshot;
+  }
+  if (kalshiRefreshPromise) return kalshiRefreshPromise;
+
+  kalshiRefreshPromise = refreshKalshiNflMarkets()
+    .then((next) => {
+      // A partial/empty refresh caused by upstream throttling must never wipe
+      // a healthy snapshot. Keep serving the last complete board and retry on
+      // a later refresh.
+      if (
+        kalshiSnapshot &&
+        next.markets.length < Math.max(25, kalshiSnapshot.markets.length * 0.5)
+      ) {
+        console.warn(
+          `Kalshi refresh returned only ${next.markets.length} markets; keeping cached ${kalshiSnapshot.markets.length}-market snapshot.`,
+        );
+        kalshiSnapshotAt = Date.now();
+        return kalshiSnapshot;
+      }
+
+      kalshiSnapshot = next;
+      kalshiSnapshotAt = Date.now();
+      return next;
+    })
+    .catch((error) => {
+      if (kalshiSnapshot) {
+        console.warn("Kalshi refresh failed; serving cached snapshot.", error);
+        kalshiSnapshotAt = Date.now();
+        return kalshiSnapshot;
+      }
+      throw error;
+    })
+    .finally(() => {
+      kalshiRefreshPromise = null;
+    });
+
+  return kalshiRefreshPromise;
 }
 
 export async function fetchKalshiMarketSettlement(ticker: string) {
