@@ -48,13 +48,23 @@ export function attributedInjurySnippet(
     if (pattern.test(chunk) && injuryRelevant(chunk)) return chunk;
   }
 
-  // Some feeds flatten status cards without sentence punctuation. In that
-  // case allow a tight local window around the exact full-name mention, but
-  // never fall back to a last-name-only match.
+  // Some feeds flatten status cards without sentence punctuation. Only
+  // inspect text that follows the exact player name, and stop at the first
+  // sentence boundary. Looking backward or across the next sentence can make
+  // a healthy player inherit a nearby teammate's injury language.
   const match = pattern.exec(value);
   if (!match || match.index === undefined) return null;
-  const start = Math.max(0, match.index - 90);
-  const end = Math.min(value.length, match.index + match[0].length + 180);
-  const local = value.slice(start, end).replace(/\s+/g, " ").trim();
-  return injuryRelevant(local) ? local : null;
+
+  const start = match.index;
+  const maxEnd = Math.min(value.length, start + match[0].length + 140);
+  const tail = value.slice(start, maxEnd);
+  const afterName = tail.slice(match[0].length);
+  const sentenceBoundary = afterName.search(/[.!?](?:\s|$)/);
+  const local =
+    sentenceBoundary >= 0
+      ? tail.slice(0, match[0].length + sentenceBoundary + 1)
+      : tail;
+  const cleaned = local.replace(/\s+/g, " ").trim();
+
+  return injuryRelevant(cleaned) ? cleaned : null;
 }
