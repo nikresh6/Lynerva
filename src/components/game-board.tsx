@@ -130,12 +130,11 @@ export function GameBoard() {
     [games],
   );
 
-  const activeKey = requested || selectedKey;
-
-  const selectedIndex = Math.max(
-    0,
-    slate.findIndex((game) => keyFor(game) === activeKey),
-  );
+  const activeKey = normalizeMatchup(requested || selectedKey);
+  const requestedIndex = activeKey
+    ? slate.findIndex((item) => keyFor(item) === activeKey)
+    : -1;
+  const selectedIndex = requestedIndex >= 0 ? requestedIndex : 0;
   const game = slate[selectedIndex] ?? null;
 
   useEffect(() => {
@@ -158,7 +157,7 @@ export function GameBoard() {
   }, [game, opportunities]);
 
   const sgps = useMemo(() => {
-    if (!markets.length) return [];
+    if (!markets.length || !game) return [];
 
     const configs = [
       {
@@ -201,7 +200,7 @@ export function GameBoard() {
           maxReturn: config.maxReturn,
           maxLegs: config.maxLegs,
           platform: "kalshi",
-          live: game?.state === "in" ? "live" : "pregame",
+          live: game.state === "in" ? "live" : "pregame",
           mode: "sgp",
           objective: config.objective,
         },
@@ -210,7 +209,7 @@ export function GameBoard() {
 
       return { ...config, build };
     });
-  }, [game?.state, markets]);
+  }, [game, markets]);
 
   const choose = (next: LiveNflGame) => {
     const key = keyFor(next);
