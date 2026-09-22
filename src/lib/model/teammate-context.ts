@@ -6,6 +6,11 @@ import {
   getExternalProjectionConsensus,
   type ProjectionPoint,
 } from "@/lib/model/external-projections";
+import {
+  passingEfficiencyLossRate,
+  teammateContextMode,
+  teammateVolumeFamily,
+} from "@/lib/model/teammate-context-rules";
 import { getPlayerVisuals, getTeamRoster } from "@/lib/nfl/player-visuals";
 import { findPublicPlayerSeasonHistory } from "@/lib/nfl/history";
 import { getPregamePlayerAvailability } from "@/lib/nfl/pregame-injuries";
@@ -19,7 +24,7 @@ export interface TeammateContextAdjustment {
     status: string | null;
     playProbability: number;
     projectedVolume: number;
-    estimatedAddedVolume: number;
+    estimatedProjectionImpact: number;
     unpricedFraction: number;
   }>;
 }
@@ -35,25 +40,7 @@ function normalizePerson(value: string) {
 }
 
 function supportedFamily(family: CanonicalMarket["family"]) {
-  return (
-    family === "receiving_yards" ||
-    family === "receptions" ||
-    family === "rushing_yards"
-  );
-}
-
-function teammatePositionEligible(
-  family: CanonicalMarket["family"],
-  position: string | null,
-) {
-  const normalized = (position ?? "").toUpperCase();
-  if (family === "receiving_yards" || family === "receptions") {
-    return ["WR", "TE", "RB"].includes(normalized);
-  }
-  if (family === "rushing_yards") {
-    return ["RB", "QB", "WR"].includes(normalized);
-  }
-  return false;
+  return teammateVolumeFamily(family) !== null;
 }
 
 function redistributionRate(family: CanonicalMarket["family"]) {
@@ -75,21 +62,18 @@ function captureShare(input: {
     if (position === "WR") return clamp(0.20 + projection / 500, 0.20, 0.42);
     if (position === "TE") return clamp(0.16 + projection / 650, 0.16, 0.32);
     if (position === "RB") return clamp(0.11 + projection / 700, 0.11, 0.27);
-    return clamp(0.16 + projection / 650, 0.16, 0.34);
+    return 0;
   }
 
   if (input.family === "receptions") {
     if (position === "WR") return clamp(0.22 + projection / 30, 0.22, 0.44);
     if (position === "TE") return clamp(0.18 + projection / 38, 0.18, 0.34);
     if (position === "RB") return clamp(0.14 + projection / 42, 0.14, 0.30);
-    return clamp(0.18 + projection / 36, 0.18, 0.36);
+    return 0;
   }
 
-  if (input.family === "rushing_yards") {
-    if (position === "RB") return clamp(0.34 + projection / 350, 0.34, 0.58);
-    if (position === "QB") return clamp(0.12 + projection / 500, 0.12, 0.24);
-    if (position === "WR") return clamp(0.10 + projection / 450, 0.10, 0.20);
-    return 0.2;
+  if (input.family === "rushing_yards" && position === "RB") {
+    return clamp(0.34 + projection / 350, 0.34, 0.58);
   }
 
   return 0;
@@ -136,9 +120,6 @@ function weightedUnpricedFraction(input: {
       ? Date.parse(point.lastChangedAt)
       : NaN;
 
-    // A source that visibly changed after the material injury report probably
-    // incorporated most of the news. If it was already observed before the
-    // report and has not moved, treat much more of the context as unpriced.
     if (
       Number.isFinite(lastChanged) &&
       lastChanged >= eventMs + 60_000
@@ -149,8 +130,6 @@ function weightedUnpricedFraction(input: {
       return { weight, fraction: 0.88 };
     }
 
-    // Cold-start ambiguity: the first value Huddlemark sees after the news may
-    // already include it. Apply only a conservative partial adjustment.
     return { weight, fraction: 0.3 };
   });
 
@@ -181,23 +160,31 @@ async function computeTeammateContextAdjustment(input: {
     input.market.subject
   ];
   const team = visual?.team;
-  const position = input.position ?? (visual?.position as
-    | "QB"
-    | "RB"
-    | "WR"
-    | "TE"
-    | null
-    | undefined) ?? null;
-  if (!team) return null;
+  const position =
+    input.position ??
+    (visual?.position as "QB" | "RB" | "WR" | "TE" | null | undefined) ??
+    null;
+  if (!team || !position) return null;
 
   const roster = (await getTeamRoster(team))
-    .filter(
-      (player) =>
-        normalizePerson(player.fullName) !==
-          normalizePerson(input.market.subject) &&
-        teammatePositionEligible(input.market.family, player.position),
-    )
+    .filter((player) => {
+      if (
+        normalizePerson(player.fullName) ===
+        normalizePerson(input.market.subject)
+      ) {
+        return false;
+      }
+      return (
+        teammateContextMode({
+          family: input.market.family,
+          targetPosition: position,
+          teammatePosition: player.position,
+        }) !== null
+      );
+    })
     .slice(0, 18);
+
+  if (!roster.length) return null;
 
   const availabilityRows = await Promise.all(
     roster.map(async (player) => ({
@@ -226,9 +213,26 @@ async function computeTeammateContextAdjustment(input: {
   for (const { player, availability } of material) {
     if (!availability) continue;
 
+    const mode = teammateContextMode({
+      family: input.market.family,
+      targetPosition: position,
+      teammatePosition: player.position,
+    });
+    const volumeFamily = teammateVolumeFamily(input.market.family);
+    if (!mode || !volumeFamily) continue;
+
     const teammateMarket: CanonicalMarket = {
       ...input.market,
-      key: input.market.key + ":context:" + normalizePerson(player.fullName),
+      key:
+        input.market.key +
+        ":context:" +
+        volumeFamily +
+        ":" +
+        normalizePerson(player.fullName),
+      family: volumeFamily,
+      statistic: volumeFamily,
+      direction: "over",
+      threshold: null,
       subject: player.fullName,
     };
     const teammateProjection = await getExternalProjectionConsensus(
@@ -239,11 +243,7 @@ async function computeTeammateContextAdjustment(input: {
 
     let projectedVolume = teammateProjection.projection;
     if (projectedVolume === null || projectedVolume <= 0) {
-      // Projection sites often remove a player entirely once he is ruled out.
-      // Recover his normal role from completed regular-season games so the
-      // lost opportunity does not disappear from teammate context at the exact
-      // moment it matters most.
-      const statistic = input.market.statistic ?? input.market.family;
+      const statistic = volumeFamily;
       const [currentHistory, priorHistory] = await Promise.all([
         findPublicPlayerSeasonHistory(
           player.fullName,
@@ -279,49 +279,77 @@ async function computeTeammateContextAdjustment(input: {
       risk: availability.risk,
     });
     const teammateLostVolume = projectedVolume * unavailableShare;
-    const estimatedAddedVolume =
-      teammateLostVolume *
-      redistributionRate(input.market.family) *
-      captureShare({
-        family: input.market.family,
-        position,
-        baselineProjection: input.baselineProjection,
-      }) *
-      unpricedFraction;
 
-    if (!Number.isFinite(estimatedAddedVolume) || estimatedAddedVolume <= 0) {
+    let estimatedProjectionImpact = 0;
+    if (mode === "passing_efficiency_loss") {
+      estimatedProjectionImpact =
+        -teammateLostVolume *
+        passingEfficiencyLossRate(player.position) *
+        unpricedFraction;
+    } else {
+      estimatedProjectionImpact =
+        teammateLostVolume *
+        redistributionRate(input.market.family) *
+        captureShare({
+          family: input.market.family,
+          position,
+          baselineProjection: input.baselineProjection,
+        }) *
+        unpricedFraction;
+    }
+
+    if (
+      !Number.isFinite(estimatedProjectionImpact) ||
+      Math.abs(estimatedProjectionImpact) < 0.05
+    ) {
       continue;
     }
 
-    adjustment += estimatedAddedVolume;
+    adjustment += estimatedProjectionImpact;
     affectedBy.push({
       player: player.fullName,
       status: availability.status,
       playProbability: availability.playProbability,
       projectedVolume,
-      estimatedAddedVolume,
+      estimatedProjectionImpact,
       unpricedFraction,
     });
   }
 
-  if (!affectedBy.length || adjustment <= 0) return null;
+  if (!affectedBy.length || Math.abs(adjustment) < 0.05) return null;
 
-  // Context should move a stale projection, not overwhelm the independent
-  // projection consensus. Cap the aggregate lift relative to the player's own
-  // expected workload.
-  const maxAdjustment =
-    input.market.family === "receptions"
-      ? Math.max(1.25, input.baselineProjection * 0.3)
-      : Math.max(8, input.baselineProjection * 0.28);
-  adjustment = clamp(adjustment, 0, maxAdjustment);
+  if (input.market.family === "passing_yards") {
+    const maxLoss = Math.max(10, input.baselineProjection * 0.08);
+    adjustment = clamp(adjustment, -maxLoss, 0);
+  } else {
+    const maxAdjustment =
+      input.market.family === "receptions"
+        ? Math.max(1.25, input.baselineProjection * 0.3)
+        : Math.max(8, input.baselineProjection * 0.28);
+    adjustment = clamp(adjustment, 0, maxAdjustment);
+  }
+
+  if (Math.abs(adjustment) < 0.05) return null;
 
   const notes = affectedBy.map((row) => {
     const status = row.status ? " (" + row.status + ")" : "";
+    if (row.estimatedProjectionImpact < 0) {
+      return (
+        row.player +
+        status +
+        " availability creates an estimated " +
+        Math.abs(row.estimatedProjectionImpact).toFixed(0) +
+        "-yard still-unpriced passing-efficiency loss for " +
+        input.market.subject +
+        "."
+      );
+    }
+
     return (
       row.player +
       status +
       " availability leaves an estimated " +
-      row.estimatedAddedVolume.toFixed(
+      row.estimatedProjectionImpact.toFixed(
         input.market.family === "receptions" ? 1 : 0,
       ) +
       " " +
@@ -334,7 +362,7 @@ async function computeTeammateContextAdjustment(input: {
 
   return {
     adjustment,
-    adjustedProjection: input.baselineProjection + adjustment,
+    adjustedProjection: Math.max(0, input.baselineProjection + adjustment),
     notes,
     affectedBy,
   };
@@ -364,6 +392,7 @@ export function getTeammateContextAdjustment(
   const key = [
     normalizePerson(input.market.subject),
     input.market.family,
+    input.position ?? "",
     input.season,
     input.week,
     input.baselineProjection.toFixed(2),
