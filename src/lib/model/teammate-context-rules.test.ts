@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  hasCurrentTeammateInjuryEvidence,
   passingEfficiencyLossRate,
   teammateContextMode,
   teammateVolumeFamily,
@@ -51,6 +52,30 @@ describe("teammate context role rules", () => {
         teammatePosition: "RB",
       }),
     ).toBe("receiving_redistribution");
+  });
+
+  it("does not redistribute workload from a Sleeper-only stale injury tag", () => {
+    expect(
+      hasCurrentTeammateInjuryEvidence({
+        espnStatus: null,
+        newsText: null,
+        newsPublishedAt: null,
+      }),
+    ).toBe(false);
+    expect(
+      hasCurrentTeammateInjuryEvidence({
+        espnStatus: "Out",
+        newsText: null,
+        newsPublishedAt: null,
+      }),
+    ).toBe(true);
+    expect(
+      hasCurrentTeammateInjuryEvidence({
+        espnStatus: null,
+        newsText: "Player ruled out tonight.",
+        newsPublishedAt: null,
+      }),
+    ).toBe(true);
   });
 
   it("treats a missing pass catcher as a QB passing-efficiency loss", () => {
