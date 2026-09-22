@@ -82,3 +82,12 @@ export function passingEfficiencyLossRate(
   if (position === "RB") return 0.08;
   return 0;
 }
+
+
+export function hasCurrentTeammateInjuryEvidence(input: {
+  espnStatus: string | null;
+  newsText: string | null;
+  newsPublishedAt: string | null;
+}) {
+  return Boolean(input.espnStatus || input.newsText || input.newsPublishedAt);
+}
