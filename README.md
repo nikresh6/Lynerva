@@ -53,7 +53,7 @@ Do not commit `.env.local`; it is ignored by Git.
 
 The Markets page fetches current Kalshi data directly on the server and refreshes while visible. The Live page refreshes more frequently during active games. Kalshi market reads and ESPN live-game reads bypass the Next.js data cache.
 
-The database is not used as the source of truth for current prices. It stores history, model inputs, predictions, and tracker data. The long-lived Railway process runs Huddlemark's background scheduler for market snapshots, projection capture, Kalshi result settlement, ESPN final-game grading every 30 minutes, source-weight learning, and a 12-hour nflverse historical backfill. Source accuracy metrics can update after individual games finish, while learned weights only become active for the following NFL week.
+The database is not used as the source of truth for current prices. It stores history, model inputs, predictions, and tracker data. The long-lived Railway process runs Huddlemark's background scheduler for market snapshots, projection capture, Kalshi result settlement, ESPN final-game grading every 30 minutes, source-weight learning, and a 2-hour nflverse historical backfill. Source accuracy metrics can update after individual games finish, while learned weights only become active for the following NFL week.
 
 ## Data and scheduled jobs
 
