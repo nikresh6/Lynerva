@@ -228,7 +228,7 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
       gameDate.startsWith(`${currentSeason}-`) &&
       Number.isFinite(timestamp) &&
       timestamp >= now - 8 * 60 * 60 * 1_000 &&
-      timestamp <= now + 10 * 24 * 60 * 60 * 1_000
+      timestamp <= now + 7 * 24 * 60 * 60 * 1_000
     );
   };
 
@@ -236,6 +236,32 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
     scheduleGames: NflScheduleGame[] | null,
     allowPlayerFallback = false,
   ) => {
+    const activeScheduleGames = (() => {
+      if (!scheduleGames) return null;
+
+      const rolloverCutoff = Date.now() - 8 * 60 * 60 * 1_000;
+      const activeGame = scheduleGames
+        .filter(
+          (game) =>
+            game.seasonType === "REG" &&
+            game.week !== null &&
+            new Date(game.kickoffAt).getTime() >= rolloverCutoff,
+        )
+        .toSorted(
+          (first, second) =>
+            new Date(first.kickoffAt).getTime() -
+            new Date(second.kickoffAt).getTime(),
+        )[0];
+
+      if (!activeGame || activeGame.week === null) return scheduleGames;
+      return scheduleGames.filter(
+        (game) =>
+          game.seasonType === "REG" &&
+          game.season === activeGame.season &&
+          game.week === activeGame.week,
+      );
+    })();
+
     const items: NormalizedItem[] = [];
     for (const market of providerMarkets) {
       const canonical = normalizeMarket(market);
@@ -253,13 +279,14 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
       );
       const scheduleGame =
         (liveGame ? scheduleGameFromEspn(liveGame) : null) ??
-        (scheduleGames
-          ? findEligibleScheduleGame(canonical, scheduleGames)
+        (activeScheduleGames
+          ? findEligibleScheduleGame(canonical, activeScheduleGames)
           : null);
-      if (
-        !scheduleGame &&
-        !(allowPlayerFallback && isCurrentUpcomingPlayerMarket(canonical, market))
-      ) {
+      const allowUnscheduledPlayerFallback =
+        allowPlayerFallback &&
+        !scheduleGames &&
+        isCurrentUpcomingPlayerMarket(canonical, market);
+      if (!scheduleGame && !allowUnscheduledPlayerFallback) {
         continue;
       }
 
