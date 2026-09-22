@@ -94,11 +94,9 @@ function SgpScore({ score }: { score: number }) {
 export function GameBoard({
   initialGames,
   requestedGame,
-  initialOpportunities,
 }: {
   initialGames: LiveNflGame[];
   requestedGame: string;
-  initialOpportunities: MarketOpportunity[];
 }) {
   const requested = requestedGame.toUpperCase();
   const [games, setGames] = useState<LiveNflGame[]>(initialGames);
@@ -106,24 +104,11 @@ export function GameBoard({
   const [gamesError, setGamesError] = useState(false);
   const initialSelectedKey = normalizeMatchup(requested);
   const [selectedKey, setSelectedKey] = useState(initialSelectedKey);
-  const initialMarketKey =
-    initialSelectedKey ||
-    (() => {
-      const first = initialGames
-        .filter((item) => item.state !== "post")
-        .toSorted(
-          (a, b) =>
-            new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
-        )[0];
-      return first ? keyFor(first) : "";
-    })();
   const [marketsByGame, setMarketsByGame] = useState<
     Record<string, MarketOpportunity[]>
-  >(() => (initialMarketKey ? { [initialMarketKey]: initialOpportunities } : {}));
+  >({});
   const marketsByGameRef = useRef(marketsByGame);
-  const [marketLoading, setMarketLoading] = useState(
-    !initialMarketKey || !(initialMarketKey in marketsByGame),
-  );
+  const [marketLoading, setMarketLoading] = useState(true);
   const [marketRefreshing, setMarketRefreshing] = useState(false);
   const [marketError, setMarketError] = useState<string | null>(null);
   const [selectedMarket, setSelectedMarket] = useState<MarketOpportunity | null>(null);
