@@ -519,6 +519,7 @@ function searchCombinations(
   opportunities: MarketOpportunity[],
   options: BuilderOptions,
   resultLimit: number,
+  strictReturnBand = false,
 ): BuiltCombination[] {
   if (
     !Number.isFinite(options.minReturn) ||
@@ -767,6 +768,7 @@ function searchCombinations(
     }));
 
   if (!best) {
+    if (strictReturnBand) return [];
     return selectDistinctCombinations(
       rankedFallbacks,
       Math.max(1, resultLimit),
@@ -822,7 +824,7 @@ function searchCombinations(
     if (unique.size >= diversityPoolLimit) break;
   }
 
-  if (unique.size < diversityPoolLimit) {
+  if (!strictReturnBand && unique.size < diversityPoolLimit) {
     for (const fallback of rankedFallbacks) {
       const key = fallback.legs
         .map(
@@ -1029,10 +1031,11 @@ export function buildRankedCombinations(
   options: BuilderOptions,
   limit = 6,
 ): BuiltCombination[] {
-  const candidates = buildCombinationCandidates(
+  const candidates = searchCombinations(
     opportunities,
     options,
     Math.max(24, Math.min(limit * 10, 96)),
+    true,
   )
     .filter(
       (combination) =>
@@ -1064,10 +1067,11 @@ export function buildRankedCombinations(
       );
       if (freshBoard.length < 2) continue;
 
-      const alternates = buildCombinationCandidates(
+      const alternates = searchCombinations(
         freshBoard,
         options,
         Math.max(12, Math.min(limit * 4, 48)),
+        true,
       ).filter(
         (combination) =>
           combination.grossReturn >= options.minReturn &&
