@@ -3,7 +3,7 @@ import "server-only";
 import { fetchKalshiNflMarkets } from "@/lib/kalshi";
 import { estimateMarket } from "@/lib/model";
 import { blendConditionalWithDnpFairValueBps } from "@/lib/model/injury-availability";
-import { getLiveNflGames, type LiveNflGame } from "@/lib/nfl/live";
+import { getActiveNflSlateGames, type LiveNflGame } from "@/lib/nfl/live";
 import { findCurrentRegularSeasonGame } from "@/lib/nfl/current-game";
 import { loadNflSchedule } from "@/lib/nfl/schedule";
 import {
@@ -167,7 +167,7 @@ async function computeMarketOpportunities(): Promise<MarketsPayload> {
     process.env.NODE_ENV !== "production" &&
     process.env.USE_MARKET_FIXTURES === "true";
 
-  const liveGamesPromise = getLiveNflGames();
+  const liveGamesPromise = getActiveNflSlateGames();
   const providerPromise = fixtureMode
     ? Promise.resolve([
         {
