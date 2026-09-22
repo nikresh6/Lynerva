@@ -5,6 +5,7 @@ import Image from "next/image";
 import { ChevronLeft, ChevronRight, Sparkles, Target, Zap } from "lucide-react";
 import type { LiveNflGame } from "@/lib/nfl/live";
 import type { MarketOpportunity } from "@/lib/markets/types";
+import { useMarketData } from "@/components/market-data-provider";
 import { buildRankedCombinations } from "@/lib/builder";
 import { cn, formatPercent } from "@/lib/utils";
 import { BetLab, MarketTable } from "./market-table";
@@ -140,6 +141,7 @@ export function GameBoard({
   requestedGame: string;
 }) {
   const requested = requestedGame.toUpperCase();
+  const { opportunities: sharedMarkets, loading: sharedMarketsLoading } = useMarketData();
   const [games, setGames] = useState<LiveNflGame[]>(initialGames);
   const [gamesLoading, setGamesLoading] = useState(initialGames.length === 0);
   const [gamesError, setGamesError] = useState(false);
@@ -290,13 +292,17 @@ export function GameBoard({
   const markets = useMemo(() => {
     if (!game) return [];
     const target = keyFor(game);
-    return (marketsByGame[target] ?? []).filter(
+    const shared = sharedMarkets.filter(
+      (market) => normalizeMatchup(market.canonical?.matchup) === target,
+    );
+    const source = shared.length > 0 ? shared : marketsByGame[target] ?? [];
+    return source.filter(
       (market) =>
         market.lynervaScore !== null &&
         market.recommendedSide !== null &&
         (game.state === "in" ? market.isLive : !market.isLive),
     );
-  }, [game, marketsByGame]);
+  }, [game, marketsByGame, sharedMarkets]);
 
   const sgps = useMemo(() => {
     if (!markets.length || !game) return [];
@@ -628,7 +634,7 @@ export function GameBoard({
         {marketRefreshing ? <span className="text-[10px] text-faint">Refreshing</span> : null}
       </div>
 
-      {marketLoading && !markets.length ? (
+      {(marketLoading || sharedMarketsLoading) && !markets.length ? (
         <div className="premium-panel rounded-2xl px-6 py-16 text-center text-sm text-muted">
           Loading markets...
         </div>
