@@ -1,5 +1,12 @@
 import "server-only";
 
+import { and, eq } from "drizzle-orm";
+import { getDb } from "@/db";
+import {
+  nflGames,
+  nflPlayers,
+  playerGameStats,
+} from "@/db/schema";
 import {
   PLAYER_REGULAR_SEASON_HISTORY,
   type StaticPlayerHistory,
@@ -30,6 +37,19 @@ interface RecentPlayerHistory {
 
 const playerMatchCache = new Map<string, StaticPlayerHistory | null>();
 const recentEspnHistory = new Map<string, RecentPlayerHistory>();
+
+type PersistedPlayerActual = RecentPlayerActual & {
+  week: number | null;
+};
+
+const PERSISTED_HISTORY_CACHE_MS = 2 * 60_000;
+const persistedSeasonHistoryCache = new Map<
+  number,
+  {
+    expiresAt: number;
+    promise: Promise<PersistedPlayerActual[]>;
+  }
+>();
 
 function normalizePerson(value: string) {
   return value
@@ -152,6 +172,110 @@ function findRecentPlayer(subject: string) {
   return best;
 }
 
+function loadPersistedSeasonHistory(season: number) {
+  const cached = persistedSeasonHistoryCache.get(season);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+
+  const entry = {
+    expiresAt: Date.now() + PERSISTED_HISTORY_CACHE_MS,
+    promise: (async (): Promise<PersistedPlayerActual[]> => {
+      const db = getDb();
+      return db
+        .select({
+          playerName: nflPlayers.fullName,
+          week: nflGames.week,
+          passingYards: playerGameStats.passingYards,
+          passingTouchdowns: playerGameStats.passingTouchdowns,
+          passingInterceptions: playerGameStats.passingInterceptions,
+          rushingYards: playerGameStats.rushingYards,
+          rushingTouchdowns: playerGameStats.rushingTouchdowns,
+          receivingYards: playerGameStats.receivingYards,
+          receptions: playerGameStats.receptions,
+          receivingTouchdowns: playerGameStats.receivingTouchdowns,
+        })
+        .from(playerGameStats)
+        .innerJoin(nflPlayers, eq(nflPlayers.id, playerGameStats.playerId))
+        .innerJoin(nflGames, eq(nflGames.id, playerGameStats.gameId))
+        .where(
+          and(
+            eq(nflGames.season, season),
+            eq(nflGames.seasonType, "REG"),
+            eq(nflGames.status, "final"),
+          ),
+        );
+    })(),
+  };
+
+  persistedSeasonHistoryCache.set(season, entry);
+  entry.promise.catch(() => {
+    if (persistedSeasonHistoryCache.get(season) === entry) {
+      persistedSeasonHistoryCache.delete(season);
+    }
+  });
+  return entry.promise;
+}
+
+export function invalidatePersistedPlayerHistoryCache() {
+  persistedSeasonHistoryCache.clear();
+}
+
+async function findPersistedPlayerValues(
+  subject: string,
+  statistic: string,
+  season: number,
+) {
+  try {
+    const rows = await loadPersistedSeasonHistory(season);
+    const normalizedSubject = normalizePerson(subject);
+    let matchedKey = rows
+      .map((row) => normalizePerson(row.playerName))
+      .find((key) => key === normalizedSubject) ?? null;
+
+    if (!matchedKey && normalizedSubject.length >= 5) {
+      matchedKey =
+        [...new Set(rows.map((row) => normalizePerson(row.playerName)))]
+          .filter(
+            (key) =>
+              key.length >= 5 &&
+              (normalizedSubject.includes(key) ||
+                key.includes(normalizedSubject)),
+          )
+          .toSorted((first, second) => second.length - first.length)[0] ?? null;
+    }
+
+    if (!matchedKey) {
+      return {
+        playerName: null as string | null,
+        values: [] as HistoricalValue[],
+      };
+    }
+
+    const matchedRows = rows.filter(
+      (row) => normalizePerson(row.playerName) === matchedKey,
+    );
+    const values = matchedRows.flatMap((row): HistoricalValue[] => {
+      if (row.week === null) return [];
+      const value = valueFromRecentActual(row, statistic);
+      if (value === null || !Number.isFinite(value)) return [];
+      return [{
+        season,
+        week: row.week,
+        value,
+      }];
+    });
+
+    return {
+      playerName: matchedRows[0]?.playerName ?? null,
+      values,
+    };
+  } catch {
+    return {
+      playerName: null as string | null,
+      values: [] as HistoricalValue[],
+    };
+  }
+}
+
 export function recordEspnFinalPlayerStats(
   season: number,
   week: number,
@@ -202,6 +326,11 @@ export async function findPublicPlayerSeasonHistory(
 ) {
   const player = findStaticPlayer(subject);
   const recent = findRecentPlayer(subject);
+  const persisted = await findPersistedPlayerValues(
+    subject,
+    statistic,
+    season,
+  );
 
   const staticValues = (player?.g ?? [])
     .filter((game) => (game[0] ?? 0) === season)
@@ -230,6 +359,9 @@ export async function findPublicPlayerSeasonHistory(
   // each completed game, while nflverse remains the durable historical base.
   const byWeek = new Map<number, HistoricalValue>();
   for (const row of recentValues) byWeek.set(row.week, row);
+  for (const row of persisted.values) {
+    if (!byWeek.has(row.week)) byWeek.set(row.week, row);
+  }
   for (const row of staticValues) {
     if (!byWeek.has(row.week)) byWeek.set(row.week, row);
   }
@@ -239,7 +371,11 @@ export async function findPublicPlayerSeasonHistory(
     .slice(0, 24);
 
   return {
-    playerName: recent?.playerName ?? player?.n ?? null,
+    playerName:
+      recent?.playerName ??
+      persisted.playerName ??
+      player?.n ??
+      null,
     values,
   };
 }
