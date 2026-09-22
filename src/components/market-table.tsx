@@ -877,6 +877,13 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
             reduced when projection sources appear to have already moved after
             the news.
           </p>
+          {components?.teammateContextNotes?.length ? (
+            <div className="mt-2 space-y-1 text-[10px] leading-4 text-faint">
+              {components.teammateContextNotes.slice(0, 3).map((note) => (
+                <p key={note}>{note}</p>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
     </section>
