@@ -700,6 +700,31 @@ export async function getFreshMarketOpportunities() {
   return refreshSnapshot();
 }
 
+function normalizeMatchupKey(value: string) {
+  return value
+    .split(/[^A-Za-z]+/)
+    .map((team) => team.trim().toUpperCase())
+    .filter(Boolean)
+    .map((team) =>
+      team === "WSH" ? "WAS" : team === "JAC" ? "JAX" : team === "LA" ? "LAR" : team,
+    )
+    .toSorted()
+    .join("-");
+}
+
+function filterPayloadToMatchup(
+  payload: MarketsPayload,
+  matchup: string,
+): MarketsPayload {
+  return {
+    ...payload,
+    opportunities: payload.opportunities.filter(
+      (market) =>
+        normalizeMatchupKey(market.canonical?.matchup ?? "") === matchup,
+    ),
+  };
+}
+
 async function refreshMatchupSnapshot(matchup: string) {
   const existing = matchupRefreshPromises.get(matchup);
   if (existing) return existing;
@@ -719,13 +744,7 @@ async function refreshMatchupSnapshot(matchup: string) {
 export async function getMarketOpportunitiesForMatchup(
   matchup: string,
 ): Promise<MarketsPayload> {
-  const key = matchup
-    .split(/[^A-Za-z]+/)
-    .map((team) => team.trim().toUpperCase())
-    .filter(Boolean)
-    .map((team) => (team === "WSH" ? "WAS" : team === "JAC" ? "JAX" : team === "LA" ? "LAR" : team))
-    .toSorted()
-    .join("-");
+  const key = normalizeMatchupKey(matchup);
   if (!key) {
     return {
       opportunities: [],
@@ -735,7 +754,21 @@ export async function getMarketOpportunitiesForMatchup(
     };
   }
 
-  const cached = matchupSnapshots.get(key);
+  // The global feed is already computed by the normal market refresh loop.
+  // Reuse it for game pages instead of rebuilding projections, injury context,
+  // and source consensus when someone clicks a game. This restores the
+  // near-instant game view while a scoped refresh happens in the background.
+  if (warmSnapshot) {
+    const filtered = filterPayloadToMatchup(warmSnapshot.payload, key);
+    if (filtered.opportunities.length > 0) {
+      if (!matchupRefreshPromises.has(key)) {
+        void refreshMatchupSnapshot(key);
+      }
+      return filtered;
+    }
+  }
+
+    const cached = matchupSnapshots.get(key);
   if (cached && Date.now() - cached.storedAt < 45_000) {
     return cached.payload;
   }
