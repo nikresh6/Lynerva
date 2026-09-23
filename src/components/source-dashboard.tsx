@@ -34,9 +34,15 @@ type PerformanceRow = {
     absoluteError: number;
   }>;
   weight: number | null;
+  baselineWeight: number;
   previousWeight: number | null;
+  previousWeightWeek: number | null;
   weightChange: number | null;
   weightWeek: number | null;
+  weightHistory: Array<{
+    week: number;
+    weight: number;
+  }>;
 };
 
 type SourceSummary = {
@@ -111,18 +117,33 @@ function exactTime(value: string | null) {
 }
 
 function trend(row: PerformanceRow) {
-  if (row.weightChange === null || Math.abs(row.weightChange) < 0.002) {
-    return { label: "No weight change", Icon: Minus, tone: "text-faint" };
+  if (row.weight === null || row.weightWeek === null) {
+    return { label: "Waiting for first learned week", Icon: Minus, tone: "text-faint" };
   }
-  if (row.weightChange > 0) {
+
+  const change = row.weightChange ?? row.weight - row.baselineWeight;
+  const comparison =
+    row.previousWeightWeek === null
+      ? "vs start"
+      : `vs W${row.previousWeightWeek}`;
+  const prefix = `W${row.weightWeek}`;
+
+  if (Math.abs(change) < 0.0005) {
     return {
-      label: `Influence +${(row.weightChange * 100).toFixed(1)}%`,
+      label: `${prefix} unchanged ${comparison}`,
+      Icon: Minus,
+      tone: "text-faint",
+    };
+  }
+  if (change > 0) {
+    return {
+      label: `${prefix} +${(change * 100).toFixed(1)} pp ${comparison}`,
       Icon: TrendingUp,
       tone: "text-positive",
     };
   }
   return {
-    label: `Influence ${(row.weightChange * 100).toFixed(1)}%`,
+    label: `${prefix} ${(change * 100).toFixed(1)} pp ${comparison}`,
     Icon: TrendingDown,
     tone: "text-negative",
   };
@@ -455,6 +476,60 @@ export function SourceDashboard({
                               <span className="text-sm font-semibold tabular text-accent">{row.weight === null ? "Waiting" : `${(row.weight * 100).toFixed(1)}%`}</span>
                             </div>
                           </div>
+
+                          <div className="mt-4">
+                            <div className="flex items-end justify-between gap-3">
+                              <div>
+                                <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-accent">
+                                  Weight by NFL week
+                                </p>
+                                <p className="mt-1 text-[9px] leading-4 text-muted">
+                                  Each value is the influence used for that week. It is learned only from games completed before that week begins.
+                                </p>
+                              </div>
+                            </div>
+                            <div className="scrollbar-subtle mt-2 flex gap-2 overflow-x-auto pb-1">
+                              {[
+                                { label: "Start", weight: row.baselineWeight, delta: null as number | null },
+                                ...row.weightHistory.map((point, pointIndex) => {
+                                  const prior =
+                                    pointIndex === 0
+                                      ? row.baselineWeight
+                                      : row.weightHistory[pointIndex - 1]?.weight ?? row.baselineWeight;
+                                  return {
+                                    label: `W${point.week}`,
+                                    weight: point.weight,
+                                    delta: point.weight - prior,
+                                  };
+                                }),
+                              ].map((point) => (
+                                <div
+                                  key={point.label}
+                                  className="min-w-[92px] rounded-xl border bg-surface px-3 py-2.5"
+                                >
+                                  <p className="text-[8px] font-semibold uppercase tracking-[0.08em] text-faint">
+                                    {point.label}
+                                  </p>
+                                  <p className="mt-1 text-sm font-semibold tabular">
+                                    {(point.weight * 100).toFixed(1)}%
+                                  </p>
+                                  <p className={cn(
+                                    "mt-0.5 text-[8px] tabular",
+                                    point.delta === null || Math.abs(point.delta) < 0.0005
+                                      ? "text-faint"
+                                      : point.delta > 0
+                                        ? "text-positive"
+                                        : "text-negative",
+                                  )}>
+                                    {point.delta === null
+                                      ? "Equal baseline"
+                                      : `${point.delta > 0 ? "+" : ""}${(point.delta * 100).toFixed(1)} pp`}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
                           <p className="mt-3 text-[9px] leading-4 text-faint">
                             Accuracy strength is 1 ÷ typical miss. The source is then shrunk toward an equal share until it has enough graded rows. Learning confidence starts at 0% through 20 grades and reaches its 75% cap at 155 graded rows.
                           </p>
