@@ -460,31 +460,261 @@ export async function getProjectionSourcePerformance(season = 2026) {
       };
     });
 
+    const [moneylinePredictionRows, seasonGameRows] = await Promise.all([
+      db
+        .select({
+          features: predictions.features,
+          predictedAt: predictions.predictedAt,
+        })
+        .from(predictions)
+        .innerJoin(
+          normalizedMarkets,
+          eq(normalizedMarkets.id, predictions.normalizedMarketId),
+        )
+        .where(eq(normalizedMarkets.family, "moneyline"))
+        .orderBy(desc(predictions.predictedAt)),
+      db
+        .select({
+          week: nflGames.week,
+          homeTeam: nflGames.homeTeam,
+          awayTeam: nflGames.awayTeam,
+          homeScore: nflGames.homeScore,
+          awayScore: nflGames.awayScore,
+          status: nflGames.status,
+          updatedAt: nflGames.updatedAt,
+        })
+        .from(nflGames)
+        .where(
+          and(
+            eq(nflGames.season, season),
+            eq(nflGames.seasonType, "REG"),
+          ),
+        ),
+    ]);
+
+    const finalGames = new Map<
+      string,
+      {
+        winner: string | null;
+        gradedAt: Date;
+      }
+    >();
+    for (const game of seasonGameRows) {
+      if (
+        game.week === null ||
+        game.homeScore === null ||
+        game.awayScore === null ||
+        !/final/i.test(game.status)
+      ) {
+        continue;
+      }
+      const matchup = matchupKey(`${game.homeTeam}-${game.awayTeam}`);
+      const winner =
+        game.homeScore === game.awayScore
+          ? null
+          : canonicalTeam(
+              game.homeScore > game.awayScore
+                ? game.homeTeam
+                : game.awayTeam,
+            );
+      finalGames.set(`${game.week}:${matchup}`, {
+        winner,
+        gradedAt: game.updatedAt,
+      });
+    }
+
+    type MoneylineSample = {
+      source: string;
+      week: number;
+      matchup: string;
+      subject: string;
+      probabilityBps: number;
+      outcome: 0 | 0.5 | 1;
+      predictedAt: Date;
+      gradedAt: Date;
+    };
+
+    const latestBySourceGame = new Map<string, MoneylineSample>();
+    const coverageByMoneylineSource = new Map<string, Set<string>>();
+    const latestMoneylineCapture = new Map<string, Date>();
+    const latestMoneylineGrade = new Map<string, Date>();
+
+    for (const row of moneylinePredictionRows) {
+      const features = row.features;
+      if (
+        features.live === true ||
+        features.projectionSeason !== season ||
+        typeof features.projectionWeek !== "number" ||
+        typeof features.matchup !== "string" ||
+        typeof features.subject !== "string"
+      ) {
+        continue;
+      }
+
+      const week = features.projectionWeek;
+      const matchup = matchupKey(features.matchup);
+      const subject = canonicalTeam(features.subject);
+      if (!matchup || !subject) continue;
+
+      const points = parseMoneylineSources(features.gameProjectionSourcesJson);
+      for (const point of points) {
+        if (
+          !MONEYLINE_SOURCE_IDS.includes(
+            point.source as (typeof MONEYLINE_SOURCE_IDS)[number],
+          )
+        ) {
+          continue;
+        }
+
+        const captured = latestMoneylineCapture.get(point.source);
+        if (!captured || row.predictedAt > captured) {
+          latestMoneylineCapture.set(point.source, row.predictedAt);
+        }
+
+        if (coverageWeek !== null && week === coverageWeek) {
+          const covered = coverageByMoneylineSource.get(point.source) ?? new Set<string>();
+          covered.add(matchup);
+          coverageByMoneylineSource.set(point.source, covered);
+        }
+
+        const final = finalGames.get(`${week}:${matchup}`);
+        if (!final) continue;
+
+        const sampleKey = `${week}:${matchup}:${point.source}`;
+        if (latestBySourceGame.has(sampleKey)) continue;
+
+        const outcome: 0 | 0.5 | 1 =
+          final.winner === null
+            ? 0.5
+            : final.winner === subject
+              ? 1
+              : 0;
+        latestBySourceGame.set(sampleKey, {
+          source: point.source,
+          week,
+          matchup,
+          subject,
+          probabilityBps: point.probabilityBps,
+          outcome,
+          predictedAt: row.predictedAt,
+          gradedAt: final.gradedAt,
+        });
+
+        const graded = latestMoneylineGrade.get(point.source);
+        if (!graded || final.gradedAt > graded) {
+          latestMoneylineGrade.set(point.source, final.gradedAt);
+        }
+      }
+    }
+
+    const samplesByMoneylineSource = new Map<string, MoneylineSample[]>();
+    for (const sample of latestBySourceGame.values()) {
+      const samples = samplesByMoneylineSource.get(sample.source) ?? [];
+      samples.push(sample);
+      samplesByMoneylineSource.set(sample.source, samples);
+    }
+
+    const moneylineRows: MoneylinePerformanceRow[] = MONEYLINE_SOURCE_IDS.flatMap(
+      (source) => {
+        const samples = samplesByMoneylineSource.get(source) ?? [];
+        if (!samples.length) return [];
+
+        let brierTotal = 0;
+        let accuracyTotal = 0;
+        let logLossTotal = 0;
+        for (const sample of samples) {
+          const probability = clamp(sample.probabilityBps / 10_000, 0.001, 0.999);
+          const outcome = sample.outcome;
+          brierTotal += (probability - outcome) ** 2;
+          accuracyTotal +=
+            outcome === 0.5
+              ? 0.5
+              : (probability >= 0.5) === (outcome === 1)
+                ? 1
+                : 0;
+          logLossTotal +=
+            -(outcome * Math.log(probability) +
+              (1 - outcome) * Math.log(1 - probability));
+        }
+
+        return [{
+          source,
+          sampleSize: samples.length,
+          brierScore: brierTotal / samples.length,
+          accuracy: accuracyTotal / samples.length,
+          logLoss: logLossTotal / samples.length,
+          examples: samples
+            .toSorted((first, second) =>
+              second.week - first.week ||
+              second.predictedAt.getTime() - first.predictedAt.getTime(),
+            )
+            .slice(0, 3)
+            .map((sample) => ({
+              week: sample.week,
+              matchup: sample.matchup,
+              subject: sample.subject,
+              probabilityBps: sample.probabilityBps,
+              outcome: sample.outcome,
+            })),
+        }];
+      },
+    ).toSorted(
+      (first, second) =>
+        first.brierScore - second.brierScore ||
+        second.sampleSize - first.sampleSize,
+    );
+
     return {
       season,
       rows,
+      moneylineRows,
       coverageWeek,
-      sources: ACTIVE_PROJECTION_SOURCES.map((source) => ({
-        id: source,
-        ...PROJECTION_SOURCE_INFO[source],
-        coverageCount: coverageBySource.get(source) ?? 0,
-        lastCapturedAt: projectionUpdatedBySource.get(source) ?? null,
-        lastGradedAt: gradeUpdatedBySource.get(source) ?? null,
-      })),
+      sources: [
+        ...ACTIVE_PROJECTION_SOURCES.map((source) => ({
+          id: source,
+          ...PROJECTION_SOURCE_INFO[source],
+          moneylineOnly: false,
+          coverageCount: coverageBySource.get(source) ?? 0,
+          lastCapturedAt: projectionUpdatedBySource.get(source) ?? null,
+          lastGradedAt: gradeUpdatedBySource.get(source) ?? null,
+        })),
+        ...MONEYLINE_SOURCE_IDS.map((source) => ({
+          id: source,
+          ...MONEYLINE_SOURCE_INFO[source],
+          moneylineOnly: true,
+          coverageCount: coverageByMoneylineSource.get(source)?.size ?? 0,
+          lastCapturedAt:
+            latestMoneylineCapture.get(source)?.toISOString() ?? null,
+          lastGradedAt:
+            latestMoneylineGrade.get(source)?.toISOString() ?? null,
+        })),
+      ],
     };
   } catch (error) {
     console.error("Projection source performance unavailable", error);
     return {
       season,
       rows: [] as ProjectionPerformanceRow[],
+      moneylineRows: [] as MoneylinePerformanceRow[],
       coverageWeek: null as number | null,
-      sources: ACTIVE_PROJECTION_SOURCES.map((source) => ({
-        id: source,
-        ...PROJECTION_SOURCE_INFO[source],
-        coverageCount: 0,
-        lastCapturedAt: null as string | null,
-        lastGradedAt: null as string | null,
-      })),
+      sources: [
+        ...ACTIVE_PROJECTION_SOURCES.map((source) => ({
+          id: source,
+          ...PROJECTION_SOURCE_INFO[source],
+          moneylineOnly: false,
+          coverageCount: 0,
+          lastCapturedAt: null as string | null,
+          lastGradedAt: null as string | null,
+        })),
+        ...MONEYLINE_SOURCE_IDS.map((source) => ({
+          id: source,
+          ...MONEYLINE_SOURCE_INFO[source],
+          moneylineOnly: true,
+          coverageCount: 0,
+          lastCapturedAt: null as string | null,
+          lastGradedAt: null as string | null,
+        })),
+      ],
     };
   }
 }
