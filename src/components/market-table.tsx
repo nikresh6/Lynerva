@@ -4,6 +4,7 @@ import { ChevronDown, CloudSun, ExternalLink, FlaskConical, HeartPulse, X } from
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { MarketOpportunity } from "@/lib/markets/types";
+import { ACTIVE_PROJECTION_SOURCES } from "@/lib/model/source-weighting";
 import { cn, formatPercent, relativeTime, titleCase } from "@/lib/utils";
 import { PlatformMark } from "./platform-mark";
 import { SubjectVisual } from "./subject-visual";
@@ -766,6 +767,12 @@ function signedPercentFromBps(bps: number) {
 function ModelInputs({ market }: { market: MarketOpportunity }) {
   const components = market.model.components;
   const sources = components?.projectionSources ?? [];
+  const availableProjectionSources = new Set(
+    sources.map((source) => source.source),
+  );
+  const missingProjectionSources = ACTIVE_PROJECTION_SOURCES.filter(
+    (source) => !availableProjectionSources.has(source),
+  );
 
   if (market.canonical?.family === "moneyline") {
     const gameSources = components?.gameProjectionSources ?? [];
@@ -858,9 +865,9 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
                 Internal scoring moved from {formatPercent(pickFacingBps(components?.moneylineBaselineProbabilityBps, market.recommendedSide))} to {formatPercent(pickFacingBps(components?.moneylineInjuryAdjustedProbabilityBps, market.recommendedSide))}. ESPN stayed raw.
               </p>
               <div className="mt-2 space-y-1.5">
-                {injuryScenarios.slice(0, 3).map((scenario) => (
+                {injuryScenarios.map((scenario) => (
                   <p key={`${scenario.team}:${scenario.player}`} className="text-[9px] leading-4 text-faint">
-                    <strong className="text-foreground">{scenario.player}</strong> · {(scenario.playProbabilityBps / 100).toFixed(0)}% to play · {formatPercent(pickFacingBps(scenario.activeWinProbabilityBps, market.recommendedSide))} if active / {formatPercent(pickFacingBps(scenario.inactiveWinProbabilityBps, market.recommendedSide))} if out
+                    <strong className="text-foreground">{scenario.player}</strong> <span className="text-accent">{scenario.team}</span> · {(scenario.playProbabilityBps / 100).toFixed(0)}% to play · {formatPercent(pickFacingBps(scenario.activeWinProbabilityBps, market.recommendedSide))} if active / {formatPercent(pickFacingBps(scenario.inactiveWinProbabilityBps, market.recommendedSide))} if out
                   </p>
                 ))}
               </div>
@@ -922,7 +929,12 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
 
       <div className="mt-4 space-y-3">
         <div className="rounded-xl border bg-surface p-3.5">
-          <div className="text-xs font-semibold">Outside projections</div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs font-semibold">Outside projections</div>
+            <div className="rounded-full border bg-background px-2 py-0.5 text-[8px] font-medium text-muted">
+              {sources.length} of {ACTIVE_PROJECTION_SOURCES.length} valid
+            </div>
+          </div>
           {components?.consensusProjection === null ||
           components?.consensusProjection === undefined ? (
             <p className="mt-1.5 text-[11px] leading-5 text-muted">
@@ -967,6 +979,11 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
                         `${sourceLabel(source.source)} ${source.value.toFixed(2)}`,
                     )
                     .join(" · ")}
+                </p>
+              ) : null}
+              {missingProjectionSources.length ? (
+                <p className="mt-1 text-[9px] leading-4 text-faint">
+                  Not published for this exact player/stat: {missingProjectionSources.map(sourceLabel).join(", ")}. Missing sources are excluded—not counted as zero.
                 </p>
               ) : null}
               {components?.projectionStdDev !== null &&

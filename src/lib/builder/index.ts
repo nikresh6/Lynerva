@@ -288,7 +288,11 @@ function candidatePool(
     perPlayerStat.set(statKey, (perPlayerStat.get(statKey) ?? 0) + 1);
     perGame.set(game, (perGame.get(game) ?? 0) + 1);
     perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
-    if (selected.length >= 320) break;
+    // The optimizer runs interactively in the browser. The previous 320-leg
+    // pool expanded into millions of duplicate partial tickets before the
+    // beam could prune them. A quality-ranked 160-leg board still preserves
+    // broad game/player coverage while keeping clicks responsive on phones.
+    if (selected.length >= 160) break;
   }
   return selected;
 }
@@ -535,7 +539,7 @@ function searchCombinations(
   if (eligible.length === 0) return [];
 
   const targetReturn = Math.sqrt(options.minReturn * options.maxReturn);
-  const beamWidth = resultLimit > 1 ? 2_400 : 3_000;
+  const beamWidth = resultLimit > 1 ? 1_200 : 1_500;
   let frontier: SearchState[] = [
     {
       legs: [],
@@ -736,7 +740,7 @@ function searchCombinations(
               stateSearchValue(second, targetReturn, options.objective) -
               stateSearchValue(first, targetReturn, options.objective),
           )
-          .slice(0, resultLimit > 1 ? 64 : 84),
+          .slice(0, resultLimit > 1 ? 48 : 56),
       )
       .toSorted(
         (first, second) =>
@@ -1060,7 +1064,9 @@ export function buildRankedCombinations(
   // row of one-leg swaps.
   if (selected.length < Math.max(2, limit) && selected.length > 0) {
     const augmented = [...candidates];
-    for (const seed of selected.slice(0, 4)) {
+    // One targeted retry is enough to break a collapsed thesis. Running up to
+    // four complete beam searches made the UI appear hung on mobile.
+    for (const seed of selected.slice(0, 1)) {
       const excluded = new Set(seed.legs.map(combinationIdentity));
       const freshBoard = opportunities.filter(
         (market) => !excluded.has(combinationIdentity(market)),

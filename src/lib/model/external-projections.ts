@@ -8,6 +8,7 @@ import {
   ACTIVE_PROJECTION_SOURCES,
   type ActiveProjectionSource,
 } from "./source-weighting";
+import { parseDimersProjectionResponse } from "./dimers-projections";
 
 export type ProjectionSource =
   | "fantasypros"
@@ -1331,31 +1332,22 @@ function loadCovers(season: number, week: number) {
 function loadDimers(season: number, week: number) {
   return cachedSource("dimers", season, week, async () => {
     const map: ProjectionMap = new Map();
-    const rows = rowsFromHtml(
-      await fetchText("https://www.dimers.com/nfl/player-projections"),
+    const payload = await fetchJson(
+      `dimers:${season}:${week}`,
+      `https://levy-edge.statsinsider.com.au/round/boxscores?Sport=NFL&Round=${week}&Season=${season}`,
+      {
+        Accept: "application/json",
+        "User-Agent": "Huddlemark/1.0 projection-research",
+      },
     );
-
-    for (const cells of rows) {
-      if (cells.length < 11) continue;
-      const player = cells[0] ?? "";
-      if (!player || /^player$/i.test(player)) continue;
-
-      const touchdownChance = toNumber(cells[11]);
-      const position = cells[2]?.toUpperCase();
-      mergeStats(map, player, {
-        position: ["QB", "RB", "WR", "TE"].includes(position ?? "")
-          ? (position as "QB" | "RB" | "WR" | "TE")
-          : undefined,
-        passingYards: toNumber(cells[7]) ?? undefined,
-        rushingYards: toNumber(cells[8]) ?? undefined,
-        receptions: toNumber(cells[9]) ?? undefined,
-        receivingYards: toNumber(cells[10]) ?? undefined,
-        totalTouchdowns:
-          touchdownChance !== null &&
-          touchdownChance > 0 &&
-          touchdownChance < 100
-            ? -Math.log(1 - touchdownChance / 100)
-            : undefined,
+    for (const projection of parseDimersProjectionResponse(payload, season, week)) {
+      mergeStats(map, projection.player, {
+        position: projection.position,
+        passingYards: projection.passingYards,
+        rushingYards: projection.rushingYards,
+        receptions: projection.receptions,
+        receivingYards: projection.receivingYards,
+        totalTouchdowns: projection.totalTouchdowns,
       });
     }
 

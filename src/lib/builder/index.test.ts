@@ -85,6 +85,28 @@ const baseOptions = {
 };
 
 describe("combination builder", () => {
+  it("keeps a full weekly board responsive while returning distinct tickets", () => {
+    const markets = Array.from({ length: 320 }, (_, index) =>
+      opportunity(
+        `PLAYER-${index}`,
+        `TEAM-${index % 16}-OPP-${index % 16}`,
+        3_800 + (index % 35) * 100,
+        4_500 + (index % 30) * 100,
+      ),
+    );
+    const startedAt = performance.now();
+    const results = buildRankedCombinations(markets, {
+      ...baseOptions,
+      minReturn: 3,
+      maxReturn: 8,
+      maxLegs: 6,
+      mode: "any",
+    }, 6);
+
+    expect(results.length).toBeGreaterThan(1);
+    expect(performance.now() - startedAt).toBeLessThan(1_500);
+  });
+
   it("finds a positive-edge combination inside the return target", () => {
     const result = buildCombination(
       [

@@ -7,6 +7,7 @@ import {
 import type { MoneylineInjuryInput } from "./moneyline-injury-scenarios";
 import { getTeamRoster, type TeamRosterPlayer } from "@/lib/nfl/player-visuals";
 import { getPregamePlayerAvailability } from "@/lib/nfl/pregame-injuries";
+import { findPublicPlayerSeasonHistory } from "@/lib/nfl/history";
 import { clamp } from "@/lib/utils";
 
 type ProjectionProfile = Partial<Record<ProjectionStatistic, number>>;
@@ -132,9 +133,8 @@ function relevantPlayers(
     .toSorted(
       (a, b) =>
         (b.profile.passing_yards ?? 0) - (a.profile.passing_yards ?? 0),
-    );
-  const starter = quarterbacks[0];
-  const backup = quarterbacks[1];
+    )
+    .slice(0, 4);
   const skill = withProfile
     .filter(({ player }) =>
       player.position === "RB" ||
@@ -145,9 +145,24 @@ function relevantPlayers(
     .slice(0, 4);
 
   return {
-    starter,
-    backup,
+    quarterbacks,
     skill,
+  };
+}
+
+function recentQuarterbackUsage(
+  history: Awaited<ReturnType<typeof findPublicPlayerSeasonHistory>>,
+) {
+  const games = history.values.slice(0, 4);
+  return {
+    attempts: games.reduce(
+      (sum, game) => sum + Math.max(0, game.passingAttempts ?? 0),
+      0,
+    ),
+    averagePassingYards: games.length
+      ? games.reduce((sum, game) => sum + Math.max(0, game.value), 0) /
+        games.length
+      : 0,
   };
 }
 
@@ -155,22 +170,57 @@ async function collectTeamInjuries(input: {
   team: string;
   side: MoneylineInjuryInput["side"];
   profiles: Map<string, ProjectionProfile>;
+  season: number;
   espnGameId?: string | null;
 }) {
   const roster = await getTeamRoster(input.team);
   const relevant = relevantPlayers(roster, input.profiles);
+  const quarterbackUsage = await Promise.all(
+    relevant.quarterbacks.map(async (candidate) => ({
+      player: candidate.player.fullName,
+      ...(recentQuarterbackUsage(
+        await findPublicPlayerSeasonHistory(
+          candidate.player.fullName,
+          "passing_yards",
+          input.season,
+        ),
+      )),
+    })),
+  );
+  const primaryQuarterback = quarterbackUsage.toSorted(
+    (first, second) =>
+      second.attempts - first.attempts ||
+      second.averagePassingYards - first.averagePassingYards,
+  )[0];
+  const projectedBackup = relevant.quarterbacks.find(
+    (candidate) => candidate.player.fullName !== primaryQuarterback?.player,
+  );
   const candidates = [
-    ...(relevant.starter
-      ? [
-          {
-            ...relevant.starter,
-            impact: quarterbackImpact(
-              relevant.starter.profile,
-              relevant.backup?.profile ?? null,
-            ),
-          },
-        ]
-      : []),
+    ...relevant.quarterbacks.map((candidate) => {
+      const usage = quarterbackUsage.find(
+        (row) => row.player === candidate.player.fullName,
+      );
+      const isEstablishedStarter =
+        candidate.player.fullName === primaryQuarterback?.player &&
+        (primaryQuarterback.attempts >= 15 ||
+          primaryQuarterback.averagePassingYards >= 100);
+      const profile =
+        (candidate.profile.passing_yards ?? 0) >= 100
+          ? candidate.profile
+          : isEstablishedStarter
+            ? {
+                ...candidate.profile,
+                passing_yards: Math.max(
+                  150,
+                  usage?.averagePassingYards ?? 0,
+                ),
+              }
+            : candidate.profile;
+      return {
+        ...candidate,
+        impact: quarterbackImpact(profile, projectedBackup?.profile ?? null),
+      };
+    }),
     ...relevant.skill.map((candidate) => ({
       ...candidate,
       impact: skillImpact(candidate.profile),
@@ -236,12 +286,14 @@ async function computeMoneylineInjuryInputs(input: {
         team: input.subjectTeam,
         side: "subject",
         profiles,
+        season: input.season,
         espnGameId: input.espnGameId,
       }),
       collectTeamInjuries({
         team: input.opponentTeam,
         side: "opponent",
         profiles,
+        season: input.season,
         espnGameId: input.espnGameId,
       }),
     ]);
