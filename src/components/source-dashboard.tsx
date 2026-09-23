@@ -384,7 +384,9 @@ export function SourceDashboard({
               Who is best at each stat?
             </h2>
             <p className="mt-2 max-w-2xl text-xs leading-5 text-muted">
-              “Typical miss” is a robust error score, not a mystery average. Click any source to see the exact formula, its real graded player examples, and how that error turns into model influence.
+              {selectedStat === "moneyline"
+                ? "Moneylines are ranked by Brier score. Lower is better because the score rewards accurate probabilities and penalizes confident misses, instead of only counting who picked the winner."
+                : "“Typical miss” is a robust error score, not a mystery average. Click any source to see the exact formula, its real graded player examples, and how that error turns into model influence."}
             </p>
           </div>
           <div className="scrollbar-subtle flex max-w-full gap-1 overflow-x-auto pb-1" role="tablist" aria-label="Projection statistic">
@@ -408,6 +410,101 @@ export function SourceDashboard({
           </div>
         </div>
 
+        {selectedStat === "moneyline" ? (
+          <div className="mt-5 overflow-hidden rounded-2xl border border-amber-400/30">
+            <div className="hidden grid-cols-[1.2fr_0.7fr_0.8fr_0.9fr] gap-3 border-b bg-background px-4 py-2.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-faint sm:grid">
+              <span>Source</span>
+              <span>Graded games</span>
+              <span>Brier score</span>
+              <span>Winner accuracy</span>
+            </div>
+            {selectedMoneylineRows.length ? (
+              selectedMoneylineRows.map((row, index) => {
+                const source = sources.find((item) => item.id === row.source);
+                return (
+                  <div
+                    key={`moneyline:${row.source}`}
+                    className="grid gap-3 border-b px-4 py-4 last:border-b-0 sm:grid-cols-[1.2fr_0.7fr_0.8fr_0.9fr] sm:items-center"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className={cn(
+                        "grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-bold",
+                        index === 0
+                          ? "bg-amber-400/15 text-amber-300"
+                          : "bg-background text-muted",
+                      )}>
+                        {index + 1}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="truncate text-sm font-semibold">{source?.name ?? row.source}</p>
+                          <span className="shrink-0 rounded-full border border-amber-400/50 bg-amber-400/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.08em] text-amber-300">
+                            ML
+                          </span>
+                        </div>
+                        <p className={cn("text-[9px]", index === 0 ? "text-amber-300" : "text-faint")}>
+                          {index === 0 ? "Lowest Brier score so far" : "Pregame moneyline probability"}
+                        </p>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Graded games</p>
+                      <p className="text-sm font-semibold tabular">{row.sampleSize.toLocaleString()}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Brier score</p>
+                      <p className="text-sm font-semibold tabular">{row.brierScore.toFixed(3)}</p>
+                      <p className="text-[9px] text-faint">Log loss {row.logLoss.toFixed(3)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Winner accuracy</p>
+                      <p className="text-sm font-semibold tabular">{(row.accuracy * 100).toFixed(1)}%</p>
+                      <p className="text-[9px] text-faint">Brier is the ranking metric</p>
+                    </div>
+
+                    {row.examples.length ? (
+                      <div className="sm:col-span-4 mt-1 grid gap-2 border-t pt-3 md:grid-cols-3">
+                        {row.examples.map((example) => (
+                          <div
+                            key={`${row.source}:${example.week}:${example.matchup}`}
+                            className="rounded-xl border bg-background p-3"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-faint">
+                                W{example.week} · {example.matchup.replace("-", " vs ")}
+                              </p>
+                              <span className="text-[8px] text-amber-300">ML</span>
+                            </div>
+                            <p className="mt-2 text-xs font-semibold">
+                              {example.subject} {(example.probabilityBps / 100).toFixed(1)}%
+                            </p>
+                            <p className="mt-1 text-[9px] text-muted">
+                              {example.outcome === 0.5
+                                ? "Game tied"
+                                : example.outcome === 1
+                                  ? `${example.subject} won`
+                                  : `${example.subject} lost`}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })
+            ) : (
+              <div className="px-5 py-12 text-center">
+                <p className="font-medium">Waiting for frozen moneyline source grades.</p>
+                <p className="mt-1 text-xs leading-5 text-muted">
+                  Huddlemark only grades moneyline probabilities that were actually saved before kickoff. It will not reconstruct old forecasts with hindsight.
+                </p>
+              </div>
+            )}
+            <div className="border-t bg-amber-400/5 px-4 py-3 text-[9px] leading-4 text-muted">
+              Brier score = average (forecast probability − actual result)². Perfect is 0.000; a constant 50/50 forecast scores 0.250. Lower is better.
+            </div>
+          </div>
+        ) : (
         <div className="mt-5 overflow-hidden rounded-2xl border">
           <div className="hidden grid-cols-[1.2fr_0.7fr_0.8fr_0.9fr] gap-3 border-b bg-background px-4 py-2.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-faint sm:grid">
             <span>Source</span>
@@ -630,6 +727,7 @@ export function SourceDashboard({
             </div>
           )}
         </div>
+        )}
       </section>
 
       <section className="grid gap-3 md:grid-cols-3" aria-label="How source learning works">
