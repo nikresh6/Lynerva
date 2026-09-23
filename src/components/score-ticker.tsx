@@ -1,14 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { usePathname } from "next/navigation";
 import Image from "next/image";
 import type { LiveNflGame } from "@/lib/nfl/live";
 import { teamLogo } from "./subject-visual";
-
-function matchupKey(game: LiveNflGame) {
-  return [game.away.team, game.home.team].toSorted().join("-");
-}
 
 function shortStatus(game: LiveNflGame) {
   if (game.state === "in") {
@@ -27,13 +22,8 @@ function shortStatus(game: LiveNflGame) {
 }
 
 export function useTickerGames() {
-  const pathname = usePathname();
   const [games, setGames] = useState<LiveNflGame[]>([]);
-  // Live and Games already own a faster scoreboard. Avoid running a second
-  // header poll on those routes.
-  const enabled = ["/", "/builder", "/tracker"].some(
-    (route) => pathname === route || pathname.startsWith(`${route}/`),
-  );
+  const enabled = true;
 
   useEffect(() => {
     if (!enabled) {
@@ -55,7 +45,7 @@ export function useTickerGames() {
     };
 
     void refresh();
-    const timer = window.setInterval(refresh, 15_000);
+    const timer = window.setInterval(refresh, 5_000);
     const onVisibility = () => {
       if (document.visibilityState === "visible") void refresh();
     };
@@ -118,35 +108,19 @@ function TeamScore({
   );
 }
 
-function TickerItem({
-  game,
-  onOpen,
-}: {
-  game: LiveNflGame;
-  onOpen: (game: LiveNflGame) => void;
-}) {
+function TickerItem({ game }: { game: LiveNflGame }) {
   const showScore = game.state !== "pre";
 
   return (
-    <button
-      type="button"
-      onClick={() => onOpen(game)}
-      className="score-ticker-item flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-[10px] transition-colors hover:bg-surface"
-      aria-label={`Open best bets for ${game.away.team} at ${game.home.team}`}
+    <div
+      className="score-ticker-item flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-[10px]"
+      aria-label={`${game.away.team} at ${game.home.team}, ${shortStatus(game)}`}
     >
-      <TeamScore
-        team={game.away.team}
-        score={game.away.score}
-        showScore={showScore}
-      />
+      <TeamScore team={game.away.team} score={game.away.score} showScore={showScore} />
       <span className="text-[8px] font-medium uppercase tracking-[0.08em] text-faint">
         {showScore ? "vs" : "at"}
       </span>
-      <TeamScore
-        team={game.home.team}
-        score={game.home.score}
-        showScore={showScore}
-      />
+      <TeamScore team={game.home.team} score={game.home.score} showScore={showScore} />
       <span
         className={
           game.state === "in"
@@ -156,24 +130,16 @@ function TickerItem({
       >
         {shortStatus(game)}
       </span>
-    </button>
+    </div>
   );
 }
-
 export function ScoreTicker({ games }: { games: LiveNflGame[] }) {
   if (!games.length) return null;
-  const openGame = (game: LiveNflGame) => {
-    const href = `/games?game=${encodeURIComponent(matchupKey(game))}`;
-    // The game board is a relatively heavy interactive route. A normal
-    // navigation keeps a bad client transition from taking down the current
-    // React tree and gives the browser a clean recovery boundary.
-    window.location.assign(href);
-  };
 
-  // A score strip is navigation, not a second scoreboard. Keeping the most
-  // relevant eight games makes it quick to scan and prevents hidden duplicate
-  // marquees from adding hundreds of DOM nodes on every route.
-  const visible = games.slice(0, 8);
+  // Duplicate the strip only for a seamless visual loop. The items are passive
+  // score displays and never navigate anywhere.
+  const visible = games.slice(0, 12);
+  const loop = [...visible, ...visible];
 
   return (
     <div className="score-ticker-responsive order-3 -mx-1 flex w-full min-w-0 items-center overflow-hidden pb-2 lg:order-none lg:mx-0 lg:w-auto lg:flex-1 lg:pb-0">
@@ -181,10 +147,10 @@ export function ScoreTicker({ games }: { games: LiveNflGame[] }) {
         <span className="size-1.5 rounded-full bg-positive" />
         NFL
       </span>
-      <div className="scrollbar-subtle min-w-0 flex-1 overflow-x-auto overscroll-x-contain">
-        <div className="flex w-max items-center gap-1.5">
-          {visible.map((game) => (
-            <TickerItem key={game.id} game={game} onOpen={openGame} />
+      <div className="score-ticker-viewport min-w-0 flex-1 overflow-hidden">
+        <div className="score-ticker-track flex w-max items-center gap-1.5">
+          {loop.map((game, index) => (
+            <TickerItem key={`${game.id}-${index}`} game={game} />
           ))}
         </div>
       </div>
