@@ -16,10 +16,21 @@ export interface HistoricalValue {
   season: number;
   week: number;
   value: number;
+  team?: string | null;
+  opponent?: string | null;
+  passingAttempts?: number | null;
+  rushingAttempts?: number | null;
+  targets?: number | null;
+  receptions?: number | null;
 }
 
 export interface RecentPlayerActual {
   playerName: string;
+  team?: string | null;
+  opponent?: string | null;
+  passingAttempts?: number | null;
+  rushingAttempts?: number | null;
+  targets?: number | null;
   passingYards: number | null;
   passingTouchdowns: number | null;
   passingInterceptions: number | null;
@@ -184,6 +195,11 @@ function loadPersistedSeasonHistory(season: number) {
         .select({
           playerName: nflPlayers.fullName,
           week: nflGames.week,
+          team: playerGameStats.team,
+          opponent: playerGameStats.opponent,
+          passingAttempts: playerGameStats.passingAttempts,
+          rushingAttempts: playerGameStats.rushingAttempts,
+          targets: playerGameStats.targets,
           passingYards: playerGameStats.passingYards,
           passingTouchdowns: playerGameStats.passingTouchdowns,
           passingInterceptions: playerGameStats.passingInterceptions,
@@ -261,6 +277,12 @@ async function findPersistedPlayerValues(
         season,
         week: row.week,
         value,
+        team: row.team ?? null,
+        opponent: row.opponent ?? null,
+        passingAttempts: row.passingAttempts ?? null,
+        rushingAttempts: row.rushingAttempts ?? null,
+        targets: row.targets ?? null,
+        receptions: row.receptions ?? null,
       }];
     });
 
@@ -312,6 +334,12 @@ export function recordEspnFinalPlayerStats(
         season,
         week,
         value,
+        team: row.team ?? null,
+        opponent: row.opponent ?? null,
+        passingAttempts: row.passingAttempts ?? null,
+        rushingAttempts: row.rushingAttempts ?? null,
+        targets: row.targets ?? null,
+        receptions: row.receptions ?? null,
       });
     }
 
