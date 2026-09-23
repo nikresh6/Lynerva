@@ -22,6 +22,7 @@ export default async function SourcesPage() {
       season={performance.season}
       coverageWeek={performance.coverageWeek}
       rows={performance.rows}
+      moneylineRows={performance.moneylineRows}
       sources={performance.sources}
       generatedAt={new Date().toISOString()}
     />
