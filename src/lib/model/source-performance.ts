@@ -83,9 +83,15 @@ export type ProjectionPerformanceRow = {
     absoluteError: number;
   }>;
   weight: number | null;
+  baselineWeight: number;
   previousWeight: number | null;
+  previousWeightWeek: number | null;
   weightChange: number | null;
   weightWeek: number | null;
+  weightHistory: Array<{
+    week: number;
+    weight: number;
+  }>;
 };
 
 function quantile(sorted: number[], q: number) {
@@ -205,36 +211,23 @@ export async function getProjectionSourcePerformance(season = 2026) {
       ]),
     );
 
-    const latestWeights = new Map<
+    const baselineWeight = 1 / Math.max(ACTIVE_PROJECTION_SOURCES.length, 1);
+    const weightHistoryByKey = new Map<
       string,
-      { weight: number; effectiveWeek: number }
+      Array<{ week: number; weight: number }>
     >();
-    const previousWeights = new Map<string, number>();
-    const seenWeightWeeks = new Map<string, Set<number>>();
 
     for (const row of weightRows) {
       const key = `${row.statistic}:${row.source}`;
-      const weeks = seenWeightWeeks.get(key) ?? new Set<number>();
-
-      if (!latestWeights.has(key)) {
-        latestWeights.set(key, {
-          weight: row.weight,
-          effectiveWeek: row.effectiveWeek,
-        });
-        weeks.add(row.effectiveWeek);
-        seenWeightWeeks.set(key, weeks);
-        continue;
+      const history = weightHistoryByKey.get(key) ?? [];
+      if (!history.some((item) => item.week === row.effectiveWeek)) {
+        history.push({ week: row.effectiveWeek, weight: row.weight });
       }
+      weightHistoryByKey.set(key, history);
+    }
 
-      const latestWeek = latestWeights.get(key)!.effectiveWeek;
-      if (
-        row.effectiveWeek !== latestWeek &&
-        !previousWeights.has(key)
-      ) {
-        previousWeights.set(key, row.weight);
-      }
-      weeks.add(row.effectiveWeek);
-      seenWeightWeeks.set(key, weeks);
+    for (const history of weightHistoryByKey.values()) {
+      history.sort((first, second) => first.week - second.week);
     }
 
     const groups = new Map<
@@ -293,8 +286,12 @@ export async function getProjectionSourcePerformance(season = 2026) {
       (group) => {
         const abs = group.abs.toSorted((a, b) => a - b);
         const weightKey = `${group.statistic}:${group.source}`;
-        const weight = latestWeights.get(weightKey);
-        const previousWeight = previousWeights.get(weightKey) ?? null;
+        const weightHistory = weightHistoryByKey.get(weightKey) ?? [];
+        const latestWeight = weightHistory.at(-1) ?? null;
+        const priorWeight = weightHistory.at(-2) ?? null;
+        const previousWeight = latestWeight
+          ? priorWeight?.weight ?? baselineWeight
+          : null;
         const sampleSize = abs.length;
         const medianAbsoluteError = quantile(abs, 0.5);
         const p90AbsoluteError = quantile(abs, 0.9);
@@ -339,13 +336,16 @@ export async function getProjectionSourcePerformance(season = 2026) {
               actualValue: example.actualValue,
               absoluteError: example.error,
             })),
-          weight: weight?.weight ?? null,
+          weight: latestWeight?.weight ?? null,
+          baselineWeight,
           previousWeight,
+          previousWeightWeek: priorWeight?.week ?? null,
           weightChange:
-            weight && previousWeight !== null
-              ? weight.weight - previousWeight
+            latestWeight && previousWeight !== null
+              ? latestWeight.weight - previousWeight
               : null,
-          weightWeek: weight?.effectiveWeek ?? null,
+          weightWeek: latestWeight?.week ?? null,
+          weightHistory,
         };
       },
     );
