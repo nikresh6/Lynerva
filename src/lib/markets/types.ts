@@ -65,6 +65,17 @@ export interface HistoricalEvidence {
   seasonGames: number | null;
   sampleSize: number;
   recentValues?: number[];
+  recentGames?: Array<{
+    season: number;
+    week: number;
+    value: number;
+    team?: string | null;
+    opponent?: string | null;
+    passingAttempts?: number | null;
+    rushingAttempts?: number | null;
+    targets?: number | null;
+    receptions?: number | null;
+  }>;
 }
 
 export interface LynervaScoreBreakdown {
