@@ -12,6 +12,41 @@ import { fetchKalshiMarketSettlement } from "@/lib/kalshi";
 import { scorePredictionResult } from "./evaluation";
 import { recommendedPredictionPerspective } from "./prediction-perspective";
 
+const LOCKED_SETTLEMENT_RECHECK_MS = 60_000;
+let lockedSettlementLastCheckedAt = 0;
+let lockedSettlementInflight: Promise<{
+  checked: number;
+  settledMarkets: number;
+  graded: number;
+}> | null = null;
+
+async function fetchSettlements(tickers: string[]) {
+  const byTicker = new Map<
+    string,
+    Awaited<ReturnType<typeof fetchKalshiMarketSettlement>>
+  >();
+
+  // Kalshi has already rate-limited bursty NFL-series traffic in production.
+  // Settlement checks are intentionally small and paced so stale scorecards do
+  // not create a second request burst.
+  for (let index = 0; index < tickers.length; index += 3) {
+    const batch = tickers.slice(index, index + 3);
+    const settlements = await Promise.allSettled(
+      batch.map((ticker) => fetchKalshiMarketSettlement(ticker)),
+    );
+    settlements.forEach((settlement, batchIndex) => {
+      if (settlement.status === "fulfilled" && settlement.value) {
+        byTicker.set(batch[batchIndex]!, settlement.value);
+      }
+    });
+    if (index + 3 < tickers.length) {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+  }
+
+  return byTicker;
+}
+
 export async function recordPredictionResult(input: {
   predictionId: string;
   outcome: 0 | 1;
@@ -48,6 +83,89 @@ export async function recordPredictionResult(input: {
     })
     .onConflictDoNothing({ target: predictionResults.predictionId });
   return scores;
+}
+
+export async function settleLockedScorecardPredictions(options?: {
+  force?: boolean;
+}) {
+  const nowMs = Date.now();
+  if (
+    !options?.force &&
+    nowMs - lockedSettlementLastCheckedAt < LOCKED_SETTLEMENT_RECHECK_MS
+  ) {
+    return { checked: 0, settledMarkets: 0, graded: 0 };
+  }
+  if (lockedSettlementInflight) return lockedSettlementInflight;
+
+  lockedSettlementInflight = (async () => {
+    const db = getDb();
+    const lockedCandidates = await db
+      .select({
+        id: predictions.id,
+        normalizedMarketId: predictions.normalizedMarketId,
+        predictedProbabilityBps: predictions.predictedProbabilityBps,
+        executablePriceBps: predictions.executablePriceBps,
+        edgeBps: predictions.edgeBps,
+        features: predictions.features,
+        predictedAt: predictions.predictedAt,
+        ticker: marketListings.platformMarketId,
+      })
+      .from(weeklyScorecardPicks)
+      .innerJoin(
+        predictions,
+        eq(predictions.id, weeklyScorecardPicks.predictionId),
+      )
+      .innerJoin(
+        marketListings,
+        eq(marketListings.id, predictions.listingId),
+      )
+      .leftJoin(
+        predictionResults,
+        eq(predictionResults.predictionId, predictions.id),
+      )
+      .where(
+        and(
+          eq(marketListings.platform, "kalshi"),
+          isNull(predictionResults.predictionId),
+        ),
+      )
+      .limit(50);
+
+    const uniqueTickers = [...new Set(lockedCandidates.map((row) => row.ticker))];
+    const byTicker = await fetchSettlements(uniqueTickers);
+
+    let graded = 0;
+    for (const candidate of lockedCandidates) {
+      const settlement = byTicker.get(candidate.ticker);
+      if (!settlement) continue;
+      const perspective = recommendedPredictionPerspective(candidate);
+      const hit = perspective.side === settlement.result ? 1 : 0;
+      await recordPredictionResult({
+        predictionId: candidate.id,
+        outcome: hit,
+        settledAt: settlement.settledAt,
+        settlementSource: "kalshi_market_result",
+      });
+      await db
+        .update(marketListings)
+        .set({ status: "settled" })
+        .where(eq(marketListings.platformMarketId, candidate.ticker));
+      graded += 1;
+    }
+
+    lockedSettlementLastCheckedAt = Date.now();
+    return {
+      checked: lockedCandidates.length,
+      settledMarkets: byTicker.size,
+      graded,
+    };
+  })();
+
+  try {
+    return await lockedSettlementInflight;
+  } finally {
+    lockedSettlementInflight = null;
+  }
 }
 
 export async function settleKalshiPredictions() {
@@ -88,45 +206,12 @@ export async function settleKalshiPredictions() {
     }
   }
 
-  const lockedCandidates = await db
-    .select({
-      id: predictions.id,
-      normalizedMarketId: predictions.normalizedMarketId,
-      predictedProbabilityBps: predictions.predictedProbabilityBps,
-      executablePriceBps: predictions.executablePriceBps,
-      edgeBps: predictions.edgeBps,
-      features: predictions.features,
-      predictedAt: predictions.predictedAt,
-      ticker: marketListings.platformMarketId,
-    })
-    .from(weeklyScorecardPicks)
-    .innerJoin(
-      predictions,
-      eq(predictions.id, weeklyScorecardPicks.predictionId),
-    )
-    .innerJoin(
-      marketListings,
-      eq(marketListings.id, predictions.listingId),
-    )
-    .leftJoin(
-      predictionResults,
-      eq(predictionResults.predictionId, predictions.id),
-    )
-    .where(
-      and(
-        eq(marketListings.platform, "kalshi"),
-        isNull(predictionResults.predictionId),
-        lt(marketListings.closesAt, now),
-      ),
-    );
+  const lockedSettlement = await settleLockedScorecardPredictions({ force: true });
 
   const selectedById = new Map<
     string,
     (typeof candidates)[number]
   >();
-  for (const candidate of lockedCandidates) {
-    selectedById.set(candidate.id, candidate);
-  }
   for (const candidate of [...latestByMarket.values()].slice(0, 60)) {
     if (!selectedById.has(candidate.id)) {
       selectedById.set(candidate.id, candidate);
@@ -134,18 +219,7 @@ export async function settleKalshiPredictions() {
   }
   const selected = [...selectedById.values()];
   const uniqueTickers = [...new Set(selected.map((row) => row.ticker))];
-  const settlements = await Promise.allSettled(
-    uniqueTickers.map((ticker) => fetchKalshiMarketSettlement(ticker)),
-  );
-  const byTicker = new Map<
-    string,
-    Awaited<ReturnType<typeof fetchKalshiMarketSettlement>>
-  >();
-  settlements.forEach((settlement, index) => {
-    if (settlement.status === "fulfilled" && settlement.value) {
-      byTicker.set(uniqueTickers[index]!, settlement.value);
-    }
-  });
+  const byTicker = await fetchSettlements(uniqueTickers);
 
   let graded = 0;
   for (const candidate of selected) {
@@ -167,8 +241,8 @@ export async function settleKalshiPredictions() {
   }
 
   return {
-    checked: selected.length,
-    settledMarkets: byTicker.size,
-    graded,
+    checked: lockedSettlement.checked + selected.length,
+    settledMarkets: lockedSettlement.settledMarkets + byTicker.size,
+    graded: lockedSettlement.graded + graded,
   };
 }
