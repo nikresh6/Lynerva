@@ -6,8 +6,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "Huddlemark — NFL market intelligence",
-    template: "%s — Huddlemark",
+    default: "Huddlemark",
+    template: "Huddlemark",
   },
   description:
     "Research executable Kalshi NFL prediction-market prices with disciplined probability estimates.",
