@@ -93,9 +93,34 @@ export function ensureSourceLearningSchema() {
         source text NOT NULL,
         projected_value real NOT NULL,
         captured_at integer NOT NULL,
+        latest_projected_value real,
+        latest_captured_at integer,
+        observation_count integer DEFAULT 1 NOT NULL,
         created_at integer DEFAULT (unixepoch()) NOT NULL,
         updated_at integer DEFAULT (unixepoch()) NOT NULL
       )
+    `));
+    const addProjectionColumn = async (statement: string) => {
+      try {
+        await db.run(sql.raw(statement));
+      } catch (error) {
+        if (!/duplicate column name/i.test(errorChainText(error))) throw error;
+      }
+    };
+    await addProjectionColumn(
+      "ALTER TABLE source_projections ADD COLUMN latest_projected_value real",
+    );
+    await addProjectionColumn(
+      "ALTER TABLE source_projections ADD COLUMN latest_captured_at integer",
+    );
+    await addProjectionColumn(
+      "ALTER TABLE source_projections ADD COLUMN observation_count integer DEFAULT 1 NOT NULL",
+    );
+    await db.run(sql.raw(`
+      UPDATE source_projections
+      SET latest_projected_value = COALESCE(latest_projected_value, projected_value),
+          latest_captured_at = COALESCE(latest_captured_at, captured_at)
+      WHERE latest_projected_value IS NULL OR latest_captured_at IS NULL
     `));
     await db.run(sql.raw(`
       CREATE UNIQUE INDEX IF NOT EXISTS source_projection_unique

@@ -556,7 +556,6 @@ export function BuilderWorkbench() {
 
   useEffect(() => {
     if (!comboQuoteRequests.length) {
-      setComboQuotes({});
       return;
     }
 
@@ -1557,7 +1556,7 @@ export function BuilderWorkbench() {
                 <strong className="font-semibold text-foreground">
                   The builder now scores the whole combination.
                 </strong>{" "}
-                Tap any leg, choose I don't care, Over, or Under, then choose similar, higher, or lower payout. Huddlemark picks the replacement for you from the full modeled board. The builder penalizes repeated players and rejects normal tickets where one longshot carries most of the payout, but it does not force artificial stat-category diversity.
+                Tap any leg, choose I don&apos;t care, Over, or Under, then choose similar, higher, or lower payout. Huddlemark picks the replacement for you from the full modeled board. The builder penalizes repeated players and rejects normal tickets where one longshot carries most of the payout, but it does not force artificial stat-category diversity.
                 {" "}When Kalshi already exposes this exact combo market, Huddlemark uses its live combo ask. Otherwise the displayed return is an independent-leg estimate from the executable single-leg prices, and the eventual checkout quote can differ.
                 {combination.correlationWarning
                   ? " Same-game hit probability is also approximate because the legs can be correlated."
@@ -2243,7 +2242,7 @@ export function BuilderWorkbench() {
             <div className="p-4 sm:p-5">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <p className="text-[10px] font-semibold text-foreground">
-                  Huddlemark's replacement
+                  Huddlemark&apos;s replacement
                 </p>
                 <span className="text-[9px] text-faint">
                   {swapDirection === "any"
@@ -2314,7 +2313,7 @@ export function BuilderWorkbench() {
                   <div className="rounded-2xl border bg-background p-7 text-center">
                     <p className="text-sm font-semibold">No exact fit found</p>
                     <p className="mt-1 text-[10px] leading-4 text-muted">
-                      Try I don't care for direction. The engine already relaxes
+                      Try I don&apos;t care for direction. The engine already relaxes
                       edge and payout distance before giving up.
                     </p>
                   </div>
@@ -2382,7 +2381,7 @@ export function BuilderWorkbench() {
                 <div className="rounded-2xl border bg-background p-7 text-center">
                   <p className="text-sm font-semibold">No exact fit found</p>
                   <p className="mt-1 text-[10px] leading-4 text-muted">
-                    Try I don't care for direction. Huddlemark already searches
+                    Try I don&apos;t care for direction. Huddlemark already searches
                     all alternate lines and best-available modeled markets.
                   </p>
                 </div>

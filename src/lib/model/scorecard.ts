@@ -387,13 +387,6 @@ export async function lockEligibleScorecards() {
 export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
   try {
     const db = getDb();
-    await lockEligibleScorecards();
-
-    // Results pages should self-heal stale scorecards instead of waiting for
-    // the background scheduler. Locked picks are checked directly against the
-    // Kalshi settlement endpoint and do not depend on Kalshi's close_time.
-    await settleLockedScorecardPredictions();
-
     const rows = await db
       .select({
         rank: weeklyScorecardPicks.rank,
@@ -525,4 +518,12 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
     console.error("Weekly scorecards unavailable", error);
     return [];
   }
+}
+
+export async function refreshWeeklyScorecards() {
+  // Keep network settlement work out of the user's page-load path. The
+  // long-running scheduler is authoritative; page visits also enqueue this
+  // bounded self-heal after the response has already been sent.
+  await lockEligibleScorecards();
+  await settleLockedScorecardPredictions();
 }

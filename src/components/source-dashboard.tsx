@@ -265,7 +265,7 @@ export function SourceDashboard({
           <div>
             <p className="eyebrow">Freshness</p>
             <h2 id="freshness-heading" className="mt-1 text-2xl font-semibold tracking-[-0.03em]">
-              When the numbers last moved
+              When each pipeline last checked in
             </h2>
           </div>
           <p className="text-xs text-muted">Times come from successful database writes.</p>
@@ -274,7 +274,7 @@ export function SourceDashboard({
           <div className="rounded-2xl border bg-surface p-5">
             <div className="flex items-center gap-2 text-accent">
               <Database className="size-4" />
-              <span className="text-[10px] font-semibold uppercase tracking-[0.1em]">Projection capture</span>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.1em]">Projection refresh</span>
             </div>
             <p className="mt-4 text-xl font-semibold">{timeLabel(newestProjection, generatedAt)}</p>
             <p className="mt-1 text-xs text-muted">{exactTime(newestProjection)}</p>
@@ -296,6 +296,9 @@ export function SourceDashboard({
           <h2 id="source-cards-heading" className="mt-1 text-2xl font-semibold tracking-[-0.03em]">
             One card per source. No duplicate dashboards.
           </h2>
+          <p className="mt-2 max-w-3xl text-xs leading-5 text-muted">
+            A common player prop can use up to {playerSourceCount} independent player-projection sources. “Published rows” counts player-and-stat projections—not players—and stays lower when a source has not posted that week, omits a stat, or keeps a row behind a paywall.
+          </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {sources.map((source) => {
@@ -346,7 +349,7 @@ export function SourceDashboard({
                 </div>
                 <div className="mt-5 grid grid-cols-3 gap-2">
                   <div>
-                    <p className="text-[9px] uppercase tracking-[0.08em] text-faint">This week</p>
+                    <p className="text-[9px] uppercase tracking-[0.08em] text-faint">Published rows</p>
                     <p className="mt-1 text-sm font-semibold tabular">{source.coverageCount}</p>
                   </div>
                   <div>
@@ -411,7 +414,20 @@ export function SourceDashboard({
         </div>
 
         {selectedStat === "moneyline" ? (
-          <div className="mt-5 overflow-hidden rounded-2xl border border-amber-400/30">
+          <div className="mt-5 space-y-3">
+            <div className="grid gap-2 md:grid-cols-3">
+              {[
+                ["50% · Scoring", "Each team’s current-season points scored and allowed are blended with its opponent, pulled toward the league average while the sample is small, adjusted for recent form and home field, then converted from projected margin to win chance."],
+                ["15% · Record", "Smoothed wins, losses, and ties for both teams create a separate win chance. A small home-field adjustment is included, and the output is capped so an early record cannot become overconfident."],
+                ["35% · ESPN FPI", "ESPN’s saved pregame win probability supplies the independent outside view. If one input is unavailable, the remaining weights are automatically rescaled; live win probability never leaks into this pregame board."],
+              ].map(([label, copy]) => (
+                <div key={label} className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-300">{label}</p>
+                  <p className="mt-2 text-[10px] leading-5 text-muted">{copy}</p>
+                </div>
+              ))}
+            </div>
+            <div className="overflow-hidden rounded-2xl border border-amber-400/30">
             <div className="hidden grid-cols-[1.2fr_0.7fr_0.8fr_0.9fr] gap-3 border-b bg-background px-4 py-2.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-faint sm:grid">
               <span>Source</span>
               <span>Graded games</span>
@@ -502,6 +518,7 @@ export function SourceDashboard({
             )}
             <div className="border-t bg-amber-400/5 px-4 py-3 text-[9px] leading-4 text-muted">
               Brier score = average (forecast probability − actual result)². Perfect is 0.000; a constant 50/50 forecast scores 0.250. Lower is better.
+            </div>
             </div>
           </div>
         ) : (

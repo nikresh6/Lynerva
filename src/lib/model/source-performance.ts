@@ -91,6 +91,22 @@ export const PROJECTION_SOURCE_INFO = {
     access: "No paid key or account used",
     note: "Weekly stat lines from Sleeper's public projection endpoint. Huddlemark ignores bye/filler rows and requires a real game plus a published projection.",
   },
+  covers: {
+    name: "Covers",
+    kind: "Public player-prop projection model",
+    href: "https://www.covers.com/sport/football/nfl/player-props",
+    logo: "https://www.covers.com/favicon.ico",
+    access: "Free public player-prop projections",
+    note: "Current player-prop projections from Covers. Only a player and stat actually published on the public page count as a source point.",
+  },
+  dimers: {
+    name: "Dimers",
+    kind: "Public weekly projection site",
+    href: "https://www.dimers.com/nfl/player-projections",
+    logo: "https://www.dimers.com/favicon.ico",
+    access: "Free public rows only",
+    note: "Weekly projections from the rows Dimers exposes publicly. Locked Pro rows are never scraped or treated as available data.",
+  },
 } as const;
 
 export type MoneylinePerformanceRow = {
@@ -242,7 +258,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
       db
         .select({
           source: sourceProjections.source,
-          capturedAt: max(sourceProjections.capturedAt),
+          capturedAt: max(sourceProjections.latestCapturedAt),
         })
         .from(sourceProjections)
         .where(eq(sourceProjections.season, season))

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { desc, eq, gte } from "drizzle-orm";
+import { desc, eq, gte, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   marketEvents,
@@ -28,7 +28,7 @@ async function stableId(prefix: string, value: string) {
   return `${prefix}_${hex.slice(0, 24)}`;
 }
 
-const MODEL_ID = "model_hybrid_consensus_learning_v3";
+const MODEL_ID = "model_hybrid_consensus_learning_v4";
 
 export async function persistMarkets(payload: MarketsPayload) {
   const db = getDb();
@@ -66,7 +66,7 @@ export async function persistMarkets(payload: MarketsPayload) {
     .values({
       id: MODEL_ID,
       name: "Huddlemark hybrid player prop model",
-      version: "hybrid-consensus-learning-v3",
+      version: "hybrid-consensus-learning-v16",
       family: "player_props",
       coefficients: {
         consensusWeightEarly: 1,
@@ -75,6 +75,7 @@ export async function persistMarkets(payload: MarketsPayload) {
         onlineCalibrationMinBucketSamples: 20,
         sourceLearningMinSamples: 20,
         sourceLearningMaxWeight: 0.75,
+        activeProjectionSources: 8,
       },
       calibrationNotes:
         "Independent projection ensemble with stat-specific source weights learned from settled player outcomes, plus game/weather context. Current-season statistical history activates at four games. Settled outcomes calibrate future probabilities by prediction bucket.",
@@ -94,6 +95,9 @@ export async function persistMarkets(payload: MarketsPayload) {
       source: string;
       projectedValue: number;
       capturedAt: Date;
+      latestProjectedValue: number;
+      latestCapturedAt: Date;
+      observationCount: number;
     }
   >();
 
@@ -131,6 +135,9 @@ export async function persistMarkets(payload: MarketsPayload) {
         source: point.source,
         projectedValue: point.value,
         capturedAt: now,
+        latestProjectedValue: point.value,
+        latestCapturedAt: now,
+        observationCount: 1,
       });
     }
   }
@@ -160,6 +167,9 @@ export async function persistMarkets(payload: MarketsPayload) {
         source: point.source,
         projectedValue: point.value,
         capturedAt: now,
+        latestProjectedValue: point.value,
+        latestCapturedAt: now,
+        observationCount: 1,
       });
     }
   }
@@ -173,7 +183,15 @@ export async function persistMarkets(payload: MarketsPayload) {
     await db
       .insert(sourceProjections)
       .values(chunk)
-      .onConflictDoNothing({ target: sourceProjections.id });
+      .onConflictDoUpdate({
+        target: sourceProjections.id,
+        set: {
+          latestProjectedValue: sql`excluded.latest_projected_value`,
+          latestCapturedAt: sql`excluded.latest_captured_at`,
+          observationCount: sql`${sourceProjections.observationCount} + 1`,
+          updatedAt: now,
+        },
+      });
     sourceProjectionsStored += chunk.length;
   }
 

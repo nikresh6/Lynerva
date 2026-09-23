@@ -49,8 +49,12 @@ type ProjectionMap = Map<string, ProjectionStats>;
 const PAGE_TTL_MS = 5 * 60_000;
 const FAILURE_TTL_MS = 30_000;
 const CONSENSUS_TTL_MS = 5 * 60_000;
-const SOURCE_TIMEOUT_MS = 2_200;
-const SOURCE_LAST_GOOD_TTL_MS = 45 * 60_000;
+// Public projection pages are fetched in parallel, so a slightly more patient
+// timeout materially improves coverage without adding the timeouts together.
+// The old 2.2-second cutoff intermittently erased otherwise valid ESPN and
+// FantasyPros rows on Railway.
+const SOURCE_TIMEOUT_MS = 6_000;
+const SOURCE_LAST_GOOD_TTL_MS = 6 * 60 * 60_000;
 
 const pageCache = new Map<
   string,
@@ -350,6 +354,63 @@ function fantasyProsStats(position: string, cells: string[]): ProjectionStats {
     rushingYards: values[4] ?? undefined,
     rushingTouchdowns: values[5] ?? undefined,
   };
+}
+
+function fantasyProsPlayerSlug(subject: string) {
+  return normalizePerson(subject).replace(/\s+/g, "-");
+}
+
+function fantasyProsIndividualStats(html: string, week: number) {
+  const pageText = decode(html);
+  if (!new RegExp(`Projections\\s*\\(Week\\s+${week}\\)`, "i").test(pageText)) {
+    return null;
+  }
+
+  const rows = rowsFromHtml(html);
+  for (let index = 0; index < rows.length - 1; index += 1) {
+    const headers = rows[index]?.map((cell) =>
+      cell.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(),
+    );
+    const values = rows[index + 1];
+    if (!headers?.length || !values || headers.length !== values.length) continue;
+    if (!headers.some((header) => header === "rush yds" || header === "rec yds" || header === "pass yds")) {
+      continue;
+    }
+
+    const valueFor = (...labels: string[]) => {
+      const column = headers.findIndex((header) => labels.includes(header));
+      return column < 0 ? undefined : toNumber(values[column]) ?? undefined;
+    };
+    const stats: ProjectionStats = {
+      passingYards: valueFor("pass yds", "passing yds"),
+      passingTouchdowns: valueFor("pass tds", "passing tds"),
+      passingInterceptions: valueFor("ints", "interceptions"),
+      rushingYards: valueFor("rush yds", "rushing yds"),
+      rushingTouchdowns: valueFor("rush tds", "rushing tds"),
+      receptions: valueFor("recs", "receptions"),
+      receivingYards: valueFor("rec yds", "receiving yds"),
+      receivingTouchdowns: valueFor("rec tds", "receiving tds"),
+    };
+    if (Object.values(stats).some((value) => value !== undefined)) return stats;
+  }
+
+  return null;
+}
+
+async function fantasyProsMarketStats(
+  market: CanonicalMarket,
+  week: number,
+) {
+  const slug = fantasyProsPlayerSlug(market.subject);
+  if (!slug) return null;
+  try {
+    const html = await fetchText(
+      `https://www.fantasypros.com/nfl/projections/${slug}.php?week=${week}`,
+    );
+    return fantasyProsIndividualStats(html, week);
+  } catch {
+    return null;
+  }
 }
 
 function loadFantasyPros(season: number, week: number) {
@@ -1019,40 +1080,49 @@ async function numberFireMarketProjection(
   market: CanonicalMarket,
 ): Promise<ProjectionPoint | null> {
   const target = normalizePerson(market.subject);
-  const positions = likelyPositions(market.family).map((position) =>
-    position.toLowerCase(),
-  );
+  const teamSlugs: Record<string, string> = {
+    ARI: "arizona-cardinals", ATL: "atlanta-falcons", BAL: "baltimore-ravens",
+    BUF: "buffalo-bills", CAR: "carolina-panthers", CHI: "chicago-bears",
+    CIN: "cincinnati-bengals", CLE: "cleveland-browns", DAL: "dallas-cowboys",
+    DEN: "denver-broncos", DET: "detroit-lions", GB: "green-bay-packers",
+    HOU: "houston-texans", IND: "indianapolis-colts", JAX: "jacksonville-jaguars",
+    KC: "kansas-city-chiefs", LAC: "los-angeles-chargers", LAR: "los-angeles-rams",
+    LV: "las-vegas-raiders", MIA: "miami-dolphins", MIN: "minnesota-vikings",
+    NE: "new-england-patriots", NO: "new-orleans-saints", NYG: "new-york-giants",
+    NYJ: "new-york-jets", PHI: "philadelphia-eagles", PIT: "pittsburgh-steelers",
+    SEA: "seattle-seahawks", SF: "san-francisco-49ers", TB: "tampa-bay-buccaneers",
+    TEN: "tennessee-titans", WAS: "washington-commanders",
+  };
+  const teams = (market.matchup ?? "")
+    .split(/[^A-Za-z]+/)
+    .map((team) => team.toUpperCase())
+    .map((team) => (team === "WSH" ? "WAS" : team === "JAC" ? "JAX" : team))
+    .filter((team) => Boolean(teamSlugs[team]));
 
-  for (const position of positions) {
+  for (const team of teams) {
     try {
       const rows = rowsFromHtml(
         await fetchText(
-          `https://www.numberfire.com/external/widgets/top-players/${position}`,
+          `https://www.numberfire.com/external/widgets/teams/${teamSlugs[team]}`,
         ),
       );
       for (const cells of rows) {
-        const playerIndex = cells.findIndex((cell) =>
-          normalizePerson(cell).startsWith(target),
-        );
-        if (playerIndex < 0) continue;
+        if (!namesMatch(cells[0] ?? "", target)) continue;
 
         let value: number | null = null;
-        if (position === "qb") {
-          if (market.family === "passing_yards") {
-            value = toNumber(cells[playerIndex + 2]);
-          } else if (market.family === "passing_touchdowns") {
-            value = toNumber(cells[playerIndex + 3]);
-          }
-        } else if (position === "wr" || position === "te") {
-          if (market.family === "receptions") {
-            value = toNumber(cells[playerIndex + 2]);
-          } else if (market.family === "receiving_yards") {
-            value = toNumber(cells[playerIndex + 3]);
-          } else if (market.family === "touchdowns") {
-            value = toNumber(cells[playerIndex + 4]);
-          }
-        } else if (position === "rb" && market.family === "touchdowns") {
-          value = toNumber(cells[playerIndex + 3]);
+        const passScores = (cells[2] ?? "").split("/").map(toNumber);
+        if (market.family === "passing_yards") value = toNumber(cells[1]);
+        else if (market.family === "passing_touchdowns") value = passScores[0] ?? null;
+        else if (market.family === "passing_interceptions") value = passScores[1] ?? null;
+        else if (market.family === "rushing_yards") value = toNumber(cells[3]);
+        else if (market.family === "rushing_touchdowns") value = toNumber(cells[4]);
+        else if (market.family === "receptions") value = toNumber(cells[5]);
+        else if (market.family === "receiving_yards") value = toNumber(cells[6]);
+        else if (market.family === "receiving_touchdowns") value = toNumber(cells[7]);
+        else if (market.family === "touchdowns") {
+          const rushing = toNumber(cells[4]) ?? 0;
+          const receiving = toNumber(cells[7]) ?? 0;
+          value = rushing + receiving;
         }
         if (value !== null && value >= 0) {
           return {
@@ -1271,12 +1341,16 @@ function loadDimers(season: number, week: number) {
       if (!player || /^player$/i.test(player)) continue;
 
       const touchdownChance = toNumber(cells[11]);
+      const position = cells[2]?.toUpperCase();
       mergeStats(map, player, {
+        position: ["QB", "RB", "WR", "TE"].includes(position ?? "")
+          ? (position as "QB" | "RB" | "WR" | "TE")
+          : undefined,
         passingYards: toNumber(cells[7]) ?? undefined,
         rushingYards: toNumber(cells[8]) ?? undefined,
         receptions: toNumber(cells[9]) ?? undefined,
         receivingYards: toNumber(cells[10]) ?? undefined,
-        receivingTouchdowns:
+        totalTouchdowns:
           touchdownChance !== null &&
           touchdownChance > 0 &&
           touchdownChance < 100
@@ -1318,6 +1392,8 @@ function activeSourceMap(
   if (source === "espn") return loadEspn(season, week);
   if (source === "cbs") return loadCbs(season, week);
   if (source === "rotoballer") return loadRotoBaller(season, week);
+  if (source === "covers") return loadCovers(season, week);
+  if (source === "dimers") return loadDimers(season, week);
   return loadSleeper(season, week);
 }
 
@@ -1422,7 +1498,23 @@ async function sourceProjection(
   // only when they identify exactly one player, so B. Robinson can never
   // silently map Brian Robinson Jr. to Bijan Robinson.
   const found = resolveProjectionPlayer([...map.entries()], market.subject);
-  const value = sourceValue(found ?? undefined, market.family);
+  let fallback = found ?? undefined;
+  if (!fallback && source === "fantasypros") {
+    fallback = (await fantasyProsMarketStats(market, week)) ?? undefined;
+  }
+  const value = sourceValue(fallback, market.family);
+  if ((value === null || !Number.isFinite(value) || value < 0) && source === "numberfire") {
+    const point = await numberFireMarketProjection(market);
+    if (!point) return null;
+    return observeProjectionPoint({
+      source,
+      subject: market.subject,
+      family: market.family,
+      season,
+      week,
+      value: point.value,
+    });
+  }
   if (value === null || !Number.isFinite(value) || value < 0) return null;
 
   return observeProjectionPoint({
@@ -1432,7 +1524,7 @@ async function sourceProjection(
     season,
     week,
     value,
-    position: found?.position,
+    position: fallback?.position,
   });
 }
 

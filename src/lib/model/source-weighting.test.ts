@@ -19,6 +19,7 @@ describe("source weighting", () => {
     expect(new Set(ACTIVE_PROJECTION_SOURCES).size).toBe(
       ACTIVE_PROJECTION_SOURCES.length,
     );
+    expect(ACTIVE_PROJECTION_SOURCES).toHaveLength(8);
   });
 
   it("keeps tiny samples at equal weights", () => {

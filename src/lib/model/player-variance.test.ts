@@ -63,4 +63,24 @@ describe("projection-sensitive player variance", () => {
       fourGames.playerHistoryWeight,
     );
   });
+
+  it("uses each player's own four-game distribution", () => {
+    const steadyPlayer = estimatePlayerStatStdDev({
+      family: "rushing_yards",
+      projection: 55,
+      position: "RB",
+      currentSeasonValues: [52, 57, 54, 58],
+    });
+    const volatilePlayer = estimatePlayerStatStdDev({
+      family: "rushing_yards",
+      projection: 55,
+      position: "RB",
+      currentSeasonValues: [8, 104, 19, 96],
+    });
+
+    expect(steadyPlayer.observedStdDev).toBeLessThan(
+      volatilePlayer.observedStdDev!,
+    );
+    expect(steadyPlayer.stdDev).toBeLessThan(volatilePlayer.stdDev);
+  });
 });

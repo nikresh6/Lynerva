@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
+import { after } from "next/server";
 import { ResultsDashboard } from "@/components/results-dashboard";
-import { getWeeklyScorecards } from "@/lib/model/scorecard";
+import {
+  getWeeklyScorecards,
+  refreshWeeklyScorecards,
+} from "@/lib/model/scorecard";
 
 export const metadata: Metadata = {
   title: "Weekly results",
@@ -11,6 +15,13 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function ResultsPage() {
+  after(async () => {
+    try {
+      await refreshWeeklyScorecards();
+    } catch (error) {
+      console.error("Weekly scorecard background refresh failed", error);
+    }
+  });
   const weeks = await getWeeklyScorecards();
   return <ResultsDashboard weeks={weeks} />;
 }

@@ -29,6 +29,13 @@
       "when": 1790007300000,
       "tag": "0003_scorecard_slate_buckets",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1790181443060,
+      "tag": "0004_productive_red_wolf",
+      "breakpoints": true
     }
   ]
 }

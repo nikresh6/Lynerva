@@ -129,7 +129,7 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
             The receipts will live here.
           </h1>
           <p className="mt-4 max-w-xl text-sm leading-6 text-muted">
-            Huddlemark has not settled a frozen pregame scorecard yet. Locked picks are checked directly against Kalshi settlement data, and this page rechecks unresolved picks when it loads.
+            Huddlemark has not settled a frozen pregame scorecard yet. The background worker checks locked picks directly against Kalshi settlement data every 30 minutes; opening this page also queues a non-blocking refresh.
           </p>
         </section>
         <div className="rounded-2xl border bg-surface p-5 text-xs leading-5 text-muted">
@@ -153,6 +153,9 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-6 text-muted sm:text-base">
               Every week locks a balanced pregame card: 1 TNF, 4 Sunday noon, 3 Sunday late, 1 SNF, and 1 MNF. Each slate freezes five minutes before its kickoff window.
+            </p>
+            <p className="mt-2 text-[10px] text-faint">
+              Stored results load immediately. Settlement refreshes run in the background every 30 minutes.
             </p>
           </div>
           <div className="flex items-center gap-2">
