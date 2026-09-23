@@ -129,7 +129,7 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
             The receipts will live here.
           </h1>
           <p className="mt-4 max-w-xl text-sm leading-6 text-muted">
-            Huddlemark has not settled a frozen pregame scorecard yet. The Railway worker now checks closed Kalshi markets every 30 minutes; the first hit or miss will appear automatically.
+            Huddlemark has not settled a frozen pregame scorecard yet. Locked picks are checked directly against Kalshi settlement data, and this page rechecks unresolved picks when it loads.
           </p>
         </section>
         <div className="rounded-2xl border bg-surface p-5 text-xs leading-5 text-muted">
