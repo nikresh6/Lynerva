@@ -130,6 +130,67 @@ function didPickHit(market: MarketOpportunity, value: number) {
   return market.recommendedSide === "no" ? !contractHit : contractHit;
 }
 
+function historyGameLabel(
+  market: MarketOpportunity,
+  game: NonNullable<MarketOpportunity["model"]["evidence"]["recentGames"]>[number],
+) {
+  const family = market.canonical?.family;
+  const prefix = [
+    `Week ${game.week}`,
+    game.team && game.opponent ? `${game.team} vs ${game.opponent}` : null,
+  ].filter(Boolean).join(" · ");
+
+  if (family === "rushing_yards") {
+    return `${prefix} · ${game.rushingAttempts ?? "?"} rushes · ${game.value} rushing yards`;
+  }
+  if (family === "receiving_yards") {
+    const usage =
+      game.targets !== null && game.targets !== undefined
+        ? `${game.receptions ?? "?"} catches on ${game.targets} targets`
+        : game.receptions !== null && game.receptions !== undefined
+          ? `${game.receptions} catches`
+          : null;
+    return [prefix, usage, `${game.value} receiving yards`].filter(Boolean).join(" · ");
+  }
+  if (family === "receptions") {
+    const targets =
+      game.targets !== null && game.targets !== undefined
+        ? ` on ${game.targets} targets`
+        : "";
+    return `${prefix} · ${game.value} receptions${targets}`;
+  }
+  if (family === "passing_yards") {
+    const attempts =
+      game.passingAttempts !== null && game.passingAttempts !== undefined
+        ? `${game.passingAttempts} pass attempts · `
+        : "";
+    return `${prefix} · ${attempts}${game.value} passing yards`;
+  }
+  if (family === "passing_touchdowns") {
+    const attempts =
+      game.passingAttempts !== null && game.passingAttempts !== undefined
+        ? `${game.passingAttempts} pass attempts · `
+        : "";
+    return `${prefix} · ${attempts}${game.value} passing TD${game.value === 1 ? "" : "s"}`;
+  }
+  if (family === "touchdowns" || family === "rushing_touchdowns" || family === "receiving_touchdowns") {
+    const usage = [
+      game.rushingAttempts !== null && game.rushingAttempts !== undefined
+        ? `${game.rushingAttempts} rushes`
+        : null,
+      game.targets !== null && game.targets !== undefined
+        ? `${game.targets} targets`
+        : null,
+    ].filter(Boolean).join(" · ");
+    return [prefix, usage, `${game.value} TD${game.value === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
+  }
+  if (family === "passing_interceptions") {
+    return `${prefix} · ${game.value} interception${game.value === 1 ? "" : "s"}`;
+  }
+
+  return `${prefix} · ${game.value}`;
+}
+
 function ScoreRing({ score, size = 58 }: { score: number | null; size?: number }) {
   const value = Math.max(0, Math.min(100, score ?? 0));
   const filled = value * 3.6;
@@ -228,8 +289,17 @@ function PastPerformance({ market }: { market: MarketOpportunity }) {
     );
   }
 
-  const recent = values.slice(0, 10).reverse();
-  const max = Math.max(...recent, threshold, 1);
+  const detailed =
+    market.model.evidence.recentGames?.slice(0, 10) ??
+    values.slice(0, 10).map((value, index) => ({
+      season: 2026,
+      week: Math.max(1, values.length - index),
+      value,
+    }));
+  const recent = detailed.toReversed();
+  const maxValue = Math.max(...recent.map((game) => game.value), threshold, 1);
+  const chartMax = Math.max(maxValue * 1.14, threshold * 1.14, 1);
+  const thresholdPct = Math.min(100, Math.max(0, (threshold / chartMax) * 100));
 
   return (
     <section className="rounded-2xl border bg-background p-4">
@@ -243,23 +313,54 @@ function PastPerformance({ market }: { market: MarketOpportunity }) {
         <span className="rounded-lg border bg-surface px-2.5 py-1.5 text-[10px] font-medium">Line {threshold}</span>
       </div>
 
-      <div className="flex h-32 items-end gap-1.5">
-        {recent.map((value, index) => {
-          const hit = didPickHit(market, value);
-          return (
-            <div key={index} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1.5">
+      <div className="relative h-32">
+        <div
+          className="pointer-events-none absolute inset-x-0 z-10 border-t border-dashed border-accent/70"
+          style={{ bottom: `${thresholdPct}%` }}
+        >
+          <span className="absolute -top-4 left-0 rounded bg-background px-1.5 py-0.5 text-[8px] font-semibold text-accent">
+            Need {threshold}
+          </span>
+        </div>
+        <div className="flex h-full items-end gap-1.5">
+          {recent.map((game) => {
+            const hit = didPickHit(market, game.value);
+            const tooltip = historyGameLabel(market, game);
+            return (
               <div
-                className={cn("w-full rounded-t-md", hit ? "bg-positive" : "bg-border-strong")}
-                style={{ height: `${Math.max(6, (value / max) * 98)}px` }}
-              />
-              <span className="text-[8px] tabular text-faint">{value}</span>
-            </div>
-          );
-        })}
+                key={`${game.season}:${game.week}`}
+                className="group relative flex h-full min-w-0 flex-1 items-end"
+                title={tooltip}
+              >
+                <div
+                  className={cn(
+                    "w-full rounded-t-md transition-opacity group-hover:opacity-80",
+                    hit ? "bg-positive" : "bg-border-strong",
+                  )}
+                  style={{ height: `${Math.max(5, (game.value / chartMax) * 100)}%` }}
+                />
+                <div className="pointer-events-none absolute bottom-[calc(100%+8px)] left-1/2 z-20 hidden w-max max-w-56 -translate-x-1/2 rounded-lg border bg-surface px-2.5 py-2 text-[9px] leading-4 text-foreground shadow-lg group-hover:block">
+                  {tooltip}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
+
+      <div className="mt-2 flex gap-1.5">
+        {recent.map((game) => (
+          <div key={`label:${game.season}:${game.week}`} className="min-w-0 flex-1 text-center">
+            <p className="text-[8px] font-semibold uppercase tracking-[0.04em] text-muted">W{game.week}</p>
+            <p className="mt-0.5 text-[8px] tabular text-faint">{game.value}</p>
+          </div>
+        ))}
+      </div>
+
       <div className="mt-3 flex items-center gap-4 text-[10px] text-muted">
         <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-sm bg-positive" /> Hit</span>
         <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-sm bg-border-strong" /> Miss</span>
+        <span className="inline-flex items-center gap-1.5"><span className="w-3 border-t border-dashed border-accent" /> Market line</span>
       </div>
     </section>
   );
