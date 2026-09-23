@@ -4,12 +4,43 @@ import { and, count, desc, eq, max } from "drizzle-orm";
 import { getDb } from "@/db";
 import { clamp } from "@/lib/utils";
 import {
+  nflGames,
+  normalizedMarkets,
+  predictions,
   sourceProjectionGrades,
   sourceProjections,
   sourceWeightHistory,
 } from "@/db/schema";
 import { ensureSourceLearningSchema } from "./source-learning";
 import { ACTIVE_PROJECTION_SOURCES } from "./source-weighting";
+
+export const MONEYLINE_SOURCE_INFO = {
+  nflverse_current_season_scoring: {
+    name: "nflverse Scoring",
+    kind: "Moneyline-only current-season model input",
+    href: "https://github.com/nflverse/nfldata",
+    access: "Free nflverse regular-season data",
+    note: "Huddlemark turns current-season points for and points against into a game win probability. This input is used only for moneylines.",
+  },
+  nflverse_current_season_record: {
+    name: "nflverse Record",
+    kind: "Moneyline-only current-season model input",
+    href: "https://github.com/nflverse/nfldata",
+    access: "Free nflverse regular-season data",
+    note: "A separate current-season record component that converts wins, losses, ties, and home field into a moneyline probability.",
+  },
+  espn_fpi: {
+    name: "ESPN FPI",
+    kind: "Moneyline-only pregame probability",
+    href: "https://www.espn.com/nfl/fpi",
+    access: "Public ESPN game predictor",
+    note: "Pregame team win probability from ESPN's public game summary. Live win probability is intentionally excluded from the pregame source leaderboard.",
+  },
+} as const;
+
+const MONEYLINE_SOURCE_IDS = Object.keys(
+  MONEYLINE_SOURCE_INFO,
+) as Array<keyof typeof MONEYLINE_SOURCE_INFO>;
 
 export const PROJECTION_SOURCE_INFO = {
   fantasypros: {
@@ -62,6 +93,21 @@ export const PROJECTION_SOURCE_INFO = {
   },
 } as const;
 
+export type MoneylinePerformanceRow = {
+  source: string;
+  sampleSize: number;
+  brierScore: number;
+  accuracy: number;
+  logLoss: number;
+  examples: Array<{
+    week: number;
+    matchup: string;
+    subject: string;
+    probabilityBps: number;
+    outcome: 0 | 0.5 | 1;
+  }>;
+};
+
 export type ProjectionPerformanceRow = {
   source: string;
   statistic: string;
@@ -93,6 +139,51 @@ export type ProjectionPerformanceRow = {
     weight: number;
   }>;
 };
+
+function canonicalTeam(code: string) {
+  const upper = code.trim().toUpperCase();
+  if (upper === "WSH") return "WAS";
+  if (upper === "JAC") return "JAX";
+  if (upper === "LA") return "LAR";
+  return upper;
+}
+
+function matchupKey(value: string) {
+  return value
+    .split(/[^A-Za-z]+/)
+    .map(canonicalTeam)
+    .filter(Boolean)
+    .toSorted()
+    .join("-");
+}
+
+function parseMoneylineSources(value: unknown) {
+  if (typeof value !== "string" || !value) return [] as Array<{
+    source: string;
+    probabilityBps: number;
+  }>;
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((point): Array<{ source: string; probabilityBps: number }> => {
+      if (
+        !point ||
+        typeof point !== "object" ||
+        typeof point.source !== "string" ||
+        typeof point.probabilityBps !== "number" ||
+        !Number.isFinite(point.probabilityBps)
+      ) {
+        return [];
+      }
+      return [{
+        source: point.source,
+        probabilityBps: Math.max(1, Math.min(9_999, point.probabilityBps)),
+      }];
+    });
+  } catch {
+    return [];
+  }
+}
 
 function quantile(sorted: number[], q: number) {
   if (!sorted.length) return 0;
