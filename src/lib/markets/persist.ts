@@ -374,6 +374,9 @@ export async function persistMarkets(payload: MarketsPayload) {
           statisticalProbabilityBps: opportunity.model.components?.statisticalProbabilityBps ?? null,
           contextAdjustmentBps: opportunity.model.components?.contextAdjustmentBps ?? 0,
           projectionSourceCount: opportunity.model.components?.projectionSourceCount ?? 0,
+          gameProjectionSourcesJson: opportunity.model.components?.gameProjectionSources?.length
+            ? JSON.stringify(opportunity.model.components.gameProjectionSources)
+            : null,
           learnedCalibrationSample: opportunity.model.components?.learnedCalibrationSample ?? 0,
           learnedCalibrationActive: opportunity.model.components?.learnedCalibrationActive ?? false,
         },
