@@ -11,6 +11,7 @@ import {
   weeklyScorecardPicks,
 } from "@/db/schema";
 import { recommendedPredictionPerspective } from "./prediction-perspective";
+import { settleLockedScorecardPredictions } from "./results";
 
 const SCORECARD_BUCKET_LAUNCH_AT = new Date("2026-09-21T16:10:00.000Z");
 const LOCK_SCAN_WINDOW_MS = 14 * 24 * 60 * 60_000;
@@ -387,6 +388,11 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
   try {
     const db = getDb();
     await lockEligibleScorecards();
+
+    // Results pages should self-heal stale scorecards instead of waiting for
+    // the background scheduler. Locked picks are checked directly against the
+    // Kalshi settlement endpoint and do not depend on Kalshi's close_time.
+    await settleLockedScorecardPredictions();
 
     const rows = await db
       .select({
