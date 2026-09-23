@@ -171,6 +171,11 @@ export async function settleLockedScorecardPredictions(options?: {
 export async function settleKalshiPredictions() {
   const db = getDb();
   const now = new Date();
+
+  // Settle permanent scorecard picks first so the broader prediction scan
+  // cannot re-query the same locked prediction in the same cycle.
+  const lockedSettlement = await settleLockedScorecardPredictions({ force: true });
+
   const candidates = await db
     .select({
       id: predictions.id,
@@ -205,8 +210,6 @@ export async function settleKalshiPredictions() {
       latestByMarket.set(candidate.normalizedMarketId, candidate);
     }
   }
-
-  const lockedSettlement = await settleLockedScorecardPredictions({ force: true });
 
   const selectedById = new Map<
     string,
