@@ -45,6 +45,21 @@ type PerformanceRow = {
   }>;
 };
 
+type MoneylinePerformanceRow = {
+  source: string;
+  sampleSize: number;
+  brierScore: number;
+  accuracy: number;
+  logLoss: number;
+  examples: Array<{
+    week: number;
+    matchup: string;
+    subject: string;
+    probabilityBps: number;
+    outcome: 0 | 0.5 | 1;
+  }>;
+};
+
 type SourceSummary = {
   id: string;
   name: string;
@@ -52,12 +67,14 @@ type SourceSummary = {
   href: string;
   access: string;
   note: string;
+  moneylineOnly: boolean;
   coverageCount: number;
   lastCapturedAt: string | null;
   lastGradedAt: string | null;
 };
 
 const STAT_LABELS: Record<string, string> = {
+  moneyline: "Moneylines",
   passing_yards: "Pass yards",
   passing_touchdowns: "Pass TDs",
   passing_interceptions: "Interceptions",
@@ -153,22 +170,23 @@ export function SourceDashboard({
   season,
   coverageWeek,
   rows,
+  moneylineRows,
   sources,
   generatedAt,
 }: {
   season: number;
   coverageWeek: number | null;
   rows: PerformanceRow[];
+  moneylineRows: MoneylinePerformanceRow[];
   sources: SourceSummary[];
   generatedAt: string;
 }) {
-  const stats = useMemo(
-    () =>
-      [...new Set(rows.map((row) => row.statistic))].toSorted((a, b) =>
-        statLabel(a).localeCompare(statLabel(b)),
-      ),
-    [rows],
-  );
+  const stats = useMemo(() => {
+    const playerStats = [...new Set(rows.map((row) => row.statistic))].toSorted(
+      (a, b) => statLabel(a).localeCompare(statLabel(b)),
+    );
+    return [...playerStats, "moneyline"];
+  }, [rows]);
   const [selectedStat, setSelectedStat] = useState(stats[0] ?? "passing_yards");
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const selectedRows = rows
@@ -179,7 +197,16 @@ export function SourceDashboard({
         second.sampleSize - first.sampleSize,
     );
 
-  const totalGrades = rows.reduce((sum, row) => sum + row.sampleSize, 0);
+  const selectedMoneylineRows = moneylineRows.toSorted(
+    (first, second) =>
+      first.brierScore - second.brierScore ||
+      second.sampleSize - first.sampleSize,
+  );
+  const playerSourceCount = sources.filter((source) => !source.moneylineOnly).length;
+
+  const totalGrades =
+    rows.reduce((sum, row) => sum + row.sampleSize, 0) +
+    moneylineRows.reduce((sum, row) => sum + row.sampleSize, 0);
   const newestProjection =
     sources
       .map((source) => source.lastCapturedAt)
@@ -273,19 +300,37 @@ export function SourceDashboard({
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {sources.map((source) => {
             const sourceRows = rows.filter((row) => row.source === source.id);
-            const graded = sourceRows.reduce((sum, row) => sum + row.sampleSize, 0);
+            const moneylineRow = moneylineRows.find((row) => row.source === source.id);
+            const graded = source.moneylineOnly
+              ? moneylineRow?.sampleSize ?? 0
+              : sourceRows.reduce((sum, row) => sum + row.sampleSize, 0);
             const best = sourceRows.toSorted(
               (a, b) => a.robustError - b.robustError,
             )[0];
             return (
-              <article key={source.id} className="group rounded-2xl border bg-surface p-5 transition-colors hover:border-border-strong">
+              <article
+                key={source.id}
+                className={cn(
+                  "group rounded-2xl border bg-surface p-5 transition-colors",
+                  source.moneylineOnly
+                    ? "border-amber-400/45 hover:border-amber-300/70"
+                    : "hover:border-border-strong",
+                )}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
                     <span className="grid size-10 shrink-0 place-items-center rounded-xl border bg-background text-sm font-bold text-accent">
                       {source.name.slice(0, 2).toUpperCase()}
                     </span>
                     <div className="min-w-0">
-                      <h3 className="truncate font-semibold">{source.name}</h3>
+                      <div className="flex min-w-0 items-center gap-2">
+                        <h3 className="truncate font-semibold">{source.name}</h3>
+                        {source.moneylineOnly ? (
+                          <span className="shrink-0 rounded-full border border-amber-400/50 bg-amber-400/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.08em] text-amber-300">
+                            ML
+                          </span>
+                        ) : null}
+                      </div>
                       <p className="mt-0.5 truncate text-[10px] text-faint">{source.kind}</p>
                     </div>
                   </div>
@@ -310,7 +355,9 @@ export function SourceDashboard({
                   </div>
                   <div>
                     <p className="text-[9px] uppercase tracking-[0.08em] text-faint">Best at</p>
-                    <p className="mt-1 truncate text-sm font-semibold">{best ? statLabel(best.statistic) : "Waiting"}</p>
+                    <p className="mt-1 truncate text-sm font-semibold">
+                      {source.moneylineOnly ? "Moneylines" : best ? statLabel(best.statistic) : "Waiting"}
+                    </p>
                   </div>
                 </div>
                 <div className="mt-4 flex items-center gap-2 border-t pt-3 text-[10px] text-muted">
@@ -461,7 +508,7 @@ export function SourceDashboard({
                           <div className="mt-3 space-y-2">
                             <div className="flex items-center justify-between rounded-xl border bg-surface px-3 py-2.5">
                               <span className="text-[10px] text-muted">Equal starting share</span>
-                              <span className="text-xs font-semibold tabular">{(100 / Math.max(sources.length, 1)).toFixed(1)}%</span>
+                              <span className="text-xs font-semibold tabular">{(100 / Math.max(playerSourceCount, 1)).toFixed(1)}%</span>
                             </div>
                             <div className="flex items-center justify-between rounded-xl border bg-surface px-3 py-2.5">
                               <span className="text-[10px] text-muted">Accuracy target share</span>
