@@ -526,8 +526,28 @@ button, a { -webkit-tap-highlight-color: transparent; }
 }
 
 .score-ticker-item:hover {
-  border-color: color-mix(in srgb, var(--border-strong) 72%, transparent);
-  background: var(--surface);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--surface) 48%, transparent);
+}
+
+.score-ticker-track {
+  animation: score-ticker-scroll 42s linear infinite;
+  will-change: transform;
+}
+
+@keyframes score-ticker-scroll {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .score-ticker-track {
+    animation: none;
+  }
 }
 
 @media (max-width: 639px) {
