@@ -769,6 +769,11 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
 
   if (market.canonical?.family === "moneyline") {
     const gameSources = components?.gameProjectionSources ?? [];
+    const sourceWeights = components?.gameProjectionSourceWeights ?? [];
+    const weightBySource = new Map(
+      sourceWeights.map((row) => [row.source, row.weightBps]),
+    );
+    const injuryScenarios = components?.moneylineInjuryScenarios ?? [];
     const statisticalChance = pickFacingBps(
       components?.statisticalProbabilityBps,
       market.recommendedSide,
@@ -825,14 +830,42 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
                 className="flex items-center justify-between gap-3 rounded-xl border bg-surface px-3 py-2.5"
               >
                 <span className="text-[10px] text-muted">{sourceLabel(source.source)}</span>
-                <span className="text-xs font-semibold tabular">
-                  {formatPercent(
-                    pickFacingBps(source.probabilityBps, market.recommendedSide),
-                  )}
+                <span className="text-right">
+                  <span className="block text-xs font-semibold tabular">
+                    {formatPercent(
+                      pickFacingBps(source.probabilityBps, market.recommendedSide),
+                    )}
+                  </span>
+                  {weightBySource.has(source.source) ? (
+                    <span className="block text-[8px] text-faint">
+                      {((weightBySource.get(source.source) ?? 0) / 100).toFixed(0)}% weight
+                    </span>
+                  ) : null}
                 </span>
               </div>
             ))}
           </div>
+
+          {injuryScenarios.length ? (
+            <div className="mt-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[10px] font-semibold text-amber-300">Roster scenarios</span>
+                <span className="text-[9px] text-faint">
+                  −{((components?.moneylineInjuryReliabilityPenaltyBps ?? 0) / 100).toFixed(1)}pp reliability
+                </span>
+              </div>
+              <p className="mt-1.5 text-[10px] leading-4 text-muted">
+                Internal scoring moved from {formatPercent(pickFacingBps(components?.moneylineBaselineProbabilityBps, market.recommendedSide))} to {formatPercent(pickFacingBps(components?.moneylineInjuryAdjustedProbabilityBps, market.recommendedSide))}. ESPN stayed raw.
+              </p>
+              <div className="mt-2 space-y-1.5">
+                {injuryScenarios.slice(0, 3).map((scenario) => (
+                  <p key={`${scenario.team}:${scenario.player}`} className="text-[9px] leading-4 text-faint">
+                    <strong className="text-foreground">{scenario.player}</strong> · {(scenario.playProbabilityBps / 100).toFixed(0)}% to play · {formatPercent(pickFacingBps(scenario.activeWinProbabilityBps, market.recommendedSide))} if active / {formatPercent(pickFacingBps(scenario.inactiveWinProbabilityBps, market.recommendedSide))} if out
+                  </p>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-3 rounded-xl border bg-surface-raised/35 p-3">
             <div className="flex items-center justify-between gap-3">

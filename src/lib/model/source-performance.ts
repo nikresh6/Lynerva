@@ -5,6 +5,7 @@ import { getDb } from "@/db";
 import { clamp } from "@/lib/utils";
 import {
   nflGames,
+  moneylineSourceWeightHistory,
   normalizedMarkets,
   predictions,
   sourceProjectionGrades,
@@ -12,7 +13,12 @@ import {
   sourceWeightHistory,
 } from "@/db/schema";
 import { ensureSourceLearningSchema } from "./source-learning";
+import { ensureMoneylineLearningSchema } from "./moneyline-learning";
 import { ACTIVE_PROJECTION_SOURCES } from "./source-weighting";
+import {
+  MONEYLINE_WEIGHT_PRIORS,
+  type MoneylineSource,
+} from "./moneyline-weighting";
 
 export const MONEYLINE_SOURCE_INFO = {
   nflverse_current_season_scoring: {
@@ -115,6 +121,11 @@ export type MoneylinePerformanceRow = {
   brierScore: number;
   accuracy: number;
   logLoss: number;
+  weight: number | null;
+  priorWeight: number;
+  effectiveWeek: number | null;
+  previousWeight: number | null;
+  previousEffectiveWeek: number | null;
   examples: Array<{
     week: number;
     matchup: string;
@@ -213,7 +224,10 @@ function quantile(sorted: number[], q: number) {
 
 export async function getProjectionSourcePerformance(season = 2026) {
   try {
-    await ensureSourceLearningSchema();
+    await Promise.all([
+      ensureSourceLearningSchema(),
+      ensureMoneylineLearningSchema(),
+    ]);
     const db = getDb();
 
     const [
@@ -222,6 +236,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
       latestProjectionWeekRows,
       latestProjectionRows,
       latestGradeRows,
+      moneylineWeightRows,
     ] = await Promise.all([
       db
         .select({
@@ -275,6 +290,16 @@ export async function getProjectionSourcePerformance(season = 2026) {
         )
         .where(eq(sourceProjections.season, season))
         .groupBy(sourceProjections.source),
+      db
+        .select({
+          source: moneylineSourceWeightHistory.source,
+          weight: moneylineSourceWeightHistory.weight,
+          priorWeight: moneylineSourceWeightHistory.priorWeight,
+          effectiveWeek: moneylineSourceWeightHistory.effectiveWeek,
+        })
+        .from(moneylineSourceWeightHistory)
+        .where(eq(moneylineSourceWeightHistory.season, season))
+        .orderBy(desc(moneylineSourceWeightHistory.effectiveWeek)),
     ]);
 
     const coverageWeek = latestProjectionWeekRows[0]?.week ?? null;
@@ -497,6 +522,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
           homeScore: nflGames.homeScore,
           awayScore: nflGames.awayScore,
           status: nflGames.status,
+          kickoffAt: nflGames.kickoffAt,
           updatedAt: nflGames.updatedAt,
         })
         .from(nflGames)
@@ -512,6 +538,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
       string,
       {
         winner: string | null;
+        kickoffAt: Date;
         gradedAt: Date;
       }
     >();
@@ -535,6 +562,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
             );
       finalGames.set(`${game.week}:${matchup}`, {
         winner,
+        kickoffAt: game.kickoffAt,
         gradedAt: game.updatedAt,
       });
     }
@@ -594,7 +622,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
         }
 
         const final = finalGames.get(`${week}:${matchup}`);
-        if (!final) continue;
+        if (!final || row.predictedAt >= final.kickoffAt) continue;
 
         const sampleKey = `${week}:${matchup}:${point.source}`;
         if (latestBySourceGame.has(sampleKey)) continue;
@@ -634,6 +662,13 @@ export async function getProjectionSourcePerformance(season = 2026) {
       (source) => {
         const samples = samplesByMoneylineSource.get(source) ?? [];
         if (!samples.length) return [];
+        const sourceWeights = moneylineWeightRows.filter(
+          (row) => row.source === source,
+        );
+        const currentWeight = sourceWeights[0] ?? null;
+        const previousWeight = sourceWeights.find(
+          (row) => row.effectiveWeek !== currentWeight?.effectiveWeek,
+        ) ?? null;
 
         let brierTotal = 0;
         let accuracyTotal = 0;
@@ -659,6 +694,13 @@ export async function getProjectionSourcePerformance(season = 2026) {
           brierScore: brierTotal / samples.length,
           accuracy: accuracyTotal / samples.length,
           logLoss: logLossTotal / samples.length,
+          weight: currentWeight?.weight ?? null,
+          priorWeight:
+            currentWeight?.priorWeight ??
+            MONEYLINE_WEIGHT_PRIORS[source as MoneylineSource],
+          effectiveWeek: currentWeight?.effectiveWeek ?? null,
+          previousWeight: previousWeight?.weight ?? null,
+          previousEffectiveWeek: previousWeight?.effectiveWeek ?? null,
           examples: samples
             .toSorted((first, second) =>
               second.week - first.week ||

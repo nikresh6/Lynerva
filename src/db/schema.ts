@@ -496,6 +496,33 @@ export const sourceWeightHistory = sqliteTable(
   ],
 );
 
+export const moneylineSourceWeightHistory = sqliteTable(
+  "moneyline_source_weight_history",
+  {
+    id: text("id").primaryKey(),
+    season: integer("season").notNull(),
+    effectiveWeek: integer("effective_week").notNull(),
+    source: text("source").notNull(),
+    weight: real("weight").notNull(),
+    priorWeight: real("prior_weight").notNull(),
+    sampleSize: integer("sample_size").notNull(),
+    brierScore: real("brier_score"),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    uniqueIndex("moneyline_source_weight_unique").on(
+      table.season,
+      table.effectiveWeek,
+      table.source,
+    ),
+    index("moneyline_source_weight_lookup_idx").on(
+      table.season,
+      table.effectiveWeek,
+    ),
+  ],
+);
+
 export const weatherSnapshots = sqliteTable(
   "weather_snapshots",
   {

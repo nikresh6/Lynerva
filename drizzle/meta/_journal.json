@@ -36,6 +36,13 @@
       "when": 1790181443060,
       "tag": "0004_productive_red_wolf",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1790183226005,
+      "tag": "0005_milky_karnak",
+      "breakpoints": true
     }
   ]
 }

@@ -28,7 +28,7 @@ async function stableId(prefix: string, value: string) {
   return `${prefix}_${hex.slice(0, 24)}`;
 }
 
-const MODEL_ID = "model_hybrid_consensus_learning_v4";
+const MODEL_ID = "model_hybrid_consensus_learning_v5";
 
 export async function persistMarkets(payload: MarketsPayload) {
   const db = getDb();
@@ -66,7 +66,7 @@ export async function persistMarkets(payload: MarketsPayload) {
     .values({
       id: MODEL_ID,
       name: "Huddlemark hybrid player prop model",
-      version: "hybrid-consensus-learning-v16",
+      version: "hybrid-consensus-learning-v17",
       family: "player_props",
       coefficients: {
         consensusWeightEarly: 1,
@@ -76,9 +76,14 @@ export async function persistMarkets(payload: MarketsPayload) {
         sourceLearningMinSamples: 20,
         sourceLearningMaxWeight: 0.75,
         activeProjectionSources: 8,
+        moneylineInjuryScenarioCapPoints: 8,
+        moneylineInjuryReliabilityPenaltyMax: 0.18,
+        moneylineScoringPriorWeight: 0.5,
+        moneylineRecordPriorWeight: 0.15,
+        moneylineEspnPriorWeight: 0.35,
       },
       calibrationNotes:
-        "Independent projection ensemble with stat-specific source weights learned from settled player outcomes, plus game/weather context. Current-season statistical history activates at four games. Settled outcomes calibrate future probabilities by prediction bucket.",
+        "Independent projection ensemble with stat-specific source weights learned from settled player outcomes, plus game/weather context. Pregame moneylines apply conservative roster-availability scenarios to the internal scoring source and learn bounded future-week source weights from frozen Brier grades. ESPN remains raw and betting prices never enter model probability.",
       active: true,
     })
     .onConflictDoNothing({ target: modelVersions.id });
@@ -394,6 +399,20 @@ export async function persistMarkets(payload: MarketsPayload) {
           projectionSourceCount: opportunity.model.components?.projectionSourceCount ?? 0,
           gameProjectionSourcesJson: opportunity.model.components?.gameProjectionSources?.length
             ? JSON.stringify(opportunity.model.components.gameProjectionSources)
+            : null,
+          gameProjectionSourceWeightsJson: opportunity.model.components?.gameProjectionSourceWeights?.length
+            ? JSON.stringify(opportunity.model.components.gameProjectionSourceWeights)
+            : null,
+          moneylineWeightEffectiveWeek:
+            opportunity.model.components?.moneylineWeightEffectiveWeek ?? null,
+          moneylineBaselineProbabilityBps:
+            opportunity.model.components?.moneylineBaselineProbabilityBps ?? null,
+          moneylineInjuryAdjustedProbabilityBps:
+            opportunity.model.components?.moneylineInjuryAdjustedProbabilityBps ?? null,
+          moneylineInjuryReliabilityPenaltyBps:
+            opportunity.model.components?.moneylineInjuryReliabilityPenaltyBps ?? null,
+          moneylineInjuryScenariosJson: opportunity.model.components?.moneylineInjuryScenarios?.length
+            ? JSON.stringify(opportunity.model.components.moneylineInjuryScenarios)
             : null,
           learnedCalibrationSample: opportunity.model.components?.learnedCalibrationSample ?? 0,
           learnedCalibrationActive: opportunity.model.components?.learnedCalibrationActive ?? false,

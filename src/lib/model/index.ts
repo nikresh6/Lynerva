@@ -23,6 +23,13 @@ import { getExternalProjectionConsensus } from "./external-projections";
 import { getEspnGameProbability } from "./game-projections";
 import { estimatePlayerStatStdDev } from "./player-variance";
 import { getTeammateContextAdjustment } from "./teammate-context";
+import { getMoneylineInjuryInputs } from "./moneyline-injuries";
+import { applyMoneylineInjuryScenarios } from "./moneyline-injury-scenarios";
+import { getMoneylineSourceWeights } from "./moneyline-learning";
+import {
+  blendMoneylineSourceProbabilities,
+  MONEYLINE_WEIGHT_PRIORS,
+} from "./moneyline-weighting";
 import { selfCalibrateProbability } from "./self-learning";
 import { weatherProbabilityAdjustment } from "./weather-adjustment";
 import { getGameWeather } from "@/lib/weather";
@@ -32,7 +39,7 @@ import type {
   ModelEstimate,
 } from "@/lib/markets/types";
 
-const MODEL_VERSION = "hybrid-consensus-learning-v16";
+const MODEL_VERSION = "hybrid-consensus-learning-v17";
 
 const emptyEvidence: HistoricalEvidence = {
   last5Hits: null,
@@ -231,7 +238,13 @@ async function estimateGameMarket(
   liveGame?: LiveNflGame | null,
 ): Promise<ModelEstimate> {
   const currentWeek = scheduleGame.week ?? 1;
-  const [projection, espn] = await Promise.all([
+  const pregameSubjectIsHome = canonical.subject === scheduleGame.homeTeam;
+  const pregameSubjectIsAway = canonical.subject === scheduleGame.awayTeam;
+  const shouldLoadPregameMoneylineContext =
+    canonical.family === "moneyline" &&
+    liveGame?.state !== "in" &&
+    (pregameSubjectIsHome || pregameSubjectIsAway);
+  const [projection, espn, learnedMoneylineWeights, injuryInputs] = await Promise.all([
     getCurrentSeasonMatchupProjection(
       scheduleGame.homeTeam,
       scheduleGame.awayTeam,
@@ -239,6 +252,20 @@ async function estimateGameMarket(
       currentWeek,
     ),
     liveGame?.id ? getEspnGameProbability(liveGame.id) : Promise.resolve(null),
+    shouldLoadPregameMoneylineContext
+      ? getMoneylineSourceWeights(scheduleGame.season, currentWeek)
+      : Promise.resolve(null),
+    shouldLoadPregameMoneylineContext
+      ? getMoneylineInjuryInputs({
+          subjectTeam: canonical.subject,
+          opponentTeam: pregameSubjectIsHome
+            ? scheduleGame.awayTeam
+            : scheduleGame.homeTeam,
+          season: scheduleGame.season,
+          week: currentWeek,
+          espnGameId: liveGame?.id ?? null,
+        })
+      : Promise.resolve([]),
   ]);
 
   const live = liveGame?.state === "in" ? liveGame : null;
@@ -286,6 +313,12 @@ async function estimateGameMarket(
     source: string;
     probabilityBps: number;
   }> = [];
+  const gameProjectionSourceWeights: NonNullable<
+    NonNullable<ModelEstimate["components"]>["gameProjectionSourceWeights"]
+  > = [];
+  let moneylineInjuryResult: ReturnType<
+    typeof applyMoneylineInjuryScenarios
+  > | null = null;
 
   const factors = projection
     ? [
@@ -316,18 +349,53 @@ async function estimateGameMarket(
     }
 
     const subjectMarginMean = subjectIsHome ? meanHomeMargin : -meanHomeMargin;
-    statisticalProbability =
+    const baselineStatisticalProbability =
       1 - normalCdf(0, subjectMarginMean, marginStdDev);
+    moneylineInjuryResult = live
+      ? null
+      : applyMoneylineInjuryScenarios({
+          baselineMargin: subjectMarginMean,
+          marginStdDev,
+          players: injuryInputs,
+        });
+    statisticalProbability =
+      moneylineInjuryResult?.adjustedProbability ??
+      baselineStatisticalProbability;
 
+    const scoringSource = projection
+      ? "nflverse_current_season_scoring"
+      : "current_season_league_baseline";
     gameProjectionSources.push({
-      source: projection
-        ? "nflverse_current_season_scoring"
-        : "current_season_league_baseline",
+      source: scoringSource,
       probabilityBps: Math.round(statisticalProbability * 10_000),
     });
 
-    const weighted: Array<{ probability: number; weight: number }> = [
-      { probability: statisticalProbability, weight: live ? 0.50 : 0.50 },
+    const learnedRows = learnedMoneylineWeights?.rows ?? [];
+    const learnedRow = (source: string) =>
+      learnedRows.find((row) => row.source === source);
+    const sourceWeight = (source: string, fallback: number) =>
+      live ? fallback : learnedRow(source)?.weight ?? fallback;
+    const weighted: Array<{
+      source: string;
+      probability: number;
+      weight: number;
+      priorWeight: number | null;
+      sampleSize: number | null;
+      brierScore: number | null;
+    }> = [
+      {
+        source: scoringSource,
+        probability: statisticalProbability,
+        weight: sourceWeight(
+          "nflverse_current_season_scoring",
+          MONEYLINE_WEIGHT_PRIORS.nflverse_current_season_scoring,
+        ),
+        priorWeight: MONEYLINE_WEIGHT_PRIORS.nflverse_current_season_scoring,
+        sampleSize:
+          learnedRow("nflverse_current_season_scoring")?.sampleSize ?? null,
+        brierScore:
+          learnedRow("nflverse_current_season_scoring")?.brierScore ?? null,
+      },
     ];
 
     if (projection) {
@@ -348,8 +416,17 @@ async function estimateGameMarket(
         0.82,
       );
       weighted.push({
+        source: "nflverse_current_season_record",
         probability: recordProbability,
-        weight: live ? 0.08 : 0.15,
+        weight: sourceWeight(
+          "nflverse_current_season_record",
+          live ? 0.08 : MONEYLINE_WEIGHT_PRIORS.nflverse_current_season_record,
+        ),
+        priorWeight: MONEYLINE_WEIGHT_PRIORS.nflverse_current_season_record,
+        sampleSize:
+          learnedRow("nflverse_current_season_record")?.sampleSize ?? null,
+        brierScore:
+          learnedRow("nflverse_current_season_record")?.brierScore ?? null,
       });
       gameProjectionSources.push({
         source: "nflverse_current_season_record",
@@ -373,7 +450,14 @@ async function estimateGameMarket(
           : 1 - espn.liveHomeProbability;
 
     if (live && espnLiveSubject !== null) {
-      weighted.push({ probability: espnLiveSubject, weight: 0.42 });
+      weighted.push({
+        source: "espn_live_win_probability",
+        probability: espnLiveSubject,
+        weight: 0.42,
+        priorWeight: null,
+        sampleSize: null,
+        brierScore: null,
+      });
       gameProjectionSources.push({
         source: "espn_live_win_probability",
         probabilityBps: Math.round(espnLiveSubject * 10_000),
@@ -383,8 +467,15 @@ async function estimateGameMarket(
       );
     } else if (espnPregameSubject !== null) {
       weighted.push({
+        source: "espn_fpi",
         probability: espnPregameSubject,
-        weight: live ? 0.12 : 0.35,
+        weight: sourceWeight(
+          "espn_fpi",
+          live ? 0.12 : MONEYLINE_WEIGHT_PRIORS.espn_fpi,
+        ),
+        priorWeight: MONEYLINE_WEIGHT_PRIORS.espn_fpi,
+        sampleSize: learnedRow("espn_fpi")?.sampleSize ?? null,
+        brierScore: learnedRow("espn_fpi")?.brierScore ?? null,
       });
       gameProjectionSources.push({
         source: "espn_fpi",
@@ -396,15 +487,39 @@ async function estimateGameMarket(
     }
 
     const totalWeight = weighted.reduce((sum, point) => sum + point.weight, 0);
-    probability =
-      weighted.reduce(
-        (sum, point) => sum + point.probability * point.weight,
-        0,
-      ) / totalWeight;
+    probability = blendMoneylineSourceProbabilities(weighted);
+
+    gameProjectionSourceWeights.push(
+      ...weighted.map((point) => ({
+        source: point.source,
+        weightBps: Math.round((point.weight / totalWeight) * 10_000),
+        priorWeightBps:
+          point.priorWeight === null
+            ? null
+            : Math.round(point.priorWeight * 10_000),
+        sampleSize: point.sampleSize,
+        brierScore: point.brierScore,
+      })),
+    );
 
     factors.push(
       `Huddlemark current-season margin model: ${(statisticalProbability * 100).toFixed(1)}% for ${canonical.subject} (${subjectMarginMean >= 0 ? "+" : ""}${subjectMarginMean.toFixed(1)} projected margin).`,
     );
+    if (moneylineInjuryResult?.scenarios.length) {
+      factors.push(
+        `Roster availability changed the internal scoring estimate from ${(baselineStatisticalProbability * 100).toFixed(1)}% to ${(moneylineInjuryResult.adjustedProbability * 100).toFixed(1)}%; ESPN's raw forecast was left untouched.`,
+      );
+      factors.push(
+        ...moneylineInjuryResult.scenarios.slice(0, 3).map((scenario) =>
+          `${scenario.player} (${scenario.status ?? "availability uncertain"}) is estimated at ${(scenario.playProbabilityBps / 100).toFixed(0)}% to play: ${(scenario.activeWinProbabilityBps / 100).toFixed(1)}% if active vs ${(scenario.inactiveWinProbabilityBps / 100).toFixed(1)}% if out.`,
+        ),
+      );
+    }
+    if (!live) {
+      factors.push(
+        `Pregame source weights used: ${gameProjectionSourceWeights.map((row) => `${row.source.replaceAll("_", " ")} ${(row.weightBps / 100).toFixed(0)}%`).join(", ")}.`,
+      );
+    }
   } else if (canonical.family === "spread" && canonical.threshold !== null) {
     const subjectIsHome = canonical.subject === scheduleGame.homeTeam;
     const subjectIsAway = canonical.subject === scheduleGame.awayTeam;
@@ -461,13 +576,16 @@ async function estimateGameMarket(
     )
       ? 0.10
       : 0;
+  const injuryUncertaintyPenalty =
+    moneylineInjuryResult?.reliabilityPenalty ?? 0;
   const reliability = clamp(
     0.42 +
       Math.min(sampleSize, 8) * 0.035 +
       independentSourceBoost +
       (live ? 0.07 : 0) +
-      (gameProjectionSources.length >= 3 ? 0.04 : 0),
-    0.38,
+      (gameProjectionSources.length >= 3 ? 0.04 : 0) -
+      injuryUncertaintyPenalty,
+    0.25,
     0.88,
   );
 
@@ -505,6 +623,25 @@ async function estimateGameMarket(
       projectionSourceCount: gameProjectionSources.length,
       projectionSources: [],
       gameProjectionSources,
+      gameProjectionSourceWeights,
+      moneylineWeightEffectiveWeek:
+        learnedMoneylineWeights?.effectiveWeek ?? null,
+      moneylineBaselineProbabilityBps:
+        moneylineInjuryResult === null
+          ? statisticalProbability === null
+            ? null
+            : Math.round(statisticalProbability * 10_000)
+          : Math.round(moneylineInjuryResult.baselineProbability * 10_000),
+      moneylineInjuryAdjustedProbabilityBps:
+        moneylineInjuryResult === null
+          ? statisticalProbability === null
+            ? null
+            : Math.round(statisticalProbability * 10_000)
+          : Math.round(moneylineInjuryResult.adjustedProbability * 10_000),
+      moneylineInjuryReliabilityPenaltyBps: Math.round(
+        injuryUncertaintyPenalty * 10_000,
+      ),
+      moneylineInjuryScenarios: moneylineInjuryResult?.scenarios ?? [],
       currentSeasonTeamGames:
         subjectProfile && opponentProfile
           ? {

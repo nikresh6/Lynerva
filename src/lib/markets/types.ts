@@ -114,6 +114,30 @@ export interface ModelEstimate {
       source: string;
       probabilityBps: number;
     }>;
+    gameProjectionSourceWeights?: Array<{
+      source: string;
+      weightBps: number;
+      priorWeightBps: number | null;
+      sampleSize: number | null;
+      brierScore: number | null;
+    }>;
+    moneylineWeightEffectiveWeek?: number | null;
+    moneylineBaselineProbabilityBps?: number | null;
+    moneylineInjuryAdjustedProbabilityBps?: number | null;
+    moneylineInjuryReliabilityPenaltyBps?: number | null;
+    moneylineInjuryScenarios?: Array<{
+      player: string;
+      team: string;
+      position: string;
+      side: "subject" | "opponent";
+      status: string | null;
+      playProbabilityBps: number;
+      activeWinProbabilityBps: number;
+      inactiveWinProbabilityBps: number;
+      impactPoints: number;
+      uncertaintyPenaltyBps: number;
+      sources: string[];
+    }>;
     currentSeasonTeamGames?: {
       subject: number;
       opponent: number;

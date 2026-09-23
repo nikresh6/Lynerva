@@ -13,6 +13,7 @@ import {
   runSourceLearningFromActuals,
   type SourceLearningActualRow,
 } from "@/lib/model/source-learning";
+import { runMoneylineSourceLearning } from "@/lib/model/moneyline-learning";
 import { settleKalshiPredictions } from "@/lib/model/results";
 import { lockEligibleScorecards } from "@/lib/model/scorecard";
 
@@ -75,11 +76,13 @@ async function refreshNflverseAndLearning() {
     const season = new Date().getUTCFullYear();
     const result = await ingestNflverseSeason(season);
     invalidatePersistedPlayerHistoryCache();
+    const moneylineLearning = await runMoneylineSourceLearning(season);
     logJob("nflverse", "completed", {
       season,
       gamesStored: result.gamesStored,
       statsStored: result.statsStored,
       learning: result.learning,
+      moneylineLearning,
     });
   } catch (error) {
     logJob("nflverse", "failed", error);
@@ -149,6 +152,7 @@ async function gradeFinalEspnGames() {
       if (result.effectiveWeek !== null) {
         effectiveWeeks.add(result.effectiveWeek);
       }
+      await runMoneylineSourceLearning(season);
     }
 
     const predictionSettlement = await settleKalshiPredictions();

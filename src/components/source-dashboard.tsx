@@ -51,6 +51,11 @@ type MoneylinePerformanceRow = {
   brierScore: number;
   accuracy: number;
   logLoss: number;
+  weight: number | null;
+  priorWeight: number;
+  effectiveWeek: number | null;
+  previousWeight: number | null;
+  previousEffectiveWeek: number | null;
   examples: Array<{
     week: number;
     matchup: string;
@@ -417,9 +422,9 @@ export function SourceDashboard({
           <div className="mt-5 space-y-3">
             <div className="grid gap-2 md:grid-cols-3">
               {[
-                ["50% · Scoring", "Each team’s current-season points scored and allowed are blended with its opponent, pulled toward the league average while the sample is small, adjusted for recent form and home field, then converted from projected margin to win chance."],
-                ["15% · Record", "Smoothed wins, losses, and ties for both teams create a separate win chance. A small home-field adjustment is included, and the output is capped so an early record cannot become overconfident."],
-                ["35% · ESPN FPI", "ESPN’s saved pregame win probability supplies the independent outside view. If one input is unavailable, the remaining weights are automatically rescaled; live win probability never leaks into this pregame board."],
+                ["50% starting prior · Scoring", "Each team’s current-season points scored and allowed are blended with its opponent, pulled toward the league average while the sample is small, adjusted for current roster availability, recent form, and home field, then converted from projected margin to win chance."],
+                ["15% starting prior · Record", "Smoothed wins, losses, and ties for both teams create a separate win chance. A small home-field adjustment is included, and the output is capped so an early record cannot become overconfident."],
+                ["35% starting prior · ESPN FPI", "ESPN’s raw saved pregame win probability supplies the independent outside view. After enough frozen games, lower-Brier sources gradually earn more weight for a future week; ESPN itself is never modified by Huddlemark’s injury layer."],
               ].map(([label, copy]) => (
                 <div key={label} className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-4">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-300">{label}</p>
@@ -432,7 +437,7 @@ export function SourceDashboard({
               <span>Source</span>
               <span>Graded games</span>
               <span>Brier score</span>
-              <span>Winner accuracy</span>
+              <span>Current weight</span>
             </div>
             {selectedMoneylineRows.length ? (
               selectedMoneylineRows.map((row, index) => {
@@ -473,9 +478,15 @@ export function SourceDashboard({
                       <p className="text-[9px] text-faint">Log loss {row.logLoss.toFixed(3)}</p>
                     </div>
                     <div>
-                      <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Winner accuracy</p>
-                      <p className="text-sm font-semibold tabular">{(row.accuracy * 100).toFixed(1)}%</p>
-                      <p className="text-[9px] text-faint">Brier is the ranking metric</p>
+                      <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Current weight</p>
+                      <p className="text-sm font-semibold tabular">
+                        {((row.weight ?? row.priorWeight) * 100).toFixed(1)}%
+                      </p>
+                      <p className="text-[9px] text-faint">
+                        {row.effectiveWeek === null
+                          ? `Starting prior · ${(row.accuracy * 100).toFixed(1)}% winners`
+                          : `Effective W${row.effectiveWeek} · ${(row.accuracy * 100).toFixed(1)}% winners`}
+                      </p>
                     </div>
 
                     {row.examples.length ? (
