@@ -307,11 +307,11 @@ export function MarketDataProvider({
           payload.providers.length === 0
         ) {
           setError("Market model is warming. Retrying automatically.");
-          if (warmRetryCount.current < 8) {
+          if (warmRetryCount.current < 20) {
             warmRetryCount.current += 1;
             window.setTimeout(() => {
               void refresh();
-            }, 1_500);
+            }, 2_000);
           }
           return;
         }
