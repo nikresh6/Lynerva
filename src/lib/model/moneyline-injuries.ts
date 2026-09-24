@@ -87,25 +87,49 @@ function quarterbackValue(profile: ProjectionProfile) {
 }
 
 function quarterbackImpact(
-  starter: ProjectionProfile,
+  quarterback: ProjectionProfile,
   backup: ProjectionProfile | null,
+  isEstablishedStarter: boolean,
 ) {
-  const passingYards = starter.passing_yards ?? 0;
+  const passingYards = quarterback.passing_yards ?? 0;
   if (passingYards < 100) return 0;
 
-  const starterValue = quarterbackValue(starter);
+  const quarterbackValueScore = quarterbackValue(quarterback);
   const backupHasRealProjection = (backup?.passing_yards ?? 0) >= 75;
-  if (backupHasRealProjection && backup) {
-    return clamp(starterValue - quarterbackValue(backup), 1.75, 5.5);
+
+  if (!isEstablishedStarter) {
+    if (backupHasRealProjection && backup) {
+      return clamp(
+        Math.max(0.5, quarterbackValueScore - quarterbackValue(backup)),
+        0.75,
+        3,
+      );
+    }
+    return clamp(
+      1 + (passingYards - 150) / 120,
+      0.75,
+      2.75,
+    );
   }
 
-  // A non-starting QB often has no weekly projection. In that case use a
-  // deliberately broad, volume-based replacement prior rather than pretending
-  // zero projected attempts means zero backup ability.
+  // Losing the established QB1 is categorically different from losing a
+  // rotational skill player or even the QB2. The team-strength baseline was
+  // built almost entirely with the starter, so the inactive branch needs a
+  // real replacement-level downgrade rather than a small generic injury nudge.
+  // A roughly 8-10 point margin swing turns a ~59% favorite into about a
+  // 30-35% team when its starter is unavailable, depending on game variance.
+  if (backupHasRealProjection && backup) {
+    const replacementGap = Math.max(
+      0,
+      quarterbackValueScore - quarterbackValue(backup),
+    );
+    return clamp(6.5 + replacementGap * 0.8, 7, 10.5);
+  }
+
   return clamp(
-    2.25 + (passingYards - 180) / 55 + (starter.rushing_yards ?? 0) / 120,
-    2.25,
-    5,
+    8 + (passingYards - 180) / 55 + (quarterback.rushing_yards ?? 0) / 110,
+    7.5,
+    10.5,
   );
 }
 
@@ -218,11 +242,17 @@ async function collectTeamInjuries(input: {
             : candidate.profile;
       return {
         ...candidate,
-        impact: quarterbackImpact(profile, projectedBackup?.profile ?? null),
+        role: isEstablishedStarter ? ("starter" as const) : ("backup" as const),
+        impact: quarterbackImpact(
+          profile,
+          projectedBackup?.profile ?? null,
+          isEstablishedStarter,
+        ),
       };
     }),
     ...relevant.skill.map((candidate) => ({
       ...candidate,
+      role: null,
       impact: skillImpact(candidate.profile),
     })),
   ].filter((candidate) => candidate.impact > 0);
@@ -237,7 +267,7 @@ async function collectTeamInjuries(input: {
     })),
   );
 
-  return availability.flatMap(({ player, impact, availability: state }) => {
+  return availability.flatMap(({ player, role, impact, availability: state }) => {
     if (!state) return [];
     const position = player.position ?? "";
     const material =
@@ -252,6 +282,7 @@ async function collectTeamInjuries(input: {
       player: player.fullName,
       team: input.team,
       position,
+      role,
       side: input.side,
       status: state.status,
       playProbability: state.playProbability,
