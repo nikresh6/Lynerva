@@ -156,6 +156,39 @@ export function estimateInjuryAvailability(
 
   if (
     !ruledOut &&
+    !doubtful &&
+    !questionable &&
+    /week[- ]to[- ]week/.test(text)
+  ) {
+    playProbability = Math.min(playProbability, 0.45);
+    reasons.push("Week-to-week wording materially lowers the near-term play estimate.");
+  }
+
+  if (
+    !ruledOut &&
+    !doubtful &&
+    /not expected to practice|unlikely to practice|won'?t practice|will not practice/.test(
+      text,
+    )
+  ) {
+    playProbability -= 0.14;
+    reasons.push("Expected missed practice time lowers the near-term play estimate.");
+  }
+
+  if (
+    !ruledOut &&
+    !doubtful &&
+    !questionable &&
+    /may miss (?:time|games?)|could miss (?:time|games?)|expected to miss (?:time|games?)/.test(
+      text,
+    )
+  ) {
+    playProbability -= 0.10;
+    reasons.push("Reporting that the player may miss time lowers the play estimate.");
+  }
+
+  if (
+    !ruledOut &&
     /expected to play|likely to play|on track to play|plans to play/.test(text)
   ) {
     playProbability += 0.14;
