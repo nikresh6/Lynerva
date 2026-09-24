@@ -10,6 +10,7 @@ import {
   CircleDollarSign,
   MinusCircle,
   Plus,
+  Pencil,
   Search,
   Trash2,
   X,
@@ -884,6 +885,10 @@ export function ManualTracker() {
   const [cashoutAmount, setCashoutAmount] = useState("");
   const [actualProfitBetId, setActualProfitBetId] = useState<string | null>(null);
   const [actualProfitAmount, setActualProfitAmount] = useState("");
+  const [editBetId, setEditBetId] = useState<string | null>(null);
+  const [editStake, setEditStake] = useState("");
+  const [editEntryPrice, setEditEntryPrice] = useState("");
+  const [editToWin, setEditToWin] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [cloudBacked, setCloudBacked] = useState(false);
 
@@ -1314,6 +1319,98 @@ export function ManualTracker() {
     setCashoutAmount("");
   };
 
+  const beginEditBet = (bet: ManualBet) => {
+    setEditBetId(bet.id);
+    setEditStake(String(bet.stake));
+    setEditEntryPrice(
+      bet.entryPriceBps === null
+        ? ""
+        : (bet.entryPriceBps / 100).toFixed(1),
+    );
+    setEditToWin(bet.toWin === null ? "" : String(bet.toWin));
+  };
+
+  const closeEditBet = () => {
+    setEditBetId(null);
+    setEditStake("");
+    setEditEntryPrice("");
+    setEditToWin("");
+  };
+
+  const confirmEditBet = () => {
+    const bet = bets.find((item) => item.id === editBetId);
+    if (!bet) return;
+
+    const nextStake = Number(editStake);
+    if (!Number.isFinite(nextStake) || nextStake <= 0) return;
+
+    const entryPercent =
+      editEntryPrice.trim() === "" ? null : Number(editEntryPrice);
+    if (
+      !bet.isParlay &&
+      entryPercent !== null &&
+      (!Number.isFinite(entryPercent) ||
+        entryPercent <= 0 ||
+        entryPercent >= 100)
+    ) {
+      return;
+    }
+
+    const nextToWin =
+      editToWin.trim() === "" ? null : Number(editToWin);
+    if (
+      bet.isParlay &&
+      (nextToWin === null ||
+        !Number.isFinite(nextToWin) ||
+        nextToWin <= 0)
+    ) {
+      return;
+    }
+
+    setBets((current) =>
+      current.map((item) => {
+        if (item.id !== bet.id) return item;
+
+        const entryPriceBps = item.isParlay
+          ? item.entryPriceBps
+          : entryPercent === null
+            ? null
+            : Math.round(entryPercent * 100);
+        const toWin = item.isParlay ? nextToWin : item.toWin;
+        const decimalOdds =
+          item.isParlay && toWin !== null
+            ? 1 + toWin / nextStake
+            : item.decimalOdds;
+
+        let payout = item.payout;
+        if (item.status === "open" || item.status === "loss") {
+          payout = 0;
+        } else if (item.status === "win") {
+          payout = item.isParlay
+            ? toWin === null
+              ? item.payout
+              : nextStake + toWin
+            : entryPriceBps && entryPriceBps > 0
+              ? nextStake / (entryPriceBps / 10_000)
+              : item.payout;
+        }
+
+        return {
+          ...item,
+          stake: nextStake,
+          entryPriceBps,
+          toWin,
+          decimalOdds,
+          payout,
+        };
+      }),
+    );
+
+    closeEditBet();
+  };
+
+  const editingBet = bets.find((item) => item.id === editBetId) ?? null;
+
   const inputClass =
     "control-surface h-11 w-full rounded-xl px-3 text-xs outline-none transition-colors focus:border-accent";
 
@@ -1697,6 +1794,14 @@ export function ManualTracker() {
                       <div className="flex shrink-0 items-center justify-end gap-1 border-t border-border/70 pt-2 lg:border-0 lg:pt-0">
                         <button
                           type="button"
+                          onClick={() => beginEditBet(bet)}
+                          className="inline-flex h-7 items-center gap-1 rounded-lg border bg-background px-2.5 text-[8px] font-semibold text-muted transition-colors hover:text-foreground"
+                        >
+                          <Pencil size={10} />
+                          Edit
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => {
                             setActualProfitBetId(bet.id);
                             setActualProfitAmount(String(pl ?? 0));
@@ -1796,14 +1901,25 @@ export function ManualTracker() {
                       </p>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => removeBet(bet.id)}
-                      className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-negative-bg hover:text-negative"
-                      aria-label="Delete position"
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => beginEditBet(bet)}
+                        className="grid size-8 place-items-center rounded-lg text-muted transition-colors hover:bg-background hover:text-foreground"
+                        aria-label="Edit position"
+                        title="Edit stake and entry odds"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeBet(bet.id)}
+                        className="grid size-8 place-items-center rounded-lg text-muted transition-colors hover:bg-negative-bg hover:text-negative"
+                        aria-label="Delete position"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
                   </div>
 
                   {bet.isParlay && bet.status === "open" ? (
@@ -2044,6 +2160,94 @@ export function ManualTracker() {
           </div>
         )}
       </section>
+
+      {editingBet ? (
+        <div className="fixed inset-0 z-[80] grid place-items-center bg-[var(--overlay)] p-4">
+          <div className="premium-panel w-full max-w-sm rounded-2xl p-5">
+            <div className="flex items-center gap-2">
+              <Pencil className="size-4 text-accent" />
+              <h3 className="text-sm font-semibold">Edit tracked position</h3>
+            </div>
+            <p className="mt-2 text-[11px] leading-5 text-muted">
+              Correct what you actually entered. The original model probability
+              stays frozen, while stake and your real entry odds update the
+              tracker math.
+            </p>
+
+            <label className="mt-4 block">
+              <span className="mb-1.5 block text-[10px] font-medium text-muted">
+                Stake
+              </span>
+              <div className="control-surface flex h-11 items-center rounded-xl px-3">
+                <span className="text-xs text-muted">$</span>
+                <input
+                  autoFocus
+                  value={editStake}
+                  onChange={(event) => setEditStake(event.target.value)}
+                  inputMode="decimal"
+                  className="w-full bg-transparent pl-1 text-sm outline-none"
+                />
+              </div>
+            </label>
+
+            {editingBet.isParlay ? (
+              <label className="mt-3 block">
+                <span className="mb-1.5 block text-[10px] font-medium text-muted">
+                  To win
+                </span>
+                <div className="control-surface flex h-11 items-center rounded-xl px-3">
+                  <span className="text-xs text-muted">$</span>
+                  <input
+                    value={editToWin}
+                    onChange={(event) => setEditToWin(event.target.value)}
+                    inputMode="decimal"
+                    className="w-full bg-transparent pl-1 text-sm outline-none"
+                  />
+                </div>
+                <span className="mt-1.5 block text-[9px] leading-4 text-faint">
+                  Changing this updates the parlay&apos;s implied entry odds.
+                </span>
+              </label>
+            ) : (
+              <label className="mt-3 block">
+                <span className="mb-1.5 block text-[10px] font-medium text-muted">
+                  Entry price / implied odds
+                </span>
+                <div className="control-surface flex h-11 items-center rounded-xl px-3">
+                  <input
+                    value={editEntryPrice}
+                    onChange={(event) => setEditEntryPrice(event.target.value)}
+                    inputMode="decimal"
+                    className="w-full bg-transparent text-sm outline-none"
+                    placeholder="54"
+                  />
+                  <span className="text-xs text-muted">%</span>
+                </div>
+                <span className="mt-1.5 block text-[9px] leading-4 text-faint">
+                  Enter 54 for a 54¢ Kalshi entry price.
+                </span>
+              </label>
+            )}
+
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={closeEditBet}
+                className="h-10 rounded-xl border bg-surface text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmEditBet}
+                className="primary-action h-10 rounded-xl text-xs font-semibold"
+              >
+                Save changes
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {cashoutBetId ? (
         <div className="fixed inset-0 z-[80] grid place-items-center bg-[var(--overlay)] p-4">
