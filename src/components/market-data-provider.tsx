@@ -274,6 +274,7 @@ export function MarketDataProvider({
   const [error, setError] = useState<string | null>(null);
   const inflight = useRef<Promise<void> | null>(null);
   const lastSuccessfulRefreshAt = useRef(0);
+  const warmRetryCount = useRef(0);
 
   const refresh = async () => {
     if (inflight.current) return inflight.current;
@@ -297,6 +298,25 @@ export function MarketDataProvider({
           throw new Error(`Market feed returned ${response.status}`);
         }
         const payload = (await response.json()) as MarketClientPayload;
+
+        // The server can intentionally return a zero/zero transient snapshot
+        // while a cold model build continues in-process. Never treat that as a
+        // successful market refresh or replace a verified board with it.
+        if (
+          payload.opportunities.length === 0 &&
+          payload.providers.length === 0
+        ) {
+          setError("Market model is warming. Retrying automatically.");
+          if (warmRetryCount.current < 8) {
+            warmRetryCount.current += 1;
+            window.setTimeout(() => {
+              void refresh();
+            }, 1_500);
+          }
+          return;
+        }
+
+        warmRetryCount.current = 0;
         const annotated = annotateMovements(latestDataRef.current, payload);
         latestDataRef.current = annotated;
         setData(annotated);
