@@ -133,7 +133,7 @@ function quarterbackImpact(
   );
 }
 
-function skillImpact(profile: ProjectionProfile) {
+function skillImpact(profile: ProjectionProfile, teamShare: number) {
   const volume =
     (profile.rushing_yards ?? 0) + (profile.receiving_yards ?? 0);
   const touchdowns =
@@ -141,7 +141,15 @@ function skillImpact(profile: ProjectionProfile) {
     (profile.receiving_touchdowns ?? 0) +
     (profile.touchdowns ?? 0);
   if (volume < 35 && touchdowns < 0.2) return 0;
-  return clamp(0.25 + volume / 170 + touchdowns * 0.55, 0.3, 1.6);
+
+  // Skill-player absences scale with how much of the offense runs through that
+  // player. This keeps a true centerpiece materially above a rotational player
+  // without pretending every non-QB injury is equivalent.
+  return clamp(
+    0.2 + volume / 165 + touchdowns * 0.55 + clamp(teamShare, 0, 0.6) * 1.15,
+    0.3,
+    2.5,
+  );
 }
 
 function relevantPlayers(
@@ -200,21 +208,44 @@ async function collectTeamInjuries(input: {
   const roster = await getTeamRoster(input.team);
   const relevant = relevantPlayers(roster, input.profiles);
   const quarterbackUsage = await Promise.all(
-    relevant.quarterbacks.map(async (candidate) => ({
-      player: candidate.player.fullName,
-      ...(recentQuarterbackUsage(
-        await findPublicPlayerSeasonHistory(
+    relevant.quarterbacks.map(async (candidate) => {
+      const [currentHistory, previousHistory] = await Promise.all([
+        findPublicPlayerSeasonHistory(
           candidate.player.fullName,
           "passing_yards",
           input.season,
         ),
-      )),
-    })),
+        findPublicPlayerSeasonHistory(
+          candidate.player.fullName,
+          "passing_yards",
+          input.season - 1,
+        ),
+      ]);
+      const current = recentQuarterbackUsage(currentHistory);
+      const previous = recentQuarterbackUsage(previousHistory);
+      const projectedPassing = candidate.profile.passing_yards ?? 0;
+
+      return {
+        player: candidate.player.fullName,
+        currentAttempts: current.attempts,
+        previousAttempts: previous.attempts,
+        averagePassingYards: current.averagePassingYards,
+        previousAveragePassingYards: previous.averagePassingYards,
+        // Early in a season, a one- or two-game fill-in must not become "QB1"
+        // just because he has the most current-year attempts. Two-season usage
+        // provides the role prior, while current attempts eventually take over.
+        starterScore:
+          current.attempts * 2 +
+          previous.attempts +
+          projectedPassing * 0.1,
+      };
+    }),
   );
   const primaryQuarterback = quarterbackUsage.toSorted(
     (first, second) =>
-      second.attempts - first.attempts ||
-      second.averagePassingYards - first.averagePassingYards,
+      second.starterScore - first.starterScore ||
+      second.currentAttempts - first.currentAttempts ||
+      second.previousAttempts - first.previousAttempts,
   )[0];
   const projectedBackup = relevant.quarterbacks.find(
     (candidate) => candidate.player.fullName !== primaryQuarterback?.player,
@@ -226,8 +257,11 @@ async function collectTeamInjuries(input: {
       );
       const isEstablishedStarter =
         candidate.player.fullName === primaryQuarterback?.player &&
-        (primaryQuarterback.attempts >= 15 ||
-          primaryQuarterback.averagePassingYards >= 100);
+        (primaryQuarterback.currentAttempts >= 15 ||
+          primaryQuarterback.previousAttempts >= 100 ||
+          primaryQuarterback.averagePassingYards >= 100 ||
+          primaryQuarterback.previousAveragePassingYards >= 100 ||
+          (candidate.profile.passing_yards ?? 0) >= 180);
       const profile =
         (candidate.profile.passing_yards ?? 0) >= 100
           ? candidate.profile
@@ -237,6 +271,7 @@ async function collectTeamInjuries(input: {
                 passing_yards: Math.max(
                   150,
                   usage?.averagePassingYards ?? 0,
+                  usage?.previousAveragePassingYards ?? 0,
                 ),
               }
             : candidate.profile;
@@ -250,11 +285,21 @@ async function collectTeamInjuries(input: {
         ),
       };
     }),
-    ...relevant.skill.map((candidate) => ({
-      ...candidate,
-      role: null,
-      impact: skillImpact(candidate.profile),
-    })),
+    ...relevant.skill.map((candidate) => {
+      const totalSkillVolume = relevant.skill.reduce(
+        (sum, row) => sum + skillVolume(row.profile),
+        0,
+      );
+      const share =
+        totalSkillVolume > 0
+          ? skillVolume(candidate.profile) / totalSkillVolume
+          : 0;
+      return {
+        ...candidate,
+        role: null,
+        impact: skillImpact(candidate.profile, share),
+      };
+    }),
   ].filter((candidate) => candidate.impact > 0);
 
   const availability = await Promise.all(
