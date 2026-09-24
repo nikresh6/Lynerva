@@ -130,6 +130,13 @@ async function loadSleeperPlayers() {
 }
 
 async function getSleeperPlayerInjury(subject: string) {
+  // Sleeper's all-NFL player endpoint is a very large JSON document. Parsing
+  // it inside the request-time market build can push the Next.js process over
+  // its V8 heap limit. ESPN and attributed injury news remain the primary
+  // request-time sources; Sleeper can be re-enabled explicitly after it is
+  // moved to a background ingestion job.
+  if (process.env.ENABLE_SLEEPER_INJURIES !== "true") return null;
+
   try {
     const player = (await loadSleeperPlayers()).get(normalizePerson(subject));
     if (!player) return null;
