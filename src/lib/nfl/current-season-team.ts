@@ -48,6 +48,9 @@ interface CompletedGame {
 type CsvRow = Record<string, string>;
 
 const CACHE_MS = 20 * 60_000;
+const FAILURE_BACKOFF_MS = 10 * 60_000;
+let seasonGamesRetryAfter = 0;
+let seasonGamesFailureLoggedAt = 0;
 const matchupCache = new Map<
   string,
   { storedAt: number; value: CurrentSeasonMatchupProjection | null }
@@ -110,6 +113,9 @@ function loadCompletedSeasonGames(season: number, currentWeek: number) {
   const key = `${season}:${currentWeek}`;
   const cached = seasonGamesCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.promise;
+  if (Date.now() < seasonGamesRetryAfter) {
+    return Promise.resolve([] as CompletedGame[]);
+  }
 
   const entry = {
     expiresAt: Date.now() + CACHE_MS,
@@ -126,7 +132,7 @@ function loadCompletedSeasonGames(season: number, currentWeek: number) {
         throw new Error(`nflverse games returned ${response.status}`);
       }
 
-      return parseCsv(await response.text()).flatMap((row) => {
+      const games = parseCsv(await response.text()).flatMap((row) => {
         if (
           Number(row.season) !== season ||
           row.game_type !== "REG" ||
@@ -161,14 +167,22 @@ function loadCompletedSeasonGames(season: number, currentWeek: number) {
           awayScore,
         }];
       });
-    })(),
+      seasonGamesRetryAfter = 0;
+      return games;
+    })().catch((error) => {
+      seasonGamesRetryAfter = Date.now() + FAILURE_BACKOFF_MS;
+      if (Date.now() - seasonGamesFailureLoggedAt > FAILURE_BACKOFF_MS) {
+        seasonGamesFailureLoggedAt = Date.now();
+        console.warn(
+          "Current-season team feed unavailable; using baseline game model until retry window.",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+      return [] as CompletedGame[];
+    }),
   };
 
   seasonGamesCache.set(key, entry);
-  entry.promise.catch(() => {
-    const current = seasonGamesCache.get(key);
-    if (current === entry) current.expiresAt = Date.now() + 30_000;
-  });
   return entry.promise;
 }
 
@@ -379,8 +393,7 @@ export async function getCurrentSeasonMatchupProjection(
 
     matchupCache.set(key, { storedAt: Date.now(), value });
     return value;
-  } catch (error) {
-    console.error("Current-season team projection unavailable", error);
+  } catch {
     matchupCache.set(key, { storedAt: Date.now(), value: null });
     return null;
   }
