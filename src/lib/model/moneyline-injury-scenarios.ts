@@ -6,6 +6,7 @@ export interface MoneylineInjuryInput {
   player: string;
   team: string;
   position: string;
+  role?: "starter" | "backup" | null;
   side: MoneylineInjurySide;
   status: string | null;
   playProbability: number;
@@ -18,6 +19,7 @@ export interface MoneylineInjuryScenario {
   player: string;
   team: string;
   position: string;
+  role?: "starter" | "backup" | null;
   side: MoneylineInjurySide;
   status: string | null;
   playProbabilityBps: number;
@@ -103,7 +105,15 @@ export function applyMoneylineInjuryScenarios(input: {
   for (const player of players) {
     const play = clamp(player.playProbability, 0, 1);
     const usage = clamp(player.expectedUsageIfActive, 0, 1);
-    const impact = clamp(player.impactPoints, 0, player.position === "QB" ? 6 : 2);
+    const impact = clamp(
+      player.impactPoints,
+      0,
+      player.position === "QB"
+        ? player.role === "starter"
+          ? 10.5
+          : 3
+        : 2,
+    );
     const direction = player.side === "subject" ? -1 : 1;
     const activeShift = direction * impact * (1 - usage);
     const inactiveShift = direction * impact;
@@ -124,6 +134,7 @@ export function applyMoneylineInjuryScenarios(input: {
       player: player.player,
       team: player.team,
       position: player.position,
+      role: player.role ?? null,
       side: player.side,
       status: player.status,
       playProbabilityBps: Math.round(play * 10_000),
@@ -141,18 +152,26 @@ export function applyMoneylineInjuryScenarios(input: {
   for (const player of players) {
     const play = clamp(player.playProbability, 0, 1);
     const usage = clamp(player.expectedUsageIfActive, 0, 1);
-    const impact = clamp(player.impactPoints, 0, player.position === "QB" ? 6 : 2);
+    const impact = clamp(
+      player.impactPoints,
+      0,
+      player.position === "QB"
+        ? player.role === "starter"
+          ? 10.5
+          : 3
+        : 2,
+    );
     const direction = player.side === "subject" ? -1 : 1;
     const activeShift = direction * impact * (1 - usage);
     const inactiveShift = direction * impact;
     states = states.flatMap((state) => [
       {
         probability: state.probability * play,
-        marginShift: clamp(state.marginShift + activeShift, -8, 8),
+        marginShift: clamp(state.marginShift + activeShift, -12, 12),
       },
       {
         probability: state.probability * (1 - play),
-        marginShift: clamp(state.marginShift + inactiveShift, -8, 8),
+        marginShift: clamp(state.marginShift + inactiveShift, -12, 12),
       },
     ]);
   }
