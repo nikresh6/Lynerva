@@ -38,7 +38,7 @@ const marketSchema = z
     mve_collection_ticker: z.string().nullish(),
     mve_selected_legs: z.array(z.unknown()).nullish(),
   })
-  .passthrough();
+  ;
 
 const marketsResponseSchema = z.object({
   markets: z.array(marketSchema),
