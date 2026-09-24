@@ -223,6 +223,23 @@ async function computeMarketOpportunities(
   const allProviderMarkets = coarseProviders.flatMap(
     (provider) => provider.markets,
   );
+  const diagnostic = {
+    rawProviderCounts: providers.map((provider) => ({
+      provider: provider.provider,
+      count: provider.markets.length,
+      error: provider.error,
+    })),
+    eligibleProviderCounts: coarseProviders.map((provider) => ({
+      provider: provider.provider,
+      count: provider.markets.length,
+    })),
+    providerMarkets: 0,
+    normalizedInitial: 0,
+    normalizedAfterScheduleFallback: 0,
+    executable: 0,
+    modeled: 0,
+    opportunities: 0,
+  };
   const normalizedMatchupFilter = matchupFilter
     ? matchupFilter
         .split(/[^A-Za-z]+/)
@@ -246,6 +263,8 @@ async function computeMarketOpportunities(
         return key === normalizedMatchupFilter;
       })
     : allProviderMarkets;
+
+  diagnostic.providerMarkets = providerMarkets.length;
 
   const marketGameDate = (market: ProviderMarket, fallback: string | null) => {
     const text = `${market.platformMarketId} ${market.eventTitle}`.toUpperCase();
@@ -361,6 +380,7 @@ async function computeMarketOpportunities(
   };
 
   let normalized = normalizeWithSchedule(null);
+  diagnostic.normalizedInitial = normalized.length;
 
   const completeMoneylinePairs = (items: NormalizedItem[]) => {
     const byMatchup = new Map<string, NormalizedItem[]>();
@@ -444,6 +464,8 @@ async function computeMarketOpportunities(
     }
   }
 
+  diagnostic.normalizedAfterScheduleFallback = normalized.length;
+
   const executableNormalized = normalized.filter(
     (item) =>
       (item.market.yesAskBps ?? 0) > 0 ||
@@ -453,7 +475,9 @@ async function computeMarketOpportunities(
   // nominal second team outcome with no book while the opponent's NO side is
   // fully tradable. Treat that real NO book as the missing team's executable
   // moneyline rather than silently dropping one side of the game.
+  diagnostic.executable = executableNormalized.length;
   const modeled = completeMoneylinePairs(executableNormalized);
+  diagnostic.modeled = modeled.length;
   const accepted = new Set(
     modeled.map((item) => marketKey(item.market)),
   );
@@ -687,6 +711,9 @@ async function computeMarketOpportunities(
       };
     },
   );
+
+  diagnostic.opportunities = opportunities.length;
+  console.info("[markets-diagnostic]", JSON.stringify(diagnostic));
 
   return {
     opportunities,
