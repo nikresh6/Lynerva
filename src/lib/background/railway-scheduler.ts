@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getMarketOpportunities } from "@/lib/markets/service";
+import { getFreshMarketOpportunities } from "@/lib/markets/service";
 import { persistMarkets } from "@/lib/markets/persist";
 import { ingestNflverseSeason } from "@/lib/nfl/nflverse";
 import { getLiveNflGames } from "@/lib/nfl/live";
@@ -52,7 +52,7 @@ async function persistCurrentMarkets() {
   logJob("markets", "started");
 
   try {
-    const payload = await getMarketOpportunities();
+    const payload = await getFreshMarketOpportunities();
     const stored = await persistMarkets(payload);
     await lockEligibleScorecards();
     logJob("markets", "completed", {
