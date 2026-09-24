@@ -28,7 +28,7 @@ async function stableId(prefix: string, value: string) {
   return `${prefix}_${hex.slice(0, 24)}`;
 }
 
-const MODEL_ID = "model_hybrid_consensus_learning_v5";
+const MODEL_ID = "model_hybrid_consensus_learning_v6";
 
 export async function persistMarkets(payload: MarketsPayload) {
   const db = getDb();
@@ -66,7 +66,7 @@ export async function persistMarkets(payload: MarketsPayload) {
     .values({
       id: MODEL_ID,
       name: "Huddlemark hybrid player prop model",
-      version: "hybrid-consensus-learning-v17",
+      version: "hybrid-consensus-learning-v18",
       family: "player_props",
       coefficients: {
         consensusWeightEarly: 1,
@@ -76,14 +76,14 @@ export async function persistMarkets(payload: MarketsPayload) {
         sourceLearningMinSamples: 20,
         sourceLearningMaxWeight: 0.75,
         activeProjectionSources: 8,
-        moneylineInjuryScenarioCapPoints: 8,
+        moneylineInjuryScenarioCapPoints: 12,
         moneylineInjuryReliabilityPenaltyMax: 0.18,
         moneylineScoringPriorWeight: 0.5,
         moneylineRecordPriorWeight: 0.15,
         moneylineEspnPriorWeight: 0.35,
       },
       calibrationNotes:
-        "Independent projection ensemble with stat-specific source weights learned from settled player outcomes, plus game/weather context. Pregame moneylines apply conservative roster-availability scenarios to the internal scoring source and learn bounded future-week source weights from frozen Brier grades. ESPN remains raw and betting prices never enter model probability.",
+        "Independent projection ensemble with stat-specific source weights learned from settled player outcomes, plus game/weather context. Pregame moneylines apply role-aware roster-availability scenarios, with established QB1 replacement value and offensive-usage importance separated from backup and rotational-player risk, and learn bounded future-week source weights from frozen Brier grades. ESPN remains raw and betting prices never enter model probability.",
       active: true,
     })
     .onConflictDoNothing({ target: modelVersions.id });
