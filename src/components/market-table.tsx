@@ -867,7 +867,7 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
               <div className="mt-2 space-y-1.5">
                 {injuryScenarios.map((scenario) => (
                   <p key={`${scenario.team}:${scenario.player}`} className="text-[9px] leading-4 text-faint">
-                    <strong className="text-foreground">{scenario.player}</strong> <span className="text-accent">{scenario.team}</span> · {(scenario.playProbabilityBps / 100).toFixed(0)}% to play · {formatPercent(pickFacingBps(scenario.activeWinProbabilityBps, market.recommendedSide))} if active / {formatPercent(pickFacingBps(scenario.inactiveWinProbabilityBps, market.recommendedSide))} if out
+                    <strong className="text-foreground">{scenario.player}</strong> <span className="text-accent">{scenario.team}</span>{scenario.position === "QB" ? <span className="ml-1 text-faint">· {scenario.role === "starter" ? "QB1" : "QB depth"}</span> : null} · {(scenario.playProbabilityBps / 100).toFixed(0)}% to play · {formatPercent(pickFacingBps(scenario.activeWinProbabilityBps, market.recommendedSide))} if active / {formatPercent(pickFacingBps(scenario.inactiveWinProbabilityBps, market.recommendedSide))} if out
                   </p>
                 ))}
               </div>
