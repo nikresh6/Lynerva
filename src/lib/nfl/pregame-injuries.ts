@@ -138,6 +138,13 @@ function espnLeagueInjuryName(player: EspnLeagueInjuryItem) {
   );
 }
 
+function statusLikeInjuryValue(value: string | null | undefined) {
+  if (!value) return false;
+  return /^(?:active|healthy|available|injury_status_[a-z_]+|questionable|doubtful|out|probable|inactive)$/i.test(
+    value.trim(),
+  );
+}
+
 async function loadEspnLeagueInjuries() {
   if (
     espnLeagueInjuryCache &&
@@ -193,9 +200,22 @@ async function getEspnLeaguePlayerInjury(subject: string) {
   if (!injury) return null;
 
   const status = injury.status ?? injury.type?.description ?? null;
-  const detail = injury.details?.detail ?? injury.detail ?? null;
-  const bodyPart = injury.details?.type ?? injury.type?.name ?? null;
-  if (!status && !detail && !bodyPart) return null;
+  const rawDetail = injury.details?.detail ?? injury.detail ?? null;
+  const rawBodyPart = injury.details?.type ?? injury.type?.name ?? null;
+  const detail =
+    rawDetail && !statusLikeInjuryValue(rawDetail) ? rawDetail : null;
+  const bodyPart =
+    rawBodyPart && !statusLikeInjuryValue(rawBodyPart) ? rawBodyPart : null;
+
+  // ESPN can include healthy roster entries in this endpoint with values such
+  // as "Active" and "INJURY_STATUS_ACTIVE". Those are roster-state
+  // boilerplate, not evidence of an injury, and must not create a fake 92%
+  // availability estimate.
+  const healthyOnly =
+    Boolean(status && /^(?:active|healthy|available|injury_status_active)$/i.test(status.trim())) &&
+    !detail &&
+    !bodyPart;
+  if (healthyOnly || (!status && !detail && !bodyPart)) return null;
 
   return {
     status,
