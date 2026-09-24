@@ -9,6 +9,7 @@ function quarterback(
     player: "Generic Starting QB",
     team: "CHI",
     position: "QB",
+    role: "starter" as const,
     side: "subject" as const,
     status: "Questionable",
     playProbability: 0.5,
@@ -47,6 +48,40 @@ describe("moneyline injury scenarios", () => {
     );
     expect(Math.round(result.adjustedProbability * 10_000)).toBe(
       result.scenarios[0]?.inactiveWinProbabilityBps,
+    );
+  });
+
+  it("B2: an established QB1 matters far more than an injured backup", () => {
+    const starter = applyMoneylineInjuryScenarios({
+      baselineMargin: 2.7,
+      marginStdDev: 12,
+      players: [
+        quarterback({
+          player: "Established QB1",
+          role: "starter",
+          playProbability: 0,
+          impactPoints: 9,
+        }),
+      ],
+    });
+    const backup = applyMoneylineInjuryScenarios({
+      baselineMargin: 2.7,
+      marginStdDev: 12,
+      players: [
+        quarterback({
+          player: "Backup QB",
+          role: "backup",
+          playProbability: 0,
+          impactPoints: 2,
+        }),
+      ],
+    });
+
+    expect(starter.baselineProbability).toBeGreaterThan(0.58);
+    expect(starter.adjustedProbability).toBeLessThan(0.35);
+    expect(backup.adjustedProbability).toBeGreaterThan(0.5);
+    expect(starter.adjustedProbability).toBeLessThan(
+      backup.adjustedProbability - 0.15,
     );
   });
 
