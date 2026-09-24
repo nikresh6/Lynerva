@@ -693,7 +693,27 @@ export async function getMarketOpportunities(): Promise<MarketsPayload> {
     return warmSnapshot.payload;
   }
 
-  return refreshSnapshot();
+  // A cold model build can take several seconds because it may need external
+  // projection, injury, and schedule data. Start that work once, but do not
+  // make every browser request wait indefinitely for it. If the first build
+  // misses the fast-response budget, return an empty transient snapshot and
+  // let the in-flight refresh populate the process cache for the next request.
+  // The client retries, so cards appear as soon as the warm snapshot exists
+  // instead of aborting the request at the browser timeout.
+  const coldRefresh = refreshSnapshot();
+  const fastFallback = new Promise<MarketsPayload>((resolve) => {
+    const timer = setTimeout(() => {
+      resolve({
+        opportunities: [],
+        providers: [],
+        fetchedAt: new Date().toISOString(),
+        fixtureMode: false,
+      });
+    }, 2_500);
+    timer.unref?.();
+  });
+
+  return Promise.race([coldRefresh, fastFallback]);
 }
 
 export async function getFreshMarketOpportunities() {
