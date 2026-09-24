@@ -61,6 +61,28 @@ const modelSnapshotCache = new Map<
   }
 >();
 
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (!items.length) return [];
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const runners = Array.from(
+    { length: Math.min(Math.max(1, limit), items.length) },
+    async () => {
+      while (true) {
+        const index = nextIndex++;
+        if (index >= items.length) return;
+        results[index] = await worker(items[index]!, index);
+      }
+    },
+  );
+  await Promise.all(runners);
+  return results;
+}
+
 function scheduleGameFromEspn(game: LiveNflGame): NflScheduleGame | null {
   if (game.seasonType !== 2 || !game.seasonYear) return null;
   const kickoff = new Date(game.startsAt);
@@ -444,8 +466,14 @@ async function computeMarketOpportunities(
 
   const raw = modeled.map((item) => item.market);
 
-  const models = await Promise.all(
-    modeled.map(async (item) => {
+  // Do not launch every prop model at once. A full NFL slate can contain
+  // hundreds of contracts, and request-time injury/projection enrichment can
+  // otherwise create enough simultaneous fetch/JSON work to exhaust the V8
+  // heap and restart the Railway process.
+  const models = await mapWithConcurrency(
+    modeled,
+    12,
+    async (item) => {
       const liveKey =
         item.liveGame?.state === "in"
           ? `:${item.liveGame.period}:${item.liveGame.clock}:${item.liveGame.home.score}:${item.liveGame.away.score}`
@@ -476,7 +504,7 @@ async function computeMarketOpportunities(
       );
       modelSnapshotCache.set(key, { estimate, storedAt: Date.now() });
       return estimate;
-    }),
+    },
   );
 
   const groups = new Map<string, number[]>();
