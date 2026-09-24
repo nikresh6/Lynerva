@@ -11,7 +11,7 @@ import {
   type NflScheduleGame,
 } from "@/lib/nfl/schedule-match";
 import { marketFixtures } from "./fixtures";
-import { isSingleLegNflProviderMarket } from "./eligibility";
+import { isPricedOpportunity, isSingleLegNflProviderMarket } from "./eligibility";
 import {
   canonicalKeyWithoutRules,
   normalizeMarket,
@@ -239,6 +239,8 @@ async function computeMarketOpportunities(
     executable: 0,
     modeled: 0,
     opportunities: 0,
+    rated: 0,
+    priced: 0,
   };
   const normalizedMatchupFilter = matchupFilter
     ? matchupFilter
@@ -713,6 +715,10 @@ async function computeMarketOpportunities(
   );
 
   diagnostic.opportunities = opportunities.length;
+  diagnostic.rated = opportunities.filter(
+    (market) => market.model.probabilityBps !== null,
+  ).length;
+  diagnostic.priced = opportunities.filter(isPricedOpportunity).length;
   console.info("[markets-diagnostic]", JSON.stringify(diagnostic));
 
   return {
