@@ -5,6 +5,35 @@ import {
 } from "./injury-availability";
 
 describe("pregame injury availability", () => {
+  it("ignores healthy active roster boilerplate", () => {
+    expect(
+      estimateInjuryAvailability({
+        status: "Active",
+        bodyPart: "INJURY_STATUS_ACTIVE",
+        sources: ["ESPN Injury Report"],
+      }),
+    ).toBeNull();
+
+    expect(
+      estimateInjuryAvailability({
+        status: "INJURY_STATUS_ACTIVE",
+        sources: ["ESPN Injury Report"],
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps a real injury even if ESPN also labels the roster slot active", () => {
+    const estimate = estimateInjuryAvailability({
+      status: "Active",
+      bodyPart: "Hamstring",
+      detail: "Limited in practice with hamstring soreness",
+      sources: ["ESPN Injury Report"],
+    });
+
+    expect(estimate).not.toBeNull();
+    expect(estimate!.playProbability).toBeLessThan(0.95);
+  });
+
   it("heavily discounts a questionable game-time decision who missed practice", () => {
     const estimate = estimateInjuryAvailability({
       status: "Questionable",
