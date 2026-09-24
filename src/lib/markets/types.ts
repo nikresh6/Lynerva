@@ -129,6 +129,7 @@ export interface ModelEstimate {
       player: string;
       team: string;
       position: string;
+      role?: "starter" | "backup" | null;
       side: "subject" | "opponent";
       status: string | null;
       playProbabilityBps: number;
