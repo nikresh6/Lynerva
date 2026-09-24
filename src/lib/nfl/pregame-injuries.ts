@@ -30,6 +30,7 @@ const sleeperPlayersSchema = z.record(z.string(), sleeperPlayerSchema);
 type SleeperPlayer = z.infer<typeof sleeperPlayerSchema>;
 
 const SLEEPER_TTL_MS = 6 * 60 * 60_000;
+const SLEEPER_RETRY_BACKOFF_MS = 10 * 60_000;
 const AVAILABILITY_TTL_MS = 90_000;
 let sleeperCache:
   | {
@@ -38,6 +39,8 @@ let sleeperCache:
     }
   | null = null;
 let sleeperInflight: Promise<Map<string, SleeperPlayer>> | null = null;
+let sleeperRetryAfter = 0;
+let sleeperFailureLoggedAt = 0;
 const availabilityCache = new Map<
   string,
   {
@@ -68,6 +71,9 @@ async function loadSleeperPlayers() {
     return sleeperCache.byName;
   }
   if (sleeperInflight) return sleeperInflight;
+  if (Date.now() < sleeperRetryAfter) {
+    return sleeperCache?.byName ?? new Map<string, SleeperPlayer>();
+  }
 
   sleeperInflight = (async () => {
     const response = await fetch(
@@ -102,10 +108,23 @@ async function loadSleeperPlayers() {
     }
 
     sleeperCache = { storedAt: Date.now(), byName };
+    sleeperRetryAfter = 0;
     return byName;
-  })().finally(() => {
-    sleeperInflight = null;
-  });
+  })()
+    .catch((error) => {
+      sleeperRetryAfter = Date.now() + SLEEPER_RETRY_BACKOFF_MS;
+      if (Date.now() - sleeperFailureLoggedAt > SLEEPER_RETRY_BACKOFF_MS) {
+        sleeperFailureLoggedAt = Date.now();
+        console.warn(
+          "Sleeper injury feed unavailable; using ESPN/news only until retry window.",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+      return sleeperCache?.byName ?? new Map<string, SleeperPlayer>();
+    })
+    .finally(() => {
+      sleeperInflight = null;
+    });
 
   return sleeperInflight;
 }
@@ -131,8 +150,10 @@ async function getSleeperPlayerInjury(subject: string) {
       practiceParticipation: player.practice_participation ?? null,
       practiceDescription: player.practice_description ?? null,
     };
-  } catch (error) {
-    console.error("Sleeper injury data unavailable for " + subject, error);
+  } catch {
+    // Sleeper is optional enrichment. The shared loader handles backoff and
+    // rate-limited logging, so a provider outage must never spam one error per
+    // player or block the prop board.
     return null;
   }
 }
