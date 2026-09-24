@@ -112,7 +112,7 @@ export function applyMoneylineInjuryScenarios(input: {
         ? player.role === "starter"
           ? 10.5
           : 3
-        : 2,
+        : 2.5,
     );
     const direction = player.side === "subject" ? -1 : 1;
     const activeShift = direction * impact * (1 - usage);
@@ -159,7 +159,7 @@ export function applyMoneylineInjuryScenarios(input: {
         ? player.role === "starter"
           ? 10.5
           : 3
-        : 2,
+        : 2.5,
     );
     const direction = player.side === "subject" ? -1 : 1;
     const activeShift = direction * impact * (1 - usage);
