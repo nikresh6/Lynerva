@@ -61,16 +61,35 @@ function normalizedText(signals: InjuryAvailabilitySignals) {
     .toLowerCase();
 }
 
-function hasMeaningfulSignal(signals: InjuryAvailabilitySignals) {
-  return Boolean(
-    signals.status ||
-      signals.detail ||
-      signals.bodyPart ||
-      signals.notes ||
-      signals.practiceParticipation ||
-      signals.practiceDescription ||
-      signals.news,
+function healthyBoilerplate(value: string | null | undefined) {
+  if (!value) return true;
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return (
+    normalized === "" ||
+    normalized === "active" ||
+    normalized === "healthy" ||
+    normalized === "available" ||
+    normalized === "injury_status_active" ||
+    normalized === "no_injury" ||
+    normalized === "none"
   );
+}
+
+function hasMeaningfulSignal(signals: InjuryAvailabilitySignals) {
+  const values = [
+    signals.status,
+    signals.detail,
+    signals.bodyPart,
+    signals.notes,
+    signals.practiceParticipation,
+    signals.practiceDescription,
+    signals.news,
+  ];
+  return values.some((value) => !healthyBoilerplate(value));
 }
 
 export function estimateInjuryAvailability(
