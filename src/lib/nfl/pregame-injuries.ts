@@ -29,8 +29,62 @@ const sleeperPlayersSchema = z.record(z.string(), sleeperPlayerSchema);
 
 type SleeperPlayer = z.infer<typeof sleeperPlayerSchema>;
 
+const espnLeagueInjuryItemSchema = z
+  .object({
+    athlete: z
+      .object({
+        fullName: z.string().optional(),
+        displayName: z.string().optional(),
+        shortName: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
+    status: z.string().optional(),
+    detail: z.string().optional(),
+    type: z
+      .object({
+        name: z.string().optional(),
+        description: z.string().optional(),
+        abbreviation: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
+    details: z
+      .object({
+        type: z.string().optional(),
+        detail: z.string().optional(),
+        returnDate: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
+
+const espnLeagueInjurySchema = z
+  .object({
+    injuries: z
+      .array(
+        z
+          .object({
+            team: z
+              .object({
+                abbreviation: z.string().optional(),
+              })
+              .passthrough()
+              .optional(),
+            injuries: z.array(espnLeagueInjuryItemSchema).default([]),
+          })
+          .passthrough(),
+      )
+      .default([]),
+  })
+  .passthrough();
+
+type EspnLeagueInjuryItem = z.infer<typeof espnLeagueInjuryItemSchema>;
+
 const SLEEPER_TTL_MS = 6 * 60 * 60_000;
 const SLEEPER_RETRY_BACKOFF_MS = 10 * 60_000;
+const ESPN_INJURY_TTL_MS = 60_000;
 const AVAILABILITY_TTL_MS = 90_000;
 let sleeperCache:
   | {
@@ -41,6 +95,15 @@ let sleeperCache:
 let sleeperInflight: Promise<Map<string, SleeperPlayer>> | null = null;
 let sleeperRetryAfter = 0;
 let sleeperFailureLoggedAt = 0;
+let espnLeagueInjuryCache:
+  | {
+      storedAt: number;
+      byName: Map<string, EspnLeagueInjuryItem>;
+    }
+  | null = null;
+let espnLeagueInjuryInflight:
+  | Promise<Map<string, EspnLeagueInjuryItem>>
+  | null = null;
 const availabilityCache = new Map<
   string,
   {
@@ -64,6 +127,81 @@ function sleeperName(player: SleeperPlayer) {
     player.full_name ??
     [player.first_name, player.last_name].filter(Boolean).join(" ")
   );
+}
+
+function espnLeagueInjuryName(player: EspnLeagueInjuryItem) {
+  return (
+    player.athlete?.fullName ??
+    player.athlete?.displayName ??
+    player.athlete?.shortName ??
+    ""
+  );
+}
+
+async function loadEspnLeagueInjuries() {
+  if (
+    espnLeagueInjuryCache &&
+    Date.now() - espnLeagueInjuryCache.storedAt < ESPN_INJURY_TTL_MS
+  ) {
+    return espnLeagueInjuryCache.byName;
+  }
+  if (espnLeagueInjuryInflight) return espnLeagueInjuryInflight;
+
+  espnLeagueInjuryInflight = (async () => {
+    const response = await fetch(
+      "https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries",
+      {
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "Huddlemark/1.0 injury-report",
+        },
+        signal: AbortSignal.timeout(2_500),
+      },
+    );
+    if (!response.ok) {
+      throw new Error("ESPN league injury report returned " + response.status);
+    }
+
+    const parsed = espnLeagueInjurySchema.safeParse(await response.json());
+    if (!parsed.success) {
+      throw new Error("ESPN league injury report response shape changed");
+    }
+
+    const byName = new Map<string, EspnLeagueInjuryItem>();
+    for (const group of parsed.data.injuries) {
+      for (const injury of group.injuries) {
+        const name = normalizePerson(espnLeagueInjuryName(injury));
+        if (!name) continue;
+        byName.set(name, injury);
+      }
+    }
+
+    espnLeagueInjuryCache = { storedAt: Date.now(), byName };
+    return byName;
+  })()
+    .catch(() => espnLeagueInjuryCache?.byName ?? new Map<string, EspnLeagueInjuryItem>())
+    .finally(() => {
+      espnLeagueInjuryInflight = null;
+    });
+
+  return espnLeagueInjuryInflight;
+}
+
+async function getEspnLeaguePlayerInjury(subject: string) {
+  const injury = (await loadEspnLeagueInjuries()).get(normalizePerson(subject));
+  if (!injury) return null;
+
+  const status = injury.status ?? injury.type?.description ?? null;
+  const detail = injury.details?.detail ?? injury.detail ?? null;
+  const bodyPart = injury.details?.type ?? injury.type?.name ?? null;
+  if (!status && !detail && !bodyPart) return null;
+
+  return {
+    status,
+    detail,
+    bodyPart,
+  };
 }
 
 async function loadSleeperPlayers() {
@@ -176,26 +314,43 @@ async function computePregamePlayerAvailability(input: {
   subject: string;
   espnGameId?: string | null;
 }): Promise<PregamePlayerAvailability | null> {
-  const [espn, sleeper, news] = await Promise.all([
+  const [espnGame, espnLeague, sleeper, news] = await Promise.all([
     input.espnGameId
       ? getEspnPlayerInjuryState(input.espnGameId, input.subject)
       : Promise.resolve(null),
+    getEspnLeaguePlayerInjury(input.subject).catch(() => null),
     getSleeperPlayerInjury(input.subject),
     getInjuryNewsSignal(input.subject).catch(() => null),
   ]);
 
-  if (!espn && !sleeper && !news) return null;
+  if (!espnGame && !espnLeague && !sleeper && !news) return null;
 
   const sources = [
-    ...(espn ? ["ESPN"] : []),
+    ...(espnLeague ? ["ESPN Injury Report"] : []),
+    ...(espnGame ? ["ESPN Game"] : []),
     ...(sleeper ? ["Sleeper"] : []),
     ...(news?.sources ?? []),
   ];
 
+  // Prefer ESPN's league-wide injury report because it is tied to the current
+  // week and does not depend on whether the upcoming game summary has already
+  // populated its injury block. The game summary remains a useful secondary
+  // source for detail/body-part context.
   const estimate = estimateInjuryAvailability({
-    status: espn?.status ?? sleeper?.status ?? null,
-    detail: espn?.detail ?? null,
-    bodyPart: espn?.bodyPart ?? sleeper?.bodyPart ?? null,
+    status:
+      espnLeague?.status ??
+      espnGame?.status ??
+      sleeper?.status ??
+      null,
+    detail:
+      espnLeague?.detail ??
+      espnGame?.detail ??
+      null,
+    bodyPart:
+      espnLeague?.bodyPart ??
+      espnGame?.bodyPart ??
+      sleeper?.bodyPart ??
+      null,
     notes: sleeper?.notes ?? null,
     practiceParticipation: sleeper?.practiceParticipation ?? null,
     practiceDescription: sleeper?.practiceDescription ?? null,
@@ -207,7 +362,7 @@ async function computePregamePlayerAvailability(input: {
 
   return {
     ...estimate,
-    espnStatus: espn?.status ?? null,
+    espnStatus: espnLeague?.status ?? espnGame?.status ?? null,
     sleeperStatus: sleeper?.status ?? null,
     newsPublishedAt: news?.publishedAt ?? null,
     newsText: news?.text ?? null,
