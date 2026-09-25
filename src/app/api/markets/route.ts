@@ -156,6 +156,7 @@ export async function GET(request: Request) {
         // let an edge cache keep serving a pre-news model after the server has
         // already recomputed it.
         "Cache-Control": "no-store, max-age=0",
+        ETag: etag,
       },
     },
   );
