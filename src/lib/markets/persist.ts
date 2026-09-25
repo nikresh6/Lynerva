@@ -36,7 +36,7 @@ async function forEachChunk<T>(
 const MODEL_ID = "model_hybrid_consensus_learning_v6";
 const WRITE_CHUNK_SIZE = 50;
 const PROJECTION_TOUCH_CHUNK_SIZE = 400;
-const RECENT_ROW_LIMIT = 20_000;
+const RECENT_ROW_LIMIT = 10_000;
 
 export async function persistMarkets(payload: MarketsPayload) {
   const db = getDb();
@@ -45,6 +45,17 @@ export async function persistMarkets(payload: MarketsPayload) {
   let snapshotsStored = 0;
   let predictionsStored = 0;
   let sourceProjectionsStored = 0;
+
+  const startMemory = process.memoryUsage();
+  console.info(
+    "[market-memory]",
+    JSON.stringify({
+      stage: "persist-start",
+      heapUsedMb: Math.round(startMemory.heapUsed / 1024 / 1024),
+      rssMb: Math.round(startMemory.rss / 1024 / 1024),
+      opportunities: payload.opportunities.length,
+    }),
+  );
 
   // Keep persistence reads narrow. Pulling the JSON features column for every
   // recent prediction was forcing libSQL to parse a large amount of JSON while
