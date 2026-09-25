@@ -129,7 +129,7 @@ function pruneStoredCache<T extends { storedAt: number }>(
 }
 
 function capProjectionObservationCache() {
-  while (projectionObservationCache.size > 12_000) {
+  while (projectionObservationCache.size > 4_000) {
     const oldestKey = projectionObservationCache.keys().next().value as
       | string
       | undefined;
@@ -226,7 +226,7 @@ function fetchText(url: string) {
   const cached = pageCache.get(url);
   if (cached && cached.expiresAt > Date.now()) return cached.promise;
   if (cached) pageCache.delete(url);
-  pruneExpiringCache(pageCache, 256);
+  pruneExpiringCache(pageCache, 32);
 
   const entry = {
     expiresAt: Date.now() + PAGE_TTL_MS,
@@ -257,7 +257,7 @@ function fetchJson(
   const cached = jsonCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.promise;
   if (cached) jsonCache.delete(key);
-  pruneExpiringCache(jsonCache, 48);
+  pruneExpiringCache(jsonCache, 16);
 
   const entry = {
     expiresAt: Date.now() + PAGE_TTL_MS,
@@ -323,8 +323,8 @@ function cachedSource(
   const cached = sourceCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.promise;
   if (cached) sourceCache.delete(key);
-  pruneExpiringCache(sourceCache, 64);
-  pruneStoredCache(lastGoodSourceCache, SOURCE_LAST_GOOD_TTL_MS, 64);
+  pruneExpiringCache(sourceCache, 24);
+  pruneStoredCache(lastGoodSourceCache, SOURCE_LAST_GOOD_TTL_MS, 24);
 
   const load = async () => {
     const previous = lastGoodSourceCache.get(key);
@@ -1709,7 +1709,7 @@ export function getExternalProjectionConsensus(
   const cached = consensusCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.promise;
   if (cached) consensusCache.delete(key);
-  pruneExpiringCache(consensusCache, 4_000);
+  pruneExpiringCache(consensusCache, 250);
 
   const promise = buildConsensus(market, season, resolvedWeek);
   consensusCache.set(key, {
