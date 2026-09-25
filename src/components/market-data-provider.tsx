@@ -239,14 +239,19 @@ function annotateMovements(
 }
 
 function writeStored(payload: MarketClientPayload) {
-  try {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ ...payload, storedAt: Date.now() }),
-    );
-  } catch {
-    // Storage is only an acceleration layer.
-  }
+  // Serializing several thousand markets is useful for instant navigation, but
+  // doing it synchronously right after a network response can block the main
+  // thread on mobile. Let React paint first, then persist the same snapshot.
+  window.setTimeout(() => {
+    try {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ ...payload, storedAt: Date.now() }),
+      );
+    } catch {
+      // Storage is only an acceleration layer.
+    }
+  }, 0);
 }
 
 export function MarketDataProvider({
@@ -274,6 +279,7 @@ export function MarketDataProvider({
   const [error, setError] = useState<string | null>(null);
   const inflight = useRef<Promise<void> | null>(null);
   const lastSuccessfulRefreshAt = useRef(0);
+  const lastEtagRef = useRef<string | null>(null);
   const warmRetryCount = useRef(0);
 
   const refresh = async () => {
@@ -286,17 +292,31 @@ export function MarketDataProvider({
         const timeout = window.setTimeout(() => controller.abort(), 12_000);
         let response: Response;
         try {
-          response = await fetch("/api/markets", {
-            cache: "no-store",
-            headers: { Accept: "application/json" },
-            signal: controller.signal,
-          });
+          const headers: Record<string, string> = { Accept: "application/json" };
+          if (lastEtagRef.current) {
+            headers["If-None-Match"] = lastEtagRef.current;
+          }
+          response = await fetch(
+            pathname.startsWith("/live") ? "/api/markets?live=1" : "/api/markets",
+            {
+              cache: "no-store",
+              headers,
+              signal: controller.signal,
+            },
+          );
         } finally {
           window.clearTimeout(timeout);
+        }
+
+        if (response.status === 304) {
+          lastSuccessfulRefreshAt.current = Date.now();
+          setError(null);
+          return;
         }
         if (!response.ok) {
           throw new Error(`Market feed returned ${response.status}`);
         }
+        lastEtagRef.current = response.headers.get("etag");
         const payload = (await response.json()) as MarketClientPayload;
 
         // The server can intentionally return a zero/zero transient snapshot

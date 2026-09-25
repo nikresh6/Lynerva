@@ -102,8 +102,24 @@ function expandOverUnderSides(market: MarketOpportunity) {
     .filter((row): row is MarketOpportunity => row !== null);
 }
 
-export async function GET() {
-  const payload = await getMarketOpportunities();
+export async function GET(request: Request) {
+  const live = new URL(request.url).searchParams.get("live") === "1";
+  // Pregame pages can rely on the five-minute background model refresh. Live
+  // pages keep a much tighter refresh budget for score and pace context.
+  const payload = await getMarketOpportunities(live ? 30_000 : 5 * 60_000);
+  const etag = `W/"markets-${payload.fetchedAt}"`;
+
+  if (request.headers.get("if-none-match") === etag) {
+    return new Response(null, {
+      status: 304,
+      headers: {
+        ETag: etag,
+        "Cache-Control": "no-store, max-age=0",
+        ETag: etag,
+      },
+    });
+  }
+
   const rated = payload.opportunities.filter(
     (market) => market.model.probabilityBps !== null,
   );
