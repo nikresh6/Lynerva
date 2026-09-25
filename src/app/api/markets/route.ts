@@ -115,7 +115,6 @@ export async function GET(request: Request) {
       headers: {
         ETag: etag,
         "Cache-Control": "no-store, max-age=0",
-        ETag: etag,
       },
     });
   }
