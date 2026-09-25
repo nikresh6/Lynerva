@@ -292,12 +292,12 @@ export function MarketDataProvider({
         const timeout = window.setTimeout(() => controller.abort(), 12_000);
         let response: Response;
         try {
-          const headers: HeadersInit = { Accept: "application/json" };
+          const headers: Record<string, string> = { Accept: "application/json" };
           if (lastEtagRef.current) {
             headers["If-None-Match"] = lastEtagRef.current;
           }
           response = await fetch(
-            pathname === "/live" ? "/api/markets?live=1" : "/api/markets",
+            pathname.startsWith("/live") ? "/api/markets?live=1" : "/api/markets",
             {
               cache: "no-store",
               headers,
