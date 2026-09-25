@@ -61,6 +61,39 @@ const modelSnapshotCache = new Map<
   }
 >();
 
+const MODEL_SNAPSHOT_CACHE_MAX = 5_000;
+const MODEL_SNAPSHOT_CACHE_MAX_AGE_MS = 10 * 60_000;
+const MATCHUP_SNAPSHOT_CACHE_MAX = 24;
+const MATCHUP_SNAPSHOT_CACHE_MAX_AGE_MS = 10 * 60_000;
+
+function pruneModelSnapshotCache(now = Date.now()) {
+  for (const [key, entry] of modelSnapshotCache) {
+    if (now - entry.storedAt > MODEL_SNAPSHOT_CACHE_MAX_AGE_MS) {
+      modelSnapshotCache.delete(key);
+    }
+  }
+
+  if (modelSnapshotCache.size <= MODEL_SNAPSHOT_CACHE_MAX) return;
+  const oldest = [...modelSnapshotCache.entries()]
+    .sort((first, second) => first[1].storedAt - second[1].storedAt)
+    .slice(0, modelSnapshotCache.size - MODEL_SNAPSHOT_CACHE_MAX);
+  for (const [key] of oldest) modelSnapshotCache.delete(key);
+}
+
+function pruneMatchupSnapshots(now = Date.now()) {
+  for (const [key, entry] of matchupSnapshots) {
+    if (now - entry.storedAt > MATCHUP_SNAPSHOT_CACHE_MAX_AGE_MS) {
+      matchupSnapshots.delete(key);
+    }
+  }
+
+  if (matchupSnapshots.size <= MATCHUP_SNAPSHOT_CACHE_MAX) return;
+  const oldest = [...matchupSnapshots.entries()]
+    .sort((first, second) => first[1].storedAt - second[1].storedAt)
+    .slice(0, matchupSnapshots.size - MATCHUP_SNAPSHOT_CACHE_MAX);
+  for (const [key] of oldest) matchupSnapshots.delete(key);
+}
+
 async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
@@ -192,6 +225,11 @@ function bestExecutableSide(input: {
 async function computeMarketOpportunities(
   matchupFilter?: string,
 ): Promise<MarketsPayload> {
+  // Live market keys include clock and score state. Without eviction, every
+  // live refresh leaves a new model estimate resident forever.
+  pruneModelSnapshotCache();
+  pruneMatchupSnapshots();
+
   const fixtureMode =
     process.env.NODE_ENV !== "production" &&
     process.env.USE_MARKET_FIXTURES === "true";
@@ -533,6 +571,8 @@ async function computeMarketOpportunities(
     },
   );
 
+  pruneModelSnapshotCache();
+
   const groups = new Map<string, number[]>();
   modeled.forEach((item, index) => {
     const key = canonicalKeyWithoutRules(item.canonical);
@@ -743,9 +783,11 @@ async function refreshSnapshot() {
   return refreshPromise;
 }
 
-export async function getMarketOpportunities(): Promise<MarketsPayload> {
+export async function getMarketOpportunities(
+  maxAgeMs = 45_000,
+): Promise<MarketsPayload> {
   const now = Date.now();
-  if (warmSnapshot && now - warmSnapshot.storedAt < 45_000) {
+  if (warmSnapshot && now - warmSnapshot.storedAt < maxAgeMs) {
     return warmSnapshot.payload;
   }
 
@@ -812,6 +854,7 @@ async function refreshMatchupSnapshot(matchup: string) {
 
   const promise = computeMarketOpportunities(matchup)
     .then((payload) => {
+      pruneMatchupSnapshots();
       matchupSnapshots.set(matchup, { payload, storedAt: Date.now() });
       return payload;
     })
