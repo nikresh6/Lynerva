@@ -222,6 +222,35 @@ function quantile(sorted: number[], q: number) {
   return (sorted[lower] ?? 0) * (1 - fraction) + (sorted[upper] ?? 0) * fraction;
 }
 
+function activeSlateWeek(
+  games: Array<{
+    week: number | null;
+    status: string;
+    kickoffAt: Date;
+  }>,
+) {
+  // The Sources page should follow the actual NFL slate, not whichever source
+  // happens to have written the numerically largest week. Some providers post
+  // future-week rows early, which previously made the dashboard jump ahead and
+  // made every current-week source look like it was not reporting.
+  const pendingWeeks = games
+    .filter(
+      (game) =>
+        game.week !== null &&
+        game.week > 0 &&
+        !/final/i.test(game.status),
+    )
+    .map((game) => game.week as number);
+
+  if (pendingWeeks.length) return Math.min(...pendingWeeks);
+
+  const completedWeeks = games
+    .filter((game) => game.week !== null && game.week > 0)
+    .map((game) => game.week as number);
+
+  return completedWeeks.length ? Math.max(...completedWeeks) : null;
+}
+
 export async function getProjectionSourcePerformance(season = 2026) {
   try {
     await Promise.all([
@@ -237,6 +266,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
       latestProjectionRows,
       latestGradeRows,
       moneylineWeightRows,
+      seasonGameRows,
     ] = await Promise.all([
       db
         .select({
@@ -300,9 +330,30 @@ export async function getProjectionSourcePerformance(season = 2026) {
         .from(moneylineSourceWeightHistory)
         .where(eq(moneylineSourceWeightHistory.season, season))
         .orderBy(desc(moneylineSourceWeightHistory.effectiveWeek)),
+      db
+        .select({
+          week: nflGames.week,
+          homeTeam: nflGames.homeTeam,
+          awayTeam: nflGames.awayTeam,
+          homeScore: nflGames.homeScore,
+          awayScore: nflGames.awayScore,
+          status: nflGames.status,
+          kickoffAt: nflGames.kickoffAt,
+          updatedAt: nflGames.updatedAt,
+        })
+        .from(nflGames)
+        .where(
+          and(
+            eq(nflGames.season, season),
+            eq(nflGames.seasonType, "REG"),
+          ),
+        ),
     ]);
 
-    const coverageWeek = latestProjectionWeekRows[0]?.week ?? null;
+    const coverageWeek =
+      activeSlateWeek(seasonGameRows) ??
+      latestProjectionWeekRows[0]?.week ??
+      null;
     const coverageRows =
       coverageWeek === null
         ? []
@@ -501,38 +552,18 @@ export async function getProjectionSourcePerformance(season = 2026) {
       };
     });
 
-    const [moneylinePredictionRows, seasonGameRows] = await Promise.all([
-      db
-        .select({
-          features: predictions.features,
-          predictedAt: predictions.predictedAt,
-        })
-        .from(predictions)
-        .innerJoin(
-          normalizedMarkets,
-          eq(normalizedMarkets.id, predictions.normalizedMarketId),
-        )
-        .where(eq(normalizedMarkets.family, "moneyline"))
-        .orderBy(desc(predictions.predictedAt)),
-      db
-        .select({
-          week: nflGames.week,
-          homeTeam: nflGames.homeTeam,
-          awayTeam: nflGames.awayTeam,
-          homeScore: nflGames.homeScore,
-          awayScore: nflGames.awayScore,
-          status: nflGames.status,
-          kickoffAt: nflGames.kickoffAt,
-          updatedAt: nflGames.updatedAt,
-        })
-        .from(nflGames)
-        .where(
-          and(
-            eq(nflGames.season, season),
-            eq(nflGames.seasonType, "REG"),
-          ),
-        ),
-    ]);
+    const moneylinePredictionRows = await db
+      .select({
+        features: predictions.features,
+        predictedAt: predictions.predictedAt,
+      })
+      .from(predictions)
+      .innerJoin(
+        normalizedMarkets,
+        eq(normalizedMarkets.id, predictions.normalizedMarketId),
+      )
+      .where(eq(normalizedMarkets.family, "moneyline"))
+      .orderBy(desc(predictions.predictedAt));
 
     const finalGames = new Map<
       string,
