@@ -97,6 +97,47 @@ const projectionObservationCache = new Map<
   }
 >();
 
+function pruneExpiringCache<T extends { expiresAt: number }>(
+  cache: Map<string, T>,
+  maxEntries: number,
+) {
+  const now = Date.now();
+  for (const [key, entry] of cache) {
+    if (entry.expiresAt <= now) cache.delete(key);
+  }
+  while (cache.size > maxEntries) {
+    const oldestKey = cache.keys().next().value as string | undefined;
+    if (!oldestKey) break;
+    cache.delete(oldestKey);
+  }
+}
+
+function pruneStoredCache<T extends { storedAt: number }>(
+  cache: Map<string, T>,
+  maxAgeMs: number,
+  maxEntries: number,
+) {
+  const now = Date.now();
+  for (const [key, entry] of cache) {
+    if (now - entry.storedAt > maxAgeMs) cache.delete(key);
+  }
+  while (cache.size > maxEntries) {
+    const oldestKey = cache.keys().next().value as string | undefined;
+    if (!oldestKey) break;
+    cache.delete(oldestKey);
+  }
+}
+
+function capProjectionObservationCache() {
+  while (projectionObservationCache.size > 12_000) {
+    const oldestKey = projectionObservationCache.keys().next().value as
+      | string
+      | undefined;
+    if (!oldestKey) break;
+    projectionObservationCache.delete(oldestKey);
+  }
+}
+
 function observeProjectionPoint(input: {
   source: ProjectionSource;
   subject: string;
@@ -132,6 +173,7 @@ function observeProjectionPoint(input: {
         value: input.value,
       };
   projectionObservationCache.set(key, observation);
+  capProjectionObservationCache();
 
   return {
     source: input.source,
@@ -183,6 +225,8 @@ function rowsFromHtml(html: string) {
 function fetchText(url: string) {
   const cached = pageCache.get(url);
   if (cached && cached.expiresAt > Date.now()) return cached.promise;
+  if (cached) pageCache.delete(url);
+  pruneExpiringCache(pageCache, 256);
 
   const entry = {
     expiresAt: Date.now() + PAGE_TTL_MS,
@@ -212,6 +256,8 @@ function fetchJson(
 ) {
   const cached = jsonCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.promise;
+  if (cached) jsonCache.delete(key);
+  pruneExpiringCache(jsonCache, 48);
 
   const entry = {
     expiresAt: Date.now() + PAGE_TTL_MS,
@@ -276,6 +322,9 @@ function cachedSource(
   const key = `${source}:${season}:${week}`;
   const cached = sourceCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.promise;
+  if (cached) sourceCache.delete(key);
+  pruneExpiringCache(sourceCache, 64);
+  pruneStoredCache(lastGoodSourceCache, SOURCE_LAST_GOOD_TTL_MS, 64);
 
   const load = async () => {
     const previous = lastGoodSourceCache.get(key);
@@ -1659,6 +1708,8 @@ export function getExternalProjectionConsensus(
 
   const cached = consensusCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.promise;
+  if (cached) consensusCache.delete(key);
+  pruneExpiringCache(consensusCache, 4_000);
 
   const promise = buildConsensus(market, season, resolvedWeek);
   consensusCache.set(key, {
