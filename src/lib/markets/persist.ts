@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   marketEvents,
@@ -35,8 +35,64 @@ async function forEachChunk<T>(
 
 const MODEL_ID = "model_hybrid_consensus_learning_v6";
 const WRITE_CHUNK_SIZE = 50;
-const PROJECTION_TOUCH_CHUNK_SIZE = 400;
 const RECENT_ROW_LIMIT = 10_000;
+const SNAPSHOT_MAX_AGE_MS = 2 * 60 * 60_000;
+const PREDICTION_MAX_AGE_MS = 60 * 60_000;
+const PRIORITY_PREDICTION_MAX_AGE_MS = 5 * 60_000;
+const PRIORITY_PREDICTION_COUNT = 200;
+
+type PredictionState = {
+  predictedProbabilityBps: number;
+  executablePriceBps: number;
+  predictedAt: Date;
+};
+
+type SnapshotState = {
+  yesAskBps: number | null;
+  capturedAt: Date;
+};
+
+const predictionStateByListing = new Map<string, PredictionState>();
+const snapshotStateByListing = new Map<string, SnapshotState>();
+const projectionValueById = new Map<string, number | null>();
+const loadedProjectionWindows = new Set<string>();
+const eventSignatureById = new Map<string, string>();
+const normalizedSignatureById = new Map<string, string>();
+const listingSignatureById = new Map<string, string>();
+
+let persistenceIndexesPromise: Promise<void> | null = null;
+
+function ensurePersistenceIndexes() {
+  if (persistenceIndexesPromise) return persistenceIndexesPromise;
+  const db = getDb();
+  persistenceIndexesPromise = Promise.all([
+    db.run(
+      sql.raw(
+        "CREATE INDEX IF NOT EXISTS predictions_time_idx ON predictions (predicted_at)",
+      ),
+    ),
+    db.run(
+      sql.raw(
+        "CREATE INDEX IF NOT EXISTS predictions_listing_time_idx ON predictions (listing_id, predicted_at)",
+      ),
+    ),
+    db.run(
+      sql.raw(
+        "CREATE INDEX IF NOT EXISTS price_snapshot_time_idx ON market_price_snapshots (captured_at)",
+      ),
+    ),
+  ])
+    .then(() => undefined)
+    .catch((error) => {
+      persistenceIndexesPromise = null;
+      throw error;
+    });
+  return persistenceIndexesPromise;
+}
+
+function stateSignature(parts: unknown[]) {
+  return JSON.stringify(parts);
+}
 
 export async function persistMarkets(payload: MarketsPayload) {
   const db = getDb();
@@ -57,64 +113,33 @@ export async function persistMarkets(payload: MarketsPayload) {
     }),
   );
 
-  // Keep persistence reads narrow. Pulling the JSON features column for every
-  // recent prediction was forcing libSQL to parse a large amount of JSON while
-  // the full market model was already resident in memory.
-  const recentPredictions = await db
-    .select({
-      listingId: predictions.listingId,
-      predictedProbabilityBps: predictions.predictedProbabilityBps,
-      executablePriceBps: predictions.executablePriceBps,
-      predictedAt: predictions.predictedAt,
-    })
-    .from(predictions)
-    .where(
-      gte(
-        predictions.predictedAt,
-        new Date(now.getTime() - 2 * 60 * 60_000),
+  // The Railway service has one long-lived replica. Keep hot quote/prediction
+  // state in memory instead of re-scanning large Turso tables every five
+  // minutes. A process restart simply causes one fresh persistence pass.
+  await ensurePersistenceIndexes();
+
+  const priorityPredictionListingIds = new Set(
+    payload.opportunities
+      .filter(
+        (opportunity) =>
+          !opportunity.isLive &&
+          opportunity.model.probabilityBps !== null &&
+          opportunity.executablePriceBps !== null &&
+          opportunity.edgeBps !== null,
+      )
+      .toSorted(
+        (first, second) =>
+          (second.lynervaScore ?? second.opportunityScore ?? -Infinity) -
+          (first.lynervaScore ?? first.opportunityScore ?? -Infinity),
+      )
+      .slice(0, PRIORITY_PREDICTION_COUNT)
+      .map((opportunity) =>
+        stableId(
+          "listing",
+          `${opportunity.platform}:${opportunity.platformMarketId}:${opportunity.platformOutcomeId ?? "yes"}`,
+        ),
       ),
-    )
-    .orderBy(desc(predictions.predictedAt))
-    .limit(RECENT_ROW_LIMIT);
-
-  const latestPredictionByListing = new Map<
-    string,
-    (typeof recentPredictions)[number]
-  >();
-  for (const prediction of recentPredictions) {
-    if (!latestPredictionByListing.has(prediction.listingId)) {
-      latestPredictionByListing.set(prediction.listingId, prediction);
-    }
-  }
-
-  // Read the latest five-minute snapshot window once instead of issuing one
-  // SELECT per market. If a listing is absent here, it is old enough to need a
-  // new snapshot anyway.
-  const recentSnapshots = await db
-    .select({
-      listingId: marketPriceSnapshots.listingId,
-      yesAskBps: marketPriceSnapshots.yesAskBps,
-      capturedAt: marketPriceSnapshots.capturedAt,
-    })
-    .from(marketPriceSnapshots)
-    .where(
-      gte(
-        marketPriceSnapshots.capturedAt,
-        new Date(now.getTime() - 5 * 60_000),
-      ),
-    )
-    .orderBy(desc(marketPriceSnapshots.capturedAt))
-    .limit(RECENT_ROW_LIMIT);
-
-  const latestSnapshotByListing = new Map<
-    string,
-    (typeof recentSnapshots)[number]
-  >();
-  for (const snapshot of recentSnapshots) {
-    if (!latestSnapshotByListing.has(snapshot.listingId)) {
-      latestSnapshotByListing.set(snapshot.listingId, snapshot);
-    }
-  }
+  );
 
   await db
     .insert(modelVersions)
@@ -243,11 +268,9 @@ export async function persistMarkets(payload: MarketsPayload) {
   // values use the normal upsert. Unchanged observations only need a cheap
   // batched timestamp/count touch, preserving source freshness without 8k+
   // individual upserts every five minutes.
-  const existingProjectionById = new Map<
-    string,
-    { latestProjectedValue: number | null }
-  >();
   for (const { season, week } of projectionWindows.values()) {
+    const windowKey = `${season}:${week}`;
+    if (loadedProjectionWindows.has(windowKey)) continue;
     const existing = await db
       .select({
         id: sourceProjections.id,
@@ -262,24 +285,20 @@ export async function persistMarkets(payload: MarketsPayload) {
       )
       .limit(RECENT_ROW_LIMIT);
     for (const row of existing) {
-      existingProjectionById.set(row.id, {
-        latestProjectedValue: row.latestProjectedValue,
-      });
+      projectionValueById.set(row.id, row.latestProjectedValue);
     }
+    loadedProjectionWindows.add(windowKey);
   }
 
   const projectionRowsToUpsert = [];
-  const unchangedProjectionIds: string[] = [];
   for (const row of projectionRows) {
-    const existing = existingProjectionById.get(row.id);
+    const existingValue = projectionValueById.get(row.id);
     if (
-      !existing ||
-      existing.latestProjectedValue === null ||
-      Math.abs(existing.latestProjectedValue - row.latestProjectedValue) >= 0.001
+      existingValue === undefined ||
+      existingValue === null ||
+      Math.abs(existingValue - row.latestProjectedValue) >= 0.001
     ) {
       projectionRowsToUpsert.push(row);
-    } else {
-      unchangedProjectionIds.push(row.id);
     }
   }
 
@@ -296,23 +315,15 @@ export async function persistMarkets(payload: MarketsPayload) {
           updatedAt: now,
         },
       });
+    for (const row of chunk) {
+      projectionValueById.set(row.id, row.latestProjectedValue);
+    }
   });
 
-  await forEachChunk(
-    unchangedProjectionIds,
-    PROJECTION_TOUCH_CHUNK_SIZE,
-    async (ids) => {
-      await db
-        .update(sourceProjections)
-        .set({
-          latestCapturedAt: now,
-          observationCount: sql`${sourceProjections.observationCount} + 1`,
-          updatedAt: now,
-        })
-        .where(inArray(sourceProjections.id, ids));
-    },
-  );
-  sourceProjectionsStored = projectionRows.length;
+  // Unchanged projection rows are intentionally not touched. Updating thousands
+  // of identical rows every five minutes was consuming the Turso write quota
+  // without adding information.
+  sourceProjectionsStored = projectionRowsToUpsert.length;
 
   for (const provider of payload.providers) {
     await db
@@ -418,10 +429,18 @@ export async function persistMarkets(payload: MarketsPayload) {
     }
 
     const events = [...eventRows.values()];
-    if (events.length) {
+    const eventsToWrite = events.filter((row) => {
+      const signature = stateSignature([
+        row.title,
+        row.startsAt?.toISOString() ?? null,
+        row.status,
+      ]);
+      return eventSignatureById.get(row.id) !== signature;
+    });
+    if (eventsToWrite.length) {
       await db
         .insert(marketEvents)
-        .values(events)
+        .values(eventsToWrite)
         .onConflictDoUpdate({
           target: marketEvents.id,
           set: {
@@ -431,12 +450,34 @@ export async function persistMarkets(payload: MarketsPayload) {
             updatedAt: now,
           },
         });
+      for (const row of eventsToWrite) {
+        eventSignatureById.set(
+          row.id,
+          stateSignature([
+            row.title,
+            row.startsAt?.toISOString() ?? null,
+            row.status,
+          ]),
+        );
+      }
     }
 
-    if (normalizedRows.length) {
+    const normalizedRowsToWrite = normalizedRows.filter((row) => {
+      const signature = stateSignature([
+        row.eventId,
+        row.family,
+        row.statistic,
+        row.direction,
+        row.threshold,
+        row.outcomeLabel,
+        row.settlementAt?.toISOString() ?? null,
+      ]);
+      return normalizedSignatureById.get(row.id) !== signature;
+    });
+    if (normalizedRowsToWrite.length) {
       await db
         .insert(normalizedMarkets)
-        .values(normalizedRows)
+        .values(normalizedRowsToWrite)
         .onConflictDoUpdate({
           target: normalizedMarkets.id,
           set: {
@@ -450,12 +491,47 @@ export async function persistMarkets(payload: MarketsPayload) {
             updatedAt: now,
           },
         });
+      for (const row of normalizedRowsToWrite) {
+        normalizedSignatureById.set(
+          row.id,
+          stateSignature([
+            row.eventId,
+            row.family,
+            row.statistic,
+            row.direction,
+            row.threshold,
+            row.outcomeLabel,
+            row.settlementAt?.toISOString() ?? null,
+          ]),
+        );
+      }
     }
 
-    if (listingRows.length) {
+    const listingRowsToWrite = listingRows.filter((row) => {
+      const signature = stateSignature([
+        row.normalizedMarketId,
+        row.eventTitle,
+        row.marketTitle,
+        row.outcomeLabel,
+        row.resolutionRules,
+        row.status,
+        row.isLive,
+        row.yesBidBps,
+        row.yesAskBps,
+        row.noBidBps,
+        row.noAskBps,
+        row.lastPriceBps,
+        row.liquidityCents,
+        row.volumeCents,
+        row.closesAt?.toISOString() ?? null,
+        row.sourceUpdatedAt.toISOString(),
+      ]);
+      return listingSignatureById.get(row.id) !== signature;
+    });
+    if (listingRowsToWrite.length) {
       await db
         .insert(marketListings)
-        .values(listingRows)
+        .values(listingRowsToWrite)
         .onConflictDoUpdate({
           target: marketListings.id,
           set: {
@@ -479,20 +555,43 @@ export async function persistMarkets(payload: MarketsPayload) {
             updatedAt: now,
           },
         });
-      listingsStored += listingRows.length;
+      listingsStored += listingRowsToWrite.length;
+      for (const row of listingRowsToWrite) {
+        listingSignatureById.set(
+          row.id,
+          stateSignature([
+            row.normalizedMarketId,
+            row.eventTitle,
+            row.marketTitle,
+            row.outcomeLabel,
+            row.resolutionRules,
+            row.status,
+            row.isLive,
+            row.yesBidBps,
+            row.yesAskBps,
+            row.noBidBps,
+            row.noAskBps,
+            row.lastPriceBps,
+            row.liquidityCents,
+            row.volumeCents,
+            row.closesAt?.toISOString() ?? null,
+            row.sourceUpdatedAt.toISOString(),
+          ]),
+        );
+      }
     }
 
     const snapshotRows = [];
     const predictionRows = [];
 
     for (const { opportunity, normalizedId, listingId } of prepared) {
-      const latestSnapshot = latestSnapshotByListing.get(listingId);
+      const latestSnapshot = snapshotStateByListing.get(listingId);
       const snapshotChanged =
         !latestSnapshot ||
         Math.abs(
           (latestSnapshot.yesAskBps ?? 0) - (opportunity.yesAskBps ?? 0),
         ) >= 100 ||
-        now.getTime() - latestSnapshot.capturedAt.getTime() >= 5 * 60_000;
+        now.getTime() - latestSnapshot.capturedAt.getTime() >= SNAPSHOT_MAX_AGE_MS;
 
       if (snapshotChanged) {
         snapshotRows.push({
@@ -506,11 +605,6 @@ export async function persistMarkets(payload: MarketsPayload) {
           liquidityCents: opportunity.liquidityCents,
           volumeCents: opportunity.volumeCents,
         });
-        latestSnapshotByListing.set(listingId, {
-          listingId,
-          yesAskBps: opportunity.yesAskBps,
-          capturedAt: now,
-        });
       }
 
       if (
@@ -522,7 +616,7 @@ export async function persistMarkets(payload: MarketsPayload) {
         continue;
       }
 
-      const latestPrediction = latestPredictionByListing.get(listingId);
+      const latestPrediction = predictionStateByListing.get(listingId);
       const recommendedProbabilityBps =
         opportunity.recommendedProbabilityBps ??
         opportunity.model.probabilityBps;
@@ -537,7 +631,9 @@ export async function persistMarkets(payload: MarketsPayload) {
             opportunity.executablePriceBps,
         ) >= 100 ||
         now.getTime() - latestPrediction.predictedAt.getTime() >=
-          2 * 60 * 60_000;
+          (priorityPredictionListingIds.has(listingId)
+            ? PRIORITY_PREDICTION_MAX_AGE_MS
+            : PREDICTION_MAX_AGE_MS);
 
       if (!predictionChanged) continue;
 
@@ -616,22 +712,29 @@ export async function persistMarkets(payload: MarketsPayload) {
         predictedAt: now,
       });
 
-      latestPredictionByListing.set(listingId, {
-        listingId,
-        predictedProbabilityBps: recommendedProbabilityBps,
-        executablePriceBps: opportunity.executablePriceBps,
-        predictedAt: now,
-      });
     }
 
     if (snapshotRows.length) {
       await db.insert(marketPriceSnapshots).values(snapshotRows);
       snapshotsStored += snapshotRows.length;
+      for (const row of snapshotRows) {
+        snapshotStateByListing.set(row.listingId, {
+          yesAskBps: row.yesAskBps,
+          capturedAt: row.capturedAt,
+        });
+      }
     }
 
     if (predictionRows.length) {
       await db.insert(predictions).values(predictionRows);
       predictionsStored += predictionRows.length;
+      for (const row of predictionRows) {
+        predictionStateByListing.set(row.listingId, {
+          predictedProbabilityBps: row.predictedProbabilityBps,
+          executablePriceBps: row.executablePriceBps,
+          predictedAt: row.predictedAt,
+        });
+      }
     }
   }
 
