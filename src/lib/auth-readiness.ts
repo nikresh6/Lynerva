@@ -5,16 +5,20 @@ import { createClient } from "@libsql/client";
 let readiness: Promise<void> | null = null;
 
 async function prepareAuthDatabase() {
-  const url = process.env.TURSO_DATABASE_URL;
+  const url =
+    process.env.HUDDLEMARK_DATABASE_URL ??
+    process.env.TURSO_DATABASE_URL;
   if (!url) {
     throw new Error(
-      "TURSO_DATABASE_URL is required for Huddlemark account authentication.",
+      "HUDDLEMARK_DATABASE_URL or TURSO_DATABASE_URL is required for Huddlemark account authentication.",
     );
   }
 
   const client = createClient({
     url,
-    authToken: process.env.TURSO_AUTH_TOKEN,
+    ...(url.startsWith("file:")
+      ? {}
+      : { authToken: process.env.TURSO_AUTH_TOKEN }),
   });
 
   try {
