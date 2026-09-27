@@ -43,6 +43,13 @@
       "when": 1790183226005,
       "tag": "0005_milky_karnak",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790477000000,
+      "tag": "0006_turso_hot_indexes",
+      "breakpoints": true
     }
   ]
 }
