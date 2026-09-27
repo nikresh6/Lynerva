@@ -3,20 +3,30 @@ import { drizzle } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
 
 async function main() {
-  const url = process.env.TURSO_DATABASE_URL;
+  const url =
+    process.env.HUDDLEMARK_DATABASE_URL ??
+    process.env.TURSO_DATABASE_URL;
   if (!url) {
-    throw new Error("TURSO_DATABASE_URL is required");
+    throw new Error(
+      "HUDDLEMARK_DATABASE_URL or TURSO_DATABASE_URL is required",
+    );
   }
 
   const client = createClient({
     url,
-    authToken: process.env.TURSO_AUTH_TOKEN,
+    ...(url.startsWith("file:")
+      ? {}
+      : { authToken: process.env.TURSO_AUTH_TOKEN }),
   });
 
   try {
     const db = drizzle(client);
     await migrate(db, { migrationsFolder: "./drizzle" });
-    console.log("Database migrations applied.");
+    console.log(
+      url.startsWith("file:")
+        ? "Database migrations applied to persistent local libSQL."
+        : "Database migrations applied.",
+    );
   } catch (error) {
     const messages = [];
     const seen = new Set();
