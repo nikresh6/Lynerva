@@ -14,7 +14,7 @@ Huddlemark is an NFL prediction-market research app. It normalizes live contract
 - Source accuracy, freshness, and learned influence by player-stat category
 - Manual realized P/L overrides for straights, parlays, pushes, and cashouts
 - Email/password accounts and a private, server-authorized position tracker
-- Turso/libSQL persistence through Drizzle ORM
+- libSQL persistence through Drizzle ORM, with Turso or a persistent local SQLite volume
 - Current nflverse schedule and weekly player-stat ingestion
 - Open-Meteo weather adapter and ESPN live-game adapter
 - Resend password-reset email support
@@ -38,7 +38,8 @@ Open [http://localhost:3000](http://localhost:3000). Live provider data is used 
 
 | Variable | Purpose |
 | --- | --- |
-| `TURSO_DATABASE_URL` | Turso libSQL database URL |
+| `HUDDLEMARK_DATABASE_URL` | Optional primary libSQL override, for example `file:/data/huddlemark.db` on a Railway volume |
+| `TURSO_DATABASE_URL` | Turso libSQL database URL, used when no primary override is configured |
 | `TURSO_AUTH_TOKEN` | Turso database auth token |
 | `RESEND_API_KEY` | Resend key used for password resets |
 | `EMAIL_FROM` | Verified Resend sender, such as `Huddlemark <account@example.com>` |
@@ -89,6 +90,6 @@ npm run build
 
 ## Deployment
 
-Deploy the GitHub `main` branch to Railway, add every runtime variable from `.env.example`, and set `BETTER_AUTH_URL=https://lynerva-production.up.railway.app` until the Railway domain is renamed. Railway also exposes `RAILWAY_PUBLIC_DOMAIN`, which Huddlemark trusts automatically. The production start command applies pending Drizzle migrations before Next.js starts. Public market pages can build without database secrets, but authentication, the private tracker, historical ingestion, and model persistence require `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `BETTER_AUTH_SECRET` at runtime.
+Deploy the GitHub `main` branch to Railway, add every runtime variable from `.env.example`, and set `BETTER_AUTH_URL=https://lynerva-production.up.railway.app` until the Railway domain is renamed. Railway also exposes `RAILWAY_PUBLIC_DOMAIN`, which Huddlemark trusts automatically. The production start command applies pending Drizzle migrations before Next.js starts. Public market pages can build without database secrets. Authentication, the private tracker, historical ingestion, and model persistence require either `HUDDLEMARK_DATABASE_URL` or `TURSO_DATABASE_URL`, plus `BETTER_AUTH_SECRET`. `TURSO_AUTH_TOKEN` is required only when the active database URL is remote Turso/libSQL.
 
 Huddlemark is a research tool, not financial advice. It does not place trades or hold funds.
