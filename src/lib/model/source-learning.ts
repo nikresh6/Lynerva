@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   nflGames,
@@ -116,12 +116,9 @@ export function ensureSourceLearningSchema() {
     await addProjectionColumn(
       "ALTER TABLE source_projections ADD COLUMN observation_count integer DEFAULT 1 NOT NULL",
     );
-    await db.run(sql.raw(`
-      UPDATE source_projections
-      SET latest_projected_value = COALESCE(latest_projected_value, projected_value),
-          latest_captured_at = COALESCE(latest_captured_at, captured_at)
-      WHERE latest_projected_value IS NULL OR latest_captured_at IS NULL
-    `));
+    // Do not run data backfills from application startup. The previous
+    // startup UPDATE scanned/touched the whole projection table on every cold
+    // process and could consume a large share of the hosted database quota.
     await db.run(sql.raw(`
       CREATE UNIQUE INDEX IF NOT EXISTS source_projection_unique
       ON source_projections (season, week, player_key, statistic, source)
@@ -294,50 +291,59 @@ function actualForStatistic(
 async function gradeNewSourceProjections(season: number) {
   const db = getDb();
 
-  const [ungraded, actualRows] = await Promise.all([
-    db
-      .select({
-        id: sourceProjections.id,
-        week: sourceProjections.week,
-        playerKey: sourceProjections.playerKey,
-        statistic: sourceProjections.statistic,
-        projectedValue: sourceProjections.projectedValue,
-      })
-      .from(sourceProjections)
-      .leftJoin(
-        sourceProjectionGrades,
-        eq(sourceProjectionGrades.projectionId, sourceProjections.id),
-      )
-      .where(
-        and(
-          eq(sourceProjections.season, season),
-          isNull(sourceProjectionGrades.projectionId),
-        ),
+  const actualRows = await db
+    .select({
+      playerName: nflPlayers.fullName,
+      week: nflGames.week,
+      passingYards: playerGameStats.passingYards,
+      passingTouchdowns: playerGameStats.passingTouchdowns,
+      passingInterceptions: playerGameStats.passingInterceptions,
+      rushingYards: playerGameStats.rushingYards,
+      rushingTouchdowns: playerGameStats.rushingTouchdowns,
+      receivingYards: playerGameStats.receivingYards,
+      receptions: playerGameStats.receptions,
+      receivingTouchdowns: playerGameStats.receivingTouchdowns,
+    })
+    .from(playerGameStats)
+    .innerJoin(nflPlayers, eq(nflPlayers.id, playerGameStats.playerId))
+    .innerJoin(nflGames, eq(nflGames.id, playerGameStats.gameId))
+    .where(
+      and(
+        eq(nflGames.season, season),
+        eq(nflGames.seasonType, "REG"),
+        eq(nflGames.status, "final"),
       ),
-    db
-      .select({
-        playerName: nflPlayers.fullName,
-        week: nflGames.week,
-        passingYards: playerGameStats.passingYards,
-        passingTouchdowns: playerGameStats.passingTouchdowns,
-        passingInterceptions: playerGameStats.passingInterceptions,
-        rushingYards: playerGameStats.rushingYards,
-        rushingTouchdowns: playerGameStats.rushingTouchdowns,
-        receivingYards: playerGameStats.receivingYards,
-        receptions: playerGameStats.receptions,
-        receivingTouchdowns: playerGameStats.receivingTouchdowns,
-      })
-      .from(playerGameStats)
-      .innerJoin(nflPlayers, eq(nflPlayers.id, playerGameStats.playerId))
-      .innerJoin(nflGames, eq(nflGames.id, playerGameStats.gameId))
-      .where(
-        and(
-          eq(nflGames.season, season),
-          eq(nflGames.seasonType, "REG"),
-          eq(nflGames.status, "final"),
-        ),
+    );
+
+  const finalWeeks = [
+    ...new Set(
+      actualRows
+        .map((row) => row.week)
+        .filter((week): week is number => week !== null),
+    ),
+  ];
+  if (!finalWeeks.length) return 0;
+
+  const ungraded = await db
+    .select({
+      id: sourceProjections.id,
+      week: sourceProjections.week,
+      playerKey: sourceProjections.playerKey,
+      statistic: sourceProjections.statistic,
+      projectedValue: sourceProjections.projectedValue,
+    })
+    .from(sourceProjections)
+    .leftJoin(
+      sourceProjectionGrades,
+      eq(sourceProjectionGrades.projectionId, sourceProjections.id),
+    )
+    .where(
+      and(
+        eq(sourceProjections.season, season),
+        inArray(sourceProjections.week, finalWeeks),
+        isNull(sourceProjectionGrades.projectionId),
       ),
-  ]);
+    );
 
   const actualByKey = new Map<string, typeof actualRows[number]>();
   for (const row of actualRows) {
@@ -419,6 +425,10 @@ async function gradeSourceProjectionsFromActualRows(
     .where(
       and(
         eq(sourceProjections.season, season),
+        inArray(
+          sourceProjections.week,
+          [...new Set(actualRows.map((row) => row.week))],
+        ),
         isNull(sourceProjectionGrades.projectionId),
       ),
     );
@@ -474,6 +484,13 @@ export async function runSourceLearningFromActuals(
       season,
       actualRows,
     );
+    if (!graded) {
+      return {
+        graded: 0,
+        effectiveWeek: null,
+        weightsStored: 0,
+      };
+    }
     const weights = await recomputeSourceWeights(season);
     return {
       graded,
@@ -568,6 +585,13 @@ export async function runSourceLearningLoop(season: number) {
   try {
     await ensureSourceLearningSchema();
     const graded = await gradeNewSourceProjections(season);
+    if (!graded) {
+      return {
+        graded: 0,
+        effectiveWeek: null,
+        weightsStored: 0,
+      };
+    }
     const weights = await recomputeSourceWeights(season);
     return {
       graded,

@@ -17,6 +17,28 @@ async function main() {
     const db = drizzle(client);
     await migrate(db, { migrationsFolder: "./drizzle" });
     console.log("Database migrations applied.");
+  } catch (error) {
+    const messages = [];
+    const seen = new Set();
+    let current = error;
+    while (current && !seen.has(current)) {
+      seen.add(current);
+      if (current instanceof Error) {
+        messages.push(current.message);
+        current = current.cause;
+      } else {
+        messages.push(String(current));
+        break;
+      }
+    }
+    const message = messages.join(" ");
+    if (/BLOCKED|reads are blocked|writes are blocked/i.test(message)) {
+      console.warn(
+        "Database quota is currently blocking SQL. Starting the app without applying pending migrations.",
+      );
+      return;
+    }
+    throw error;
   } finally {
     client.close();
   }

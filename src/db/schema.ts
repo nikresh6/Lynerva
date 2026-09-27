@@ -360,6 +360,7 @@ export const predictions = sqliteTable(
       table.normalizedMarketId,
       table.predictedAt,
     ),
+    index("predictions_time_idx").on(table.predictedAt),
     index("predictions_ranking_idx").on(
       table.opportunityScore,
       table.predictedAt,

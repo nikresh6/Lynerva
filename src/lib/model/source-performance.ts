@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, count, desc, eq, max } from "drizzle-orm";
+import { and, count, desc, eq, gte, max } from "drizzle-orm";
 import { getDb } from "@/db";
 import { clamp } from "@/lib/utils";
 import {
@@ -12,8 +12,6 @@ import {
   sourceProjections,
   sourceWeightHistory,
 } from "@/db/schema";
-import { ensureSourceLearningSchema } from "./source-learning";
-import { ensureMoneylineLearningSchema } from "./moneyline-learning";
 import { ACTIVE_PROJECTION_SOURCES } from "./source-weighting";
 import {
   MONEYLINE_WEIGHT_PRIORS,
@@ -253,10 +251,6 @@ function activeSlateWeek(
 
 export async function getProjectionSourcePerformance(season = 2026) {
   try {
-    await Promise.all([
-      ensureSourceLearningSchema(),
-      ensureMoneylineLearningSchema(),
-    ]);
     const db = getDb();
 
     const [
@@ -552,6 +546,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
       };
     });
 
+    const seasonPredictionStart = new Date(Date.UTC(season, 7, 1));
     const moneylinePredictionRows = await db
       .select({
         features: predictions.features,
@@ -562,8 +557,14 @@ export async function getProjectionSourcePerformance(season = 2026) {
         normalizedMarkets,
         eq(normalizedMarkets.id, predictions.normalizedMarketId),
       )
-      .where(eq(normalizedMarkets.family, "moneyline"))
-      .orderBy(desc(predictions.predictedAt));
+      .where(
+        and(
+          eq(normalizedMarkets.family, "moneyline"),
+          gte(predictions.predictedAt, seasonPredictionStart),
+        ),
+      )
+      .orderBy(desc(predictions.predictedAt))
+      .limit(25_000);
 
     const finalGames = new Map<
       string,
