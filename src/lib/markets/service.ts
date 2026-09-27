@@ -61,7 +61,7 @@ const modelSnapshotCache = new Map<
   }
 >();
 
-const MODEL_SNAPSHOT_CACHE_MAX = 250;
+const MODEL_SNAPSHOT_CACHE_MAX = 160;
 const MODEL_SNAPSHOT_CACHE_MAX_AGE_MS = 2 * 60_000;
 const MATCHUP_SNAPSHOT_CACHE_MAX = 24;
 const MATCHUP_SNAPSHOT_CACHE_MAX_AGE_MS = 10 * 60_000;
@@ -536,7 +536,7 @@ async function computeMarketOpportunities(
   // heap and restart the Railway process.
   const models = await mapWithConcurrency(
     modeled,
-    12,
+    8,
     async (item) => {
       const liveKey =
         item.liveGame?.state === "in"
