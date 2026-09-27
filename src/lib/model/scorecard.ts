@@ -207,11 +207,16 @@ export async function lockEligibleScorecards() {
     .select({
       id: predictions.id,
       normalizedMarketId: predictions.normalizedMarketId,
+      listingId: predictions.listingId,
+      modelVersionId: predictions.modelVersionId,
       predictedProbabilityBps: predictions.predictedProbabilityBps,
       executablePriceBps: predictions.executablePriceBps,
       edgeBps: predictions.edgeBps,
+      reliabilityBps: predictions.reliabilityBps,
       opportunityScore: predictions.opportunityScore,
+      sampleSize: predictions.sampleSize,
       features: predictions.features,
+      explanation: predictions.explanation,
       predictedAt: predictions.predictedAt,
       eventTitle: marketListings.eventTitle,
       marketTitle: marketListings.marketTitle,
@@ -363,17 +368,50 @@ export async function lockEligibleScorecards() {
       const top = [...distinct.values()].slice(0, rule.count);
       if (top.length < rule.count) continue;
 
+      // Current prediction rows are mutable and bounded to one row per listing.
+      // Clone only the official scorecard selections so those ten weekly picks
+      // remain immutable forever even as the live current-state row changes.
+      const lockedRows = top.map((candidate, index) => {
+        const scorecardId = `${season}-week-${week}-${rule.id}-${index + 1}`;
+        const predictionId = `locked_${scorecardId}`;
+        return { scorecardId, predictionId, candidate, index };
+      });
+
+      await db
+        .insert(predictions)
+        .values(
+          lockedRows.map(({ predictionId, candidate }) => ({
+            id: predictionId,
+            normalizedMarketId: candidate.normalizedMarketId,
+            listingId: candidate.listingId,
+            modelVersionId: candidate.modelVersionId,
+            predictedProbabilityBps: candidate.predictedProbabilityBps,
+            executablePriceBps: candidate.executablePriceBps,
+            edgeBps: candidate.edgeBps,
+            reliabilityBps: candidate.reliabilityBps,
+            opportunityScore: candidate.opportunityScore,
+            sampleSize: candidate.sampleSize,
+            features: {
+              ...candidate.features,
+              lockedScorecard: true,
+            },
+            explanation: candidate.explanation,
+            predictedAt: candidate.predictedAt,
+          })),
+        )
+        .onConflictDoNothing({ target: predictions.id });
+
       await db
         .insert(weeklyScorecardPicks)
         .values(
-          top.map((candidate, index) => ({
-            id: `${season}-week-${week}-${rule.id}-${index + 1}`,
+          lockedRows.map(({ scorecardId, predictionId, index }) => ({
+            id: scorecardId,
             season,
             week,
             rank: rule.rankStart + index,
             bucket: rule.id,
             bucketRank: index + 1,
-            predictionId: candidate.id,
+            predictionId,
             lockedAt: lockAt,
           })),
         )
