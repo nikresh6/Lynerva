@@ -295,6 +295,7 @@ async function gradeNewSourceProjections(season: number) {
     .select({
       playerName: nflPlayers.fullName,
       week: nflGames.week,
+      kickoffAt: nflGames.kickoffAt,
       passingYards: playerGameStats.passingYards,
       passingTouchdowns: playerGameStats.passingTouchdowns,
       passingInterceptions: playerGameStats.passingInterceptions,
@@ -331,6 +332,7 @@ async function gradeNewSourceProjections(season: number) {
       playerKey: sourceProjections.playerKey,
       statistic: sourceProjections.statistic,
       projectedValue: sourceProjections.projectedValue,
+      capturedAt: sourceProjections.capturedAt,
     })
     .from(sourceProjections)
     .leftJoin(
@@ -361,6 +363,12 @@ async function gradeNewSourceProjections(season: number) {
       `${projection.week}:${projection.playerKey}`,
     );
     if (!actualRow) continue;
+    // Never grade a projection first captured after that player's kickoff.
+    // This makes outage recovery safe: postgame source pages may be restored
+    // for display, but they cannot leak known outcomes into source learning.
+    if (projection.capturedAt.getTime() >= actualRow.kickoffAt.getTime()) {
+      continue;
+    }
     const actualValue = actualForStatistic(
       projection.statistic,
       actualRow,
@@ -393,6 +401,7 @@ async function gradeNewSourceProjections(season: number) {
 export interface SourceLearningActualRow {
   week: number;
   playerName: string;
+  kickoffAt: Date;
   passingYards: number | null;
   passingTouchdowns: number | null;
   passingInterceptions: number | null;
@@ -416,6 +425,7 @@ async function gradeSourceProjectionsFromActualRows(
       playerKey: sourceProjections.playerKey,
       statistic: sourceProjections.statistic,
       projectedValue: sourceProjections.projectedValue,
+      capturedAt: sourceProjections.capturedAt,
     })
     .from(sourceProjections)
     .leftJoin(
@@ -448,6 +458,9 @@ async function gradeSourceProjectionsFromActualRows(
       `${projection.week}:${projection.playerKey}`,
     );
     if (!actualRow) continue;
+    if (projection.capturedAt.getTime() >= actualRow.kickoffAt.getTime()) {
+      continue;
+    }
     const actualValue = actualForStatistic(projection.statistic, actualRow);
     if (actualValue === null) continue;
     const error = projection.projectedValue - actualValue;
