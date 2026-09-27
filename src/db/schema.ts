@@ -300,6 +300,7 @@ export const marketPriceSnapshots = sqliteTable(
       table.listingId,
       table.capturedAt,
     ),
+    index("price_snapshot_time_idx").on(table.capturedAt),
   ],
 );
 
@@ -360,6 +361,11 @@ export const predictions = sqliteTable(
       table.normalizedMarketId,
       table.predictedAt,
     ),
+    index("predictions_listing_time_idx").on(
+      table.listingId,
+      table.predictedAt,
+    ),
+    index("predictions_time_idx").on(table.predictedAt),
     index("predictions_ranking_idx").on(
       table.opportunityScore,
       table.predictedAt,
