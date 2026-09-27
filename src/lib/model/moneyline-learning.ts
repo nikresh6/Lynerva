@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   moneylineSourceWeightHistory,
@@ -186,6 +186,7 @@ export async function runMoneylineSourceLearning(season: number) {
   try {
     await ensureMoneylineLearningSchema();
     const db = getDb();
+    const seasonPredictionStart = new Date(Date.UTC(season, 7, 1));
     const [predictionRows, gameRows] = await Promise.all([
       db
         .select({
@@ -197,8 +198,14 @@ export async function runMoneylineSourceLearning(season: number) {
           normalizedMarkets,
           eq(normalizedMarkets.id, predictions.normalizedMarketId),
         )
-        .where(eq(normalizedMarkets.family, "moneyline"))
-        .orderBy(desc(predictions.predictedAt)),
+        .where(
+          and(
+            eq(normalizedMarkets.family, "moneyline"),
+            gte(predictions.predictedAt, seasonPredictionStart),
+          ),
+        )
+        .orderBy(desc(predictions.predictedAt))
+        .limit(25_000),
       db
         .select({
           week: nflGames.week,
