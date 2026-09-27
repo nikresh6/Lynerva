@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     "See when every NFL projection source updated, how accurately it has performed by stat, and how that changes Huddlemark's model influence.",
 };
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 
 export default async function SourcesPage() {
   const now = new Date();
