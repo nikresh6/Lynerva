@@ -31,6 +31,41 @@ type SchedulerGlobal = typeof globalThis & {
 let marketJobRunning = false;
 let nflverseJobRunning = false;
 let finalGradingJobRunning = false;
+let databaseBlockedUntil = 0;
+let lastFinalLearningFingerprint: string | null = null;
+
+function errorChainText(error: unknown) {
+  const messages: string[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    if (current instanceof Error) {
+      messages.push(current.message);
+      current = (current as Error & { cause?: unknown }).cause;
+    } else {
+      messages.push(String(current));
+      break;
+    }
+  }
+  return messages.join(" ");
+}
+
+function noteDatabaseBlock(error: unknown) {
+  const text = errorChainText(error);
+  if (!/BLOCKED|reads are blocked|writes are blocked/i.test(text)) {
+    return false;
+  }
+  databaseBlockedUntil = Date.now() + 60 * 60_000;
+  console.error(
+    `[lynerva-background] database quota block detected, pausing DB jobs until ${new Date(databaseBlockedUntil).toISOString()}`,
+  );
+  return true;
+}
+
+function databaseBackoffActive() {
+  return Date.now() < databaseBlockedUntil;
+}
 
 function logJob(
   job: string,
@@ -47,7 +82,7 @@ function logJob(
 }
 
 async function persistCurrentMarkets() {
-  if (marketJobRunning) return;
+  if (marketJobRunning || databaseBackoffActive()) return;
   marketJobRunning = true;
   logJob("markets", "started");
 
@@ -61,6 +96,7 @@ async function persistCurrentMarkets() {
       snapshotsStored: stored.snapshotsStored,
     });
   } catch (error) {
+    noteDatabaseBlock(error);
     logJob("markets", "failed", error);
   } finally {
     marketJobRunning = false;
@@ -68,7 +104,7 @@ async function persistCurrentMarkets() {
 }
 
 async function refreshNflverseAndLearning() {
-  if (nflverseJobRunning) return;
+  if (nflverseJobRunning || databaseBackoffActive()) return;
   nflverseJobRunning = true;
   logJob("nflverse", "started");
 
@@ -85,6 +121,7 @@ async function refreshNflverseAndLearning() {
       moneylineLearning,
     });
   } catch (error) {
+    noteDatabaseBlock(error);
     logJob("nflverse", "failed", error);
   } finally {
     nflverseJobRunning = false;
@@ -92,7 +129,7 @@ async function refreshNflverseAndLearning() {
 }
 
 async function gradeFinalEspnGames() {
-  if (finalGradingJobRunning) return;
+  if (finalGradingJobRunning || databaseBackoffActive()) return;
   finalGradingJobRunning = true;
   logJob("espn-final-grading", "started");
 
@@ -106,12 +143,21 @@ async function gradeFinalEspnGames() {
         (game.state === "post" || /final/i.test(game.status)),
     );
 
-    const completed = await Promise.all(
-      finals.map(async (game) => ({
-        game,
-        rows: await getEspnPlayerGameStats(game.id),
-      })),
-    );
+    const finalFingerprint = finals
+      .map((game) => game.id)
+      .toSorted()
+      .join("|");
+    const shouldRunLearning =
+      finalFingerprint !== lastFinalLearningFingerprint;
+
+    const completed = shouldRunLearning
+      ? await Promise.all(
+          finals.map(async (game) => ({
+            game,
+            rows: await getEspnPlayerGameStats(game.id),
+          })),
+        )
+      : [];
 
     const bySeason = new Map<number, SourceLearningActualRow[]>();
     for (const { game, rows } of completed) {
@@ -144,18 +190,26 @@ async function gradeFinalEspnGames() {
 
     let graded = 0;
     let weightsStored = 0;
+    let learningFailed = false;
     const effectiveWeeks = new Set<number>();
     for (const [season, actuals] of bySeason) {
       const result = await runSourceLearningFromActuals(season, actuals);
       graded += result.graded;
       weightsStored += result.weightsStored;
+      if ("error" in result && result.error) learningFailed = true;
       if (result.effectiveWeek !== null) {
         effectiveWeeks.add(result.effectiveWeek);
       }
-      await runMoneylineSourceLearning(season);
+      const moneylineResult = await runMoneylineSourceLearning(season);
+      if ("error" in moneylineResult && moneylineResult.error) {
+        learningFailed = true;
+      }
     }
 
     const predictionSettlement = await settleKalshiPredictions();
+    if (shouldRunLearning && !learningFailed) {
+      lastFinalLearningFingerprint = finalFingerprint;
+    }
 
     logJob("espn-final-grading", "completed", {
       finalGamesChecked: finals.length,
@@ -165,6 +219,7 @@ async function gradeFinalEspnGames() {
       predictionSettlement,
     });
   } catch (error) {
+    noteDatabaseBlock(error);
     logJob("espn-final-grading", "failed", error);
   } finally {
     finalGradingJobRunning = false;
