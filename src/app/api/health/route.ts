@@ -7,7 +7,10 @@ export async function GET() {
   const memory = process.memoryUsage();
   const storage = await getLocalDatabaseStorageState();
   const rssMb = Math.round(memory.rss / 1024 / 1024);
-  const healthy = rssMb < 900 && !storage.emergency;
+  // Storage emergency mode intentionally degrades background persistence but
+  // keeps the live site serving. Only severe process memory pressure should
+  // fail the Railway healthcheck.
+  const healthy = rssMb < 930;
 
   return NextResponse.json(
     {
