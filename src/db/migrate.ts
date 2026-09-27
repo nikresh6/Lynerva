@@ -5,12 +5,20 @@ import { migrate } from "drizzle-orm/libsql/migrator";
 import { drizzle } from "drizzle-orm/libsql";
 
 async function main() {
-  const url = process.env.TURSO_DATABASE_URL;
-  if (!url) throw new Error("TURSO_DATABASE_URL is required");
+  const url =
+    process.env.HUDDLEMARK_DATABASE_URL ??
+    process.env.TURSO_DATABASE_URL;
+  if (!url) {
+    throw new Error(
+      "HUDDLEMARK_DATABASE_URL or TURSO_DATABASE_URL is required",
+    );
+  }
 
   const client = createClient({
     url,
-    authToken: process.env.TURSO_AUTH_TOKEN,
+    ...(url.startsWith("file:")
+      ? {}
+      : { authToken: process.env.TURSO_AUTH_TOKEN }),
   });
   const db = drizzle(client);
   await migrate(db, { migrationsFolder: "./drizzle" });
