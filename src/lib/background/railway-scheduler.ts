@@ -20,6 +20,7 @@ import {
   allowBulkDatabaseWrites,
   runStorageMaintenance,
 } from "@/lib/db/storage-maintenance";
+import { applyWeek3ProjectionRecovery } from "@/lib/recovery/week3-source-projections";
 
 const MARKET_INITIAL_DELAY_MS = 15_000;
 const MARKET_INTERVAL_MS = 5 * 60_000;
@@ -97,6 +98,7 @@ async function persistCurrentMarkets() {
 
   try {
     await runStorageMaintenance();
+    await applyWeek3ProjectionRecovery();
     if (!(await allowBulkDatabaseWrites())) {
       logJob("markets", "completed", {
         skipped: "database storage emergency",
