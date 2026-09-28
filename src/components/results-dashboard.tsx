@@ -111,7 +111,11 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
     ? week.hits / week.settled
     : 0;
   const evidenceCopy = useMemo(() => {
-    if (!week || week.settled === 0) return "Nothing is being counted before the answer exists.";
+    if (!week) return "Nothing is being counted before the answer exists.";
+    if (week.outageSlots?.length) {
+      return "Week 3 is being shown as an audit record, not reconstructed with hindsight. Missing locks stay visibly missing and do not affect the record or ROI.";
+    }
+    if (week.settled === 0) return "Nothing is being counted before the answer exists.";
     if (week.settled < week.picks.length) {
       return `${week.picks.length - week.settled} pick${week.picks.length - week.settled === 1 ? "" : "s"} still waiting. ROI uses settled picks only.`;
     }
@@ -188,7 +192,7 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Weekly scorecard summary">
         {[
           ["Record", record, week.settled ? settledRate : null],
-          ["Settled", `${week.settled}/${week.picks.length}`, null],
+          ["Settled", `${week.settled}/${week.expectedPicks ?? week.picks.length}`, null],
           ["Profit", money(week.profitOnTen), week.profitOnTen],
           ["ROI", week.settled ? `${(week.roi * 100).toFixed(1)}%` : "Waiting", week.settled ? week.roi : null],
         ].map(([label, value, tone]) => (
@@ -204,6 +208,45 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
           </div>
         ))}
       </section>
+
+      {week.outageSlots?.length ? (
+        <section className="rounded-2xl border bg-surface p-5 sm:p-6">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="eyebrow">Week 3 outage record</p>
+              <h2 className="mt-1 text-2xl font-semibold tracking-[-0.03em]">
+                Missing picks stay missing.
+              </h2>
+            </div>
+            <p className="max-w-xl text-xs leading-5 text-muted">
+              The results page preserves what can be proven from the production logs. It does not recreate picks after outcomes are known.
+            </p>
+          </div>
+          <div className="mt-5 grid gap-3 md:grid-cols-2">
+            {week.outageSlots.map((item) => (
+              <div key={item.slot} className="rounded-xl border bg-background p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-faint">{item.slot}</p>
+                    <p className="mt-1 text-sm font-semibold">
+                      {item.count} {item.count === 1 ? "slot" : "slots"}
+                    </p>
+                  </div>
+                  <span className={cn(
+                    "rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-[0.08em]",
+                    item.status === "legacy_locked"
+                      ? "bg-positive-bg text-positive"
+                      : "bg-background text-muted",
+                  )}>
+                    {item.status === "legacy_locked" ? "Locked in legacy DB" : "Not locked"}
+                  </span>
+                </div>
+                <p className="mt-3 text-xs leading-5 text-muted">{item.detail}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
         <EquityCurve week={week} />
