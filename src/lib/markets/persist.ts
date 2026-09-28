@@ -561,7 +561,7 @@ export async function persistMarkets(payload: MarketsPayload) {
       // Only persist pregame state. Once kickoff happens the last pregame row
       // stays frozen until settlement, so live information can never leak into
       // historical calibration or the weekly scorecard.
-      if (opportunity.isLive) continue;
+      if (opportunity.isLive || opportunity.status !== "open") continue;
 
       const latestPrediction = predictionStateByListing.get(listingId);
       const recommendedProbabilityBps =
