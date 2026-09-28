@@ -10,6 +10,7 @@ import {
   recordEspnFinalPlayerStats,
 } from "@/lib/nfl/history";
 import {
+  restoreLegacySourceWeightHistory,
   runSourceLearningFromActuals,
   type SourceLearningActualRow,
 } from "@/lib/model/source-learning";
@@ -18,6 +19,7 @@ import { settleKalshiPredictions } from "@/lib/model/results";
 import { lockEligibleScorecards } from "@/lib/model/scorecard";
 import {
   hasWeekRecoveryMarker,
+  recoverHistoricalSourceWeeks,
   recoverOutageWeek,
 } from "@/lib/recovery/week";
 import {
@@ -38,6 +40,9 @@ const SCORECARD_LOCK_INTERVAL_MS = 60_000;
 const STORAGE_MAINTENANCE_INITIAL_DELAY_MS = 3 * 60_000;
 const STORAGE_MAINTENANCE_INTERVAL_MS = 6 * 60 * 60_000;
 const OUTAGE_RECOVERY_INITIAL_DELAY_MS = 20_000;
+const LEGACY_WEIGHT_RESTORE_DELAY_MS = 5_000;
+const HISTORICAL_SOURCE_RECOVERY_INITIAL_DELAY_MS = 5 * 60_000;
+const HISTORICAL_SOURCE_RECOVERY_INTERVAL_MS = 30 * 60_000;
 const BACKGROUND_RSS_GUARD_MB = 760;
 const BACKGROUND_HEAP_GUARD_MB = 560;
 
@@ -54,6 +59,7 @@ let lastFinalLearningFingerprint: string | null = null;
 let lastMarketPersistenceAt = 0;
 let storageMaintenanceRunning = false;
 let outageRecoveryRunning = false;
+let historicalSourceRecoveryComplete = false;
 
 function errorChainText(error: unknown) {
   const messages: string[] = [];
@@ -174,6 +180,54 @@ async function runRequestedOutageRecovery() {
   } finally {
     nflverseJobRunning = false;
     outageRecoveryRunning = false;
+  }
+}
+
+async function restoreLegacyLearningState() {
+  if (databaseBackoffActive()) return;
+  try {
+    const result = await restoreLegacySourceWeightHistory();
+    logJob("legacy-source-weights", "completed", result);
+  } catch (error) {
+    noteDatabaseBlock(error);
+    logJob("legacy-source-weights", "failed", error);
+  }
+}
+
+async function recoverHistoricalSourceHistory() {
+  if (
+    historicalSourceRecoveryComplete ||
+    outageRecoveryRunning ||
+    nflverseJobRunning ||
+    databaseBackoffActive()
+  ) {
+    return;
+  }
+
+  const [week1Done, week2Done] = await Promise.all([
+    hasWeekRecoveryMarker(2026, 1),
+    hasWeekRecoveryMarker(2026, 2),
+  ]);
+  if (week1Done && week2Done) {
+    historicalSourceRecoveryComplete = true;
+    logJob("historical-source-recovery", "completed", {
+      skipped: "already-recovered",
+      weeks: [1, 2],
+    });
+    return;
+  }
+
+  nflverseJobRunning = true;
+  try {
+    logJob("historical-source-recovery", "started", { season: 2026, weeks: [1, 2] });
+    const result = await recoverHistoricalSourceWeeks(2026, [1, 2]);
+    historicalSourceRecoveryComplete = true;
+    logJob("historical-source-recovery", "completed", result);
+  } catch (error) {
+    noteDatabaseBlock(error);
+    logJob("historical-source-recovery", "failed", error);
+  } finally {
+    nflverseJobRunning = false;
   }
 }
 
@@ -406,6 +460,16 @@ export function startRailwayBackgroundJobs() {
       void runRequestedOutageRecovery();
     }, OUTAGE_RECOVERY_INITIAL_DELAY_MS);
   }
+
+  setTimeout(() => {
+    void restoreLegacyLearningState();
+  }, LEGACY_WEIGHT_RESTORE_DELAY_MS).unref();
+
+  recurringJob(
+    recoverHistoricalSourceHistory,
+    HISTORICAL_SOURCE_RECOVERY_INITIAL_DELAY_MS,
+    HISTORICAL_SOURCE_RECOVERY_INTERVAL_MS,
+  );
 
   recurringJob(
     persistCurrentMarkets,
