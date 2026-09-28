@@ -12,6 +12,7 @@ import {
 import {
   restoreLegacySourceWeightHistory,
   runSourceLearningFromActuals,
+  runSourceLearningLoop,
   type SourceLearningActualRow,
 } from "@/lib/model/source-learning";
 import { runMoneylineSourceLearning } from "@/lib/model/moneyline-learning";
@@ -187,7 +188,8 @@ async function restoreLegacyLearningState() {
   if (databaseBackoffActive()) return;
   try {
     const result = await restoreLegacySourceWeightHistory();
-    logJob("legacy-source-weights", "completed", result);
+    const grading = await runSourceLearningLoop(2026);
+    logJob("legacy-source-weights", "completed", { ...result, grading });
   } catch (error) {
     noteDatabaseBlock(error);
     logJob("legacy-source-weights", "failed", error);
