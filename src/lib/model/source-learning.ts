@@ -341,6 +341,7 @@ async function gradeNewSourceProjections(season: number) {
       and(
         eq(sourceProjections.season, season),
         inArray(sourceProjections.week, finalWeeks),
+        eq(sourceProjections.learningEligible, true),
         isNull(sourceProjectionGrades.projectionId),
       ),
     );
@@ -429,6 +430,7 @@ async function gradeSourceProjectionsFromActualRows(
           sourceProjections.week,
           [...new Set(actualRows.map((row) => row.week))],
         ),
+        eq(sourceProjections.learningEligible, true),
         isNull(sourceProjectionGrades.projectionId),
       ),
     );
@@ -523,7 +525,12 @@ async function recomputeSourceWeights(season: number) {
       sourceProjections,
       eq(sourceProjections.id, sourceProjectionGrades.projectionId),
     )
-    .where(eq(sourceProjections.season, season))
+    .where(
+      and(
+        eq(sourceProjections.season, season),
+        eq(sourceProjections.learningEligible, true),
+      ),
+    )
     .orderBy(desc(sourceProjectionGrades.gradedAt));
 
   if (!rows.length) {
