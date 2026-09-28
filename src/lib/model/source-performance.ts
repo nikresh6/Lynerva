@@ -137,6 +137,7 @@ export type ProjectionPerformanceRow = {
   source: string;
   statistic: string;
   sampleSize: number;
+  learningSampleSize: number;
   recoveredSampleSize: number;
   meanAbsoluteError: number;
   medianAbsoluteError: number;
@@ -288,6 +289,9 @@ export async function getProjectionSourcePerformance(season = 2026) {
           statistic: sourceWeightHistory.statistic,
           weight: sourceWeightHistory.weight,
           effectiveWeek: sourceWeightHistory.effectiveWeek,
+          sampleSize: sourceWeightHistory.sampleSize,
+          mae: sourceWeightHistory.mae,
+          recentMae: sourceWeightHistory.recentMae,
         })
         .from(sourceWeightHistory)
         .where(eq(sourceWeightHistory.season, season))
@@ -428,14 +432,26 @@ export async function getProjectionSourcePerformance(season = 2026) {
 
     const weightHistoryByKey = new Map<
       string,
-      Array<{ week: number; weight: number }>
+      Array<{
+        week: number;
+        weight: number;
+        sampleSize: number;
+        mae: number | null;
+        recentMae: number | null;
+      }>
     >();
 
     for (const row of weightRows) {
       const key = `${row.statistic}:${row.source}`;
       const history = weightHistoryByKey.get(key) ?? [];
       if (!history.some((item) => item.week === row.effectiveWeek)) {
-        history.push({ week: row.effectiveWeek, weight: row.weight });
+        history.push({
+          week: row.effectiveWeek,
+          weight: row.weight,
+          sampleSize: row.sampleSize,
+          mae: row.mae,
+          recentMae: row.recentMae,
+        });
       }
       weightHistoryByKey.set(key, history);
     }
@@ -534,6 +550,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
           source: group.source,
           statistic: group.statistic,
           sampleSize,
+          learningSampleSize: latestWeight?.sampleSize ?? 0,
           recoveredSampleSize: group.recoveredCount,
           meanAbsoluteError:
             group.abs.reduce((sum, value) => sum + value, 0) /
@@ -588,7 +605,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
       return {
         ...row,
         learnedTarget: total > 0 ? strength / total : 1 / 6,
-        confidence: clamp((row.sampleSize - 20) / 180, 0, 0.75),
+        confidence: clamp((row.learningSampleSize - 20) / 180, 0, 0.75),
       };
     });
 
