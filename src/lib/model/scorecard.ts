@@ -54,6 +54,13 @@ export type ScorecardPick = {
   profitOnTen: number | null;
 };
 
+export type ScorecardOutageSlot = {
+  slot: string;
+  count: number;
+  status: "legacy_locked" | "not_locked";
+  detail: string;
+};
+
 export type WeeklyScorecard = {
   key: string;
   label: string;
@@ -65,6 +72,8 @@ export type WeeklyScorecard = {
   misses: number;
   profitOnTen: number;
   roi: number;
+  expectedPicks?: number;
+  outageSlots?: ScorecardOutageSlot[];
 };
 
 const FAMILY_LABELS: Record<string, string> = {
@@ -442,7 +451,7 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
       grouped.set(key, group);
     }
 
-    return [...grouped.entries()]
+    const cards: WeeklyScorecard[] = [...grouped.entries()]
       .map(([key, picksRows]) => {
         const first = picksRows[0]!;
         const picks: ScorecardPick[] = picksRows.map((row) => {
@@ -512,7 +521,67 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
           profitOnTen,
           roi: settled ? profitOnTen / (settled * 10) : 0,
         };
-      })
+      });
+
+    const week3OutageSlots: ScorecardOutageSlot[] = [
+      {
+        slot: "TNF",
+        count: 1,
+        status: "legacy_locked",
+        detail:
+          "One TNF pick was successfully locked before kickoff in the legacy database. Its exact market remains unreadable while the old Turso database is quota-blocked.",
+      },
+      {
+        slot: "Sunday noon",
+        count: 4,
+        status: "not_locked",
+        detail:
+          "These four slots were never frozen. Database writes were already blocked before the noon-slate lock window.",
+      },
+      {
+        slot: "Sunday late",
+        count: 3,
+        status: "not_locked",
+        detail:
+          "These three slots were never frozen. The legacy database was still write-blocked before the late-slate lock window.",
+      },
+      {
+        slot: "SNF",
+        count: 1,
+        status: "not_locked",
+        detail:
+          "The rebuilt persistent database came online after Sunday night kickoff, so no pregame SNF pick was created.",
+      },
+    ];
+
+    const week3Key = "2026-week-3";
+    const existingWeek3 = cards.find((card) => card.key === week3Key);
+    if (existingWeek3) {
+      existingWeek3.expectedPicks = 10;
+      existingWeek3.outageSlots = week3OutageSlots;
+    } else {
+      cards.push({
+        key: week3Key,
+        label: "NFL Week 3",
+        season: 2026,
+        week: 3,
+        picks: [],
+        settled: 0,
+        hits: 0,
+        misses: 0,
+        profitOnTen: 0,
+        roi: 0,
+        expectedPicks: 10,
+        outageSlots: week3OutageSlots,
+      });
+    }
+
+    return cards
+      .toSorted(
+        (first, second) =>
+          (second.season ?? 0) - (first.season ?? 0) ||
+          (second.week ?? 0) - (first.week ?? 0),
+      )
       .slice(0, 12);
   } catch (error) {
     console.error("Weekly scorecards unavailable", error);
