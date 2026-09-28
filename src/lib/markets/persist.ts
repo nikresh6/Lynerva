@@ -36,10 +36,8 @@ const MODEL_ID = "model_hybrid_consensus_learning_v6";
 const WRITE_CHUNK_SIZE = 50;
 const RECENT_ROW_LIMIT = 10_000;
 const LISTING_MAX_AGE_MS = 60 * 60_000;
-const PREDICTION_MAX_AGE_MS = 60 * 60_000;
-const NON_PRIORITY_PREDICTION_MIN_AGE_MS = 30 * 60_000;
 const PRIORITY_PREDICTION_MAX_AGE_MS = 5 * 60_000;
-const PRIORITY_PREDICTION_COUNT = 200;
+const PRIORITY_PREDICTION_COUNT = 160;
 
 type PredictionState = {
   predictedProbabilityBps: number;
@@ -105,15 +103,15 @@ export async function persistMarkets(payload: MarketsPayload) {
   // minutes. A process restart simply causes one fresh persistence pass.
   await ensurePersistenceIndexes();
 
+  const eligiblePregameOpportunities = payload.opportunities.filter(
+    (opportunity) =>
+      !opportunity.isLive &&
+      opportunity.model.probabilityBps !== null &&
+      opportunity.executablePriceBps !== null &&
+      opportunity.edgeBps !== null,
+  );
   const priorityPredictionListingIds = new Set(
-    payload.opportunities
-      .filter(
-        (opportunity) =>
-          !opportunity.isLive &&
-          opportunity.model.probabilityBps !== null &&
-          opportunity.executablePriceBps !== null &&
-          opportunity.edgeBps !== null,
-      )
+    eligiblePregameOpportunities
       .toSorted(
         (first, second) =>
           (second.lynervaScore ?? second.opportunityScore ?? -Infinity) -
@@ -127,6 +125,20 @@ export async function persistMarkets(payload: MarketsPayload) {
         ),
       ),
   );
+
+  // Moneylines are a tiny set but feed a separate learning loop. Keep one
+  // current pregame record for them even when they are outside the top-board
+  // cutoff. Everything else is deliberately not persisted as prediction
+  // history.
+  for (const opportunity of eligiblePregameOpportunities) {
+    if (opportunity.canonical?.family !== "moneyline") continue;
+    priorityPredictionListingIds.add(
+      stableId(
+        "listing",
+        `${opportunity.platform}:${opportunity.platformMarketId}:${opportunity.platformOutcomeId ?? "yes"}`,
+      ),
+    );
+  }
 
   await db
     .insert(modelVersions)
@@ -222,9 +234,22 @@ export async function persistMarkets(payload: MarketsPayload) {
     projectionWindows.set(`${season}:${week}`, { season, week });
   }
 
+  const activePregamePlayerKeys = new Set(
+    payload.opportunities.flatMap((opportunity) => {
+      if (opportunity.isLive || !opportunity.canonical?.subject) return [];
+      const key = normalizeLearningPlayer(opportunity.canonical.subject);
+      return key ? [key] : [];
+    }),
+  );
+
   for (const { season, week } of projectionWindows.values()) {
     const sourceStatLines = await getWeeklyProjectionStatSnapshots(season, week);
     for (const point of sourceStatLines) {
+      // A weekly projection page can keep already-finished Sunday players
+      // visible. After an outage, treating those rows as newly captured
+      // pregame evidence would create hindsight contamination. Only capture
+      // broad source rows for players who still have a current pregame market.
+      if (!activePregamePlayerKeys.has(point.playerKey)) continue;
       const id = stableId(
         "source_projection",
         `${season}:${week}:${point.playerKey}:${point.statistic}:${point.source}`,
@@ -584,6 +609,9 @@ export async function persistMarkets(payload: MarketsPayload) {
         continue;
       }
 
+      const priorityPrediction = priorityPredictionListingIds.has(listingId);
+      if (!priorityPrediction) continue;
+
       const latestPrediction = predictionStateByListing.get(listingId);
       const recommendedProbabilityBps =
         opportunity.recommendedProbabilityBps ??
@@ -591,7 +619,6 @@ export async function persistMarkets(payload: MarketsPayload) {
       const predictionAgeMs = latestPrediction
         ? now.getTime() - latestPrediction.predictedAt.getTime()
         : Infinity;
-      const priorityPrediction = priorityPredictionListingIds.has(listingId);
       const materialPredictionChange =
         !!latestPrediction &&
         (Math.abs(
@@ -602,17 +629,11 @@ export async function persistMarkets(payload: MarketsPayload) {
             latestPrediction.executablePriceBps -
               opportunity.executablePriceBps,
           ) >= 100);
-      const minPredictionAgeMs = priorityPrediction
-        ? PRIORITY_PREDICTION_MAX_AGE_MS
-        : NON_PRIORITY_PREDICTION_MIN_AGE_MS;
-      const maxPredictionAgeMs = priorityPrediction
-        ? PRIORITY_PREDICTION_MAX_AGE_MS
-        : PREDICTION_MAX_AGE_MS;
       const predictionChanged =
         !latestPrediction ||
-        predictionAgeMs >= maxPredictionAgeMs ||
+        predictionAgeMs >= PRIORITY_PREDICTION_MAX_AGE_MS ||
         (materialPredictionChange &&
-          predictionAgeMs >= minPredictionAgeMs);
+          predictionAgeMs >= PRIORITY_PREDICTION_MAX_AGE_MS);
 
       if (!predictionChanged) continue;
 

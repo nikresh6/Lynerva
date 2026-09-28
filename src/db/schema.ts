@@ -431,6 +431,10 @@ export const sourceProjections = sqliteTable(
     latestProjectedValue: real("latest_projected_value"),
     latestCapturedAt: integer("latest_captured_at", { mode: "timestamp" }),
     observationCount: integer("observation_count").notNull().default(1),
+    provenance: text("provenance").notNull().default("live_capture"),
+    learningEligible: integer("learning_eligible", { mode: "boolean" })
+      .notNull()
+      .default(true),
     createdAt,
     updatedAt,
   },
