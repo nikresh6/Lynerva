@@ -155,6 +155,7 @@ export async function runStorageMaintenance(options?: { force?: boolean }) {
   `));
 
   await db.run(sql.raw("PRAGMA optimize"));
+  await db.run(sql.raw("PRAGMA incremental_vacuum(5000)"));
   await db.run(sql.raw("PRAGMA wal_checkpoint(TRUNCATE)"));
 
   lastMaintenanceAt = now;
