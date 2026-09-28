@@ -1640,9 +1640,16 @@ async function buildConsensus(
     };
   }
 
+  const learnedFallbackWeight = 1 / Math.max(ACTIVE_PROJECTION_SOURCES.length, 1);
   const availableWeights = points.map((point) => ({
     point,
-    weight: learned?.weights[point.source] ?? 1,
+    // Historical learned rows can predate a newly added projection source.
+    // When that happens, give the new source an equal-prior weight instead of
+    // weight=1, which would otherwise make it several times more influential
+    // than every learned source.
+    weight:
+      learned?.weights[point.source] ??
+      (learned ? learnedFallbackWeight : 1),
   }));
   const weightTotal =
     availableWeights.reduce((sum, item) => sum + item.weight, 0) || 1;
