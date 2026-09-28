@@ -17,6 +17,7 @@ type PerformanceRow = {
   source: string;
   statistic: string;
   sampleSize: number;
+  recoveredSampleSize: number;
   meanAbsoluteError: number;
   medianAbsoluteError: number;
   p90AbsoluteError: number;
@@ -379,6 +380,9 @@ export function SourceDashboard({
                   <div>
                     <p className="text-[9px] uppercase tracking-[0.08em] text-faint">Graded</p>
                     <p className="mt-1 text-sm font-semibold tabular">{graded.toLocaleString()}</p>
+                    {sourceRows.some((row) => row.recoveredSampleSize > 0) ? (
+                      <p className="mt-0.5 text-[8px] text-faint">includes recovered reference rows</p>
+                    ) : null}
                   </div>
                   <div>
                     <p className="text-[9px] uppercase tracking-[0.08em] text-faint">Best at</p>
