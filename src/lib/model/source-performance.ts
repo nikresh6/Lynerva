@@ -598,10 +598,37 @@ export async function getProjectionSourcePerformance(season = 2026) {
       groups.set(key, group);
     }
 
-    const baseRows = [...groups.values()].map(
-      (group) => {
+    // Build the Source Room from the union of raw graded rows and persisted
+    // learned history. The Turso outage left some original pre-outage grade
+    // rows unavailable even though their exact learned weights/metrics were
+    // recovered from the production audit. If we only iterate `groups`, those
+    // sources disappear from the UI entirely (most visibly, Anytime TD showed
+    // only Covers and Dimers). Persisted weight history is authoritative proof
+    // that the source/stat pair was graded before the outage, so include it.
+    const performanceKeys = new Set([
+      ...groups.keys(),
+      ...weightHistoryByKey.keys(),
+    ]);
+
+    const baseRows = [...performanceKeys].flatMap(
+      (weightKey) => {
+        const existing = groups.get(weightKey);
+        const separator = weightKey.lastIndexOf(":");
+        if (separator <= 0) return [];
+        const statistic = existing?.statistic ?? weightKey.slice(0, separator);
+        const source = existing?.source ?? weightKey.slice(separator + 1);
+        const group =
+          existing ?? {
+            source,
+            statistic,
+            abs: [],
+            squared: [],
+            signed: [],
+            recoveredCount: 0,
+            recent: [],
+          };
+
         const abs = group.abs.toSorted((a, b) => a - b);
-        const weightKey = `${group.statistic}:${group.source}`;
         const weightHistory = weightHistoryByKey.get(weightKey) ?? [];
         const latestWeight = weightHistory.at(-1) ?? null;
         const priorWeight = weightHistory.at(-2) ?? null;
@@ -613,7 +640,14 @@ export async function getProjectionSourcePerformance(season = 2026) {
         const previousWeight = latestWeight
           ? priorWeight?.weight ?? baselineWeight
           : null;
-        const sampleSize = abs.length;
+        const rawGradeCount = abs.length;
+        // When the original grade rows themselves are stranded in blocked
+        // Turso, preserve the original sample count from source_weight_history
+        // so the dashboard does not falsely say the source was never graded.
+        const sampleSize =
+          rawGradeCount > 0
+            ? rawGradeCount
+            : latestWeight?.sampleSize ?? 0;
         const medianAbsoluteError = quantile(abs, 0.5);
         const p90AbsoluteError = quantile(abs, 0.9);
         const recentErrors = group.recent
@@ -643,7 +677,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
             legacyMetric && latestWeight?.mae !== null && latestWeight?.mae !== undefined
               ? latestWeight.mae
               : group.abs.reduce((sum, value) => sum + value, 0) /
-                Math.max(sampleSize, 1),
+                Math.max(rawGradeCount, 1),
           medianAbsoluteError:
             legacyMetric?.medianAbsoluteError ?? medianAbsoluteError,
           p90AbsoluteError:
@@ -654,12 +688,12 @@ export async function getProjectionSourcePerformance(season = 2026) {
           robustError: legacyMetric?.robustError ?? recoveredRobustError,
           rmse: Math.sqrt(
             group.squared.reduce((sum, value) => sum + value, 0) /
-              Math.max(sampleSize, 1),
+              Math.max(rawGradeCount, 1),
           ),
           bias:
             legacyMetric?.bias ??
             group.signed.reduce((sum, value) => sum + value, 0) /
-              Math.max(sampleSize, 1),
+              Math.max(rawGradeCount, 1),
           examples: group.recent
             .toSorted((a, b) => b.gradedAt - a.gradedAt)
             .slice(0, 3)
