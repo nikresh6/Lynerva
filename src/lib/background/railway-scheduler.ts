@@ -17,6 +17,10 @@ import { runMoneylineSourceLearning } from "@/lib/model/moneyline-learning";
 import { settleKalshiPredictions } from "@/lib/model/results";
 import { lockEligibleScorecards } from "@/lib/model/scorecard";
 import {
+  hasWeekRecoveryMarker,
+  recoverOutageWeek,
+} from "@/lib/recovery/week";
+import {
   marketPersistenceAllowed,
   runStorageMaintenance,
 } from "@/lib/storage/maintenance";
@@ -31,6 +35,7 @@ const FINAL_GRADING_INITIAL_DELAY_MS = 60_000;
 const FINAL_GRADING_INTERVAL_MS = 30 * 60_000;
 const STORAGE_MAINTENANCE_INITIAL_DELAY_MS = 3 * 60_000;
 const STORAGE_MAINTENANCE_INTERVAL_MS = 6 * 60 * 60_000;
+const OUTAGE_RECOVERY_INITIAL_DELAY_MS = 20_000;
 const BACKGROUND_RSS_GUARD_MB = 760;
 const BACKGROUND_HEAP_GUARD_MB = 560;
 
@@ -45,6 +50,7 @@ let databaseBlockedUntil = 0;
 let lastFinalLearningFingerprint: string | null = null;
 let lastMarketPersistenceAt = 0;
 let storageMaintenanceRunning = false;
+let outageRecoveryRunning = false;
 
 function errorChainText(error: unknown) {
   const messages: string[] = [];
@@ -124,6 +130,47 @@ async function maintainStorage() {
     logJob("storage-maintenance", "failed", error);
   } finally {
     storageMaintenanceRunning = false;
+  }
+}
+
+function requestedOutageRecovery() {
+  const value = process.env.RECOVER_WEEK_ON_START?.trim();
+  if (!value) return null;
+  const match = /^(\d{4}):(\d{1,2})$/.exec(value);
+  if (!match) {
+    console.error(
+      "[lynerva-background] ignoring invalid RECOVER_WEEK_ON_START, expected YYYY:W",
+    );
+    return null;
+  }
+  return { season: Number(match[1]), week: Number(match[2]) };
+}
+
+async function runRequestedOutageRecovery() {
+  if (outageRecoveryRunning || databaseBackoffActive()) return;
+  const request = requestedOutageRecovery();
+  if (!request) return;
+  if (await hasWeekRecoveryMarker(request.season, request.week)) {
+    logJob("outage-recovery", "completed", {
+      season: request.season,
+      week: request.week,
+      skipped: "already-recovered",
+    });
+    return;
+  }
+
+  outageRecoveryRunning = true;
+  nflverseJobRunning = true;
+  try {
+    logJob("outage-recovery", "started", request);
+    const result = await recoverOutageWeek(request.season, request.week);
+    logJob("outage-recovery", "completed", result);
+  } catch (error) {
+    noteDatabaseBlock(error);
+    logJob("outage-recovery", "failed", error);
+  } finally {
+    nflverseJobRunning = false;
+    outageRecoveryRunning = false;
   }
 }
 
@@ -334,6 +381,13 @@ export function startRailwayBackgroundJobs() {
   // That preserves fresh five-minute scorecard locks without modeling and
   // writing the entire board around the clock. Final ESPN box scores grade
   // completed games quickly, while nflverse is a slower durability backfill.
+  const recoveryRequest = requestedOutageRecovery();
+  if (recoveryRequest) {
+    setTimeout(() => {
+      void runRequestedOutageRecovery();
+    }, OUTAGE_RECOVERY_INITIAL_DELAY_MS);
+  }
+
   recurringJob(
     persistCurrentMarkets,
     MARKET_INITIAL_DELAY_MS,
