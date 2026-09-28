@@ -32,8 +32,11 @@ export async function hasWeekRecoveryMarker(season: number, week: number) {
   }
 }
 
-export async function recoverOutageWeek(season: number, week: number) {
-  const ingestion = await ingestNflverseSeason(season);
+async function recoverWeekAfterIngestion(
+  season: number,
+  week: number,
+  ingestion: Awaited<ReturnType<typeof ingestNflverseSeason>>,
+) {
   const db = getDb();
 
   const completedGames = await db
@@ -147,4 +150,36 @@ export async function recoverOutageWeek(season: number, week: number) {
 
   await writeFile(markerPath(season, week), JSON.stringify(result, null, 2));
   return result;
+}
+
+export async function recoverOutageWeek(season: number, week: number) {
+  const ingestion = await ingestNflverseSeason(season);
+  return recoverWeekAfterIngestion(season, week, ingestion);
+}
+
+export async function recoverHistoricalSourceWeeks(
+  season: number,
+  weeks: readonly number[],
+) {
+  const missingWeeks: number[] = [];
+  for (const week of weeks) {
+    if (!(await hasWeekRecoveryMarker(season, week))) missingWeeks.push(week);
+  }
+  if (!missingWeeks.length) {
+    return {
+      season,
+      skipped: true,
+      weeks: [] as Array<Awaited<ReturnType<typeof recoverWeekAfterIngestion>>>,
+    };
+  }
+
+  // One nflverse refresh is enough for every historical week. The old recovery
+  // path re-ingested the whole season once per week, which was wasteful on the
+  // small Railway container.
+  const ingestion = await ingestNflverseSeason(season);
+  const results = [];
+  for (const week of missingWeeks) {
+    results.push(await recoverWeekAfterIngestion(season, week, ingestion));
+  }
+  return { season, skipped: false, weeks: results };
 }
