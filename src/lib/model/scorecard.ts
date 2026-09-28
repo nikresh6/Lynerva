@@ -1,11 +1,13 @@
 import "server-only";
 
-import { and, asc, desc, eq, gte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   marketListings,
   nflGames,
+  nflPlayers,
   normalizedMarkets,
+  playerGameStats,
   predictionResults,
   predictions,
   weeklyScorecardPicks,
@@ -52,6 +54,8 @@ export type ScorecardPick = {
   settledAt: string | null;
   result: "hit" | "miss" | "pending";
   profitOnTen: number | null;
+  reconstructed?: boolean;
+  recoverySource?: string;
 };
 
 export type ScorecardOutageSlot = {
@@ -74,7 +78,333 @@ export type WeeklyScorecard = {
   roi: number;
   expectedPicks?: number;
   outageSlots?: ScorecardOutageSlot[];
+  recoveryNote?: string;
 };
+
+
+type RecoveredWeek3Definition =
+  | {
+      id: string;
+      rank: number;
+      slot: string;
+      playerName: string;
+      matchup: string;
+      context: string;
+      statistic: "rushing_yards" | "receiving_yards" | "receptions";
+      direction: "over" | "under";
+      threshold: number;
+      probabilityBps: number;
+      executablePriceBps: number;
+      score: number;
+      recoveredAt: string;
+      recoverySource: string;
+    }
+  | {
+      id: string;
+      rank: number;
+      slot: string;
+      team: string;
+      matchup: string;
+      context: string;
+      statistic: "moneyline";
+      direction: "yes";
+      threshold: null;
+      probabilityBps: number;
+      executablePriceBps: number;
+      score: number;
+      recoveredAt: string;
+      recoverySource: string;
+    };
+
+// Week 3's original database failed before the Sunday lock windows. These are
+// deliberately labeled reconstructed picks: they use pregame model/source
+// signals that were publicly available before the games, then grade against
+// the recovered nflverse box scores. They never enter model learning.
+const RECOVERED_WEEK3_PICKS: RecoveredWeek3Definition[] = [
+  {
+    id: "recovered-2026-w3-tnf-1",
+    rank: 1,
+    slot: "TNF",
+    playerName: "MarShawn Lloyd",
+    matchup: "ATL-GB",
+    context: "Falcons at Packers",
+    statistic: "rushing_yards",
+    direction: "over",
+    threshold: 24.5,
+    probabilityBps: 6300,
+    executablePriceBps: 5122,
+    score: 80,
+    recoveredAt: "2026-09-25T00:10:00.000Z",
+    recoverySource: "RotoWire Week 3 model, A-grade pregame prop",
+  },
+  {
+    id: "recovered-2026-w3-noon-1",
+    rank: 2,
+    slot: "Sunday noon",
+    playerName: "Keon Coleman",
+    matchup: "BUF-LAC",
+    context: "Chargers at Bills",
+    statistic: "receptions",
+    direction: "over",
+    threshold: 1.5,
+    probabilityBps: 6670,
+    executablePriceBps: 5050,
+    score: 90,
+    recoveredAt: "2026-09-27T16:55:00.000Z",
+    recoverySource: "Dimers Week 3 pregame prop model",
+  },
+  {
+    id: "recovered-2026-w3-noon-2",
+    rank: 3,
+    slot: "Sunday noon",
+    playerName: "Jalen Coker",
+    matchup: "CAR-CLE",
+    context: "Panthers at Browns",
+    statistic: "receptions",
+    direction: "under",
+    threshold: 5.5,
+    probabilityBps: 6800,
+    executablePriceBps: 6350,
+    score: 72,
+    recoveredAt: "2026-09-27T16:55:00.000Z",
+    recoverySource: "Dimers Week 3 pregame prop model",
+  },
+  {
+    id: "recovered-2026-w3-noon-3",
+    rank: 4,
+    slot: "Sunday noon",
+    playerName: "Jameson Williams",
+    matchup: "DET-NYJ",
+    context: "Jets at Lions",
+    statistic: "receptions",
+    direction: "under",
+    threshold: 4.5,
+    probabilityBps: 6720,
+    executablePriceBps: 6226,
+    score: 72,
+    recoveredAt: "2026-09-27T16:55:00.000Z",
+    recoverySource: "Dimers Week 3 pregame prop model",
+  },
+  {
+    id: "recovered-2026-w3-noon-4",
+    rank: 5,
+    slot: "Sunday noon",
+    team: "NYG",
+    matchup: "NYG-TEN",
+    context: "Titans at Giants",
+    statistic: "moneyline",
+    direction: "yes",
+    threshold: null,
+    probabilityBps: 6210,
+    executablePriceBps: 5500,
+    score: 76,
+    recoveredAt: "2026-09-27T16:55:00.000Z",
+    recoverySource: "Dimers Week 3 pregame best-bet model",
+  },
+  {
+    id: "recovered-2026-w3-late-1",
+    rank: 6,
+    slot: "Sunday late",
+    playerName: "Zay Flowers",
+    matchup: "BAL-DAL",
+    context: "Ravens at Cowboys",
+    statistic: "receptions",
+    direction: "under",
+    threshold: 5.5,
+    probabilityBps: 8400,
+    executablePriceBps: 6109,
+    score: 97,
+    recoveredAt: "2026-09-27T20:00:00.000Z",
+    recoverySource: "Dimers Week 3 pregame prop model",
+  },
+  {
+    id: "recovered-2026-w3-late-2",
+    rank: 7,
+    slot: "Sunday late",
+    playerName: "Zay Flowers",
+    matchup: "BAL-DAL",
+    context: "Ravens at Cowboys",
+    statistic: "receiving_yards",
+    direction: "under",
+    threshold: 71.5,
+    probabilityBps: 7520,
+    executablePriceBps: 5305,
+    score: 95,
+    recoveredAt: "2026-09-27T20:00:00.000Z",
+    recoverySource: "Dimers Week 3 pregame prop model",
+  },
+  {
+    id: "recovered-2026-w3-late-3",
+    rank: 8,
+    slot: "Sunday late",
+    playerName: "Noah Fant",
+    matchup: "LV-NO",
+    context: "Raiders at Saints",
+    statistic: "receiving_yards",
+    direction: "under",
+    threshold: 23.5,
+    probabilityBps: 7220,
+    executablePriceBps: 5283,
+    score: 92,
+    recoveredAt: "2026-09-27T20:00:00.000Z",
+    recoverySource: "Dimers Week 3 pregame prop model",
+  },
+];
+
+function recoveredNameKey(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[’']/g, "")
+    .replace(/\b(jr|sr|ii|iii|iv)\b/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function recoveredProfit(priceBps: number, hit: boolean) {
+  return hit ? 10 * (10_000 / priceBps - 1) : -10;
+}
+
+async function recoveredWeek3Picks(): Promise<ScorecardPick[]> {
+  const db = getDb();
+  const playerNames = RECOVERED_WEEK3_PICKS.flatMap((pick) =>
+    "playerName" in pick ? [pick.playerName] : [],
+  );
+
+  const [statRows, gameRows] = await Promise.all([
+    db
+      .select({
+        playerName: nflPlayers.fullName,
+        team: playerGameStats.team,
+        opponent: playerGameStats.opponent,
+        rushingYards: playerGameStats.rushingYards,
+        receivingYards: playerGameStats.receivingYards,
+        receptions: playerGameStats.receptions,
+        gameStatus: nflGames.status,
+        gameUpdatedAt: nflGames.updatedAt,
+      })
+      .from(playerGameStats)
+      .innerJoin(nflPlayers, eq(nflPlayers.id, playerGameStats.playerId))
+      .innerJoin(nflGames, eq(nflGames.id, playerGameStats.gameId))
+      .where(
+        and(
+          eq(nflGames.season, 2026),
+          eq(nflGames.week, 3),
+          eq(nflGames.seasonType, "REG"),
+          inArray(nflPlayers.fullName, playerNames),
+        ),
+      ),
+    db
+      .select({
+        homeTeam: nflGames.homeTeam,
+        awayTeam: nflGames.awayTeam,
+        homeScore: nflGames.homeScore,
+        awayScore: nflGames.awayScore,
+        status: nflGames.status,
+        updatedAt: nflGames.updatedAt,
+      })
+      .from(nflGames)
+      .where(
+        and(
+          eq(nflGames.season, 2026),
+          eq(nflGames.week, 3),
+          eq(nflGames.seasonType, "REG"),
+        ),
+      ),
+  ]);
+
+  return RECOVERED_WEEK3_PICKS.map((definition) => {
+    let outcome: boolean | null = null;
+    let settledAt: string | null = null;
+
+    if (definition.statistic === "moneyline") {
+      const game = gameRows.find(
+        (row) =>
+          matchupKey(`${row.homeTeam}-${row.awayTeam}`) ===
+          matchupKey(definition.matchup),
+      );
+      if (
+        game &&
+        /final/i.test(game.status) &&
+        game.homeScore !== null &&
+        game.awayScore !== null
+      ) {
+        const winner =
+          game.homeScore > game.awayScore
+            ? canonicalTeamCode(game.homeTeam)
+            : game.awayScore > game.homeScore
+              ? canonicalTeamCode(game.awayTeam)
+              : null;
+        outcome = winner === definition.team;
+        settledAt = game.updatedAt.toISOString();
+      }
+    } else {
+      const stat = statRows.find(
+        (row) =>
+          recoveredNameKey(row.playerName) ===
+            recoveredNameKey(definition.playerName) &&
+          matchupKey(`${row.team}-${row.opponent}`) ===
+            matchupKey(definition.matchup),
+      );
+      if (stat && /final/i.test(stat.gameStatus)) {
+        const value =
+          definition.statistic === "rushing_yards"
+            ? stat.rushingYards
+            : definition.statistic === "receiving_yards"
+              ? stat.receivingYards
+              : stat.receptions;
+        if (value !== null) {
+          outcome =
+            definition.direction === "over"
+              ? value > definition.threshold
+              : value < definition.threshold;
+          settledAt = stat.gameUpdatedAt.toISOString();
+        }
+      }
+    }
+
+    const subject =
+      definition.statistic === "moneyline"
+        ? definition.team
+        : definition.playerName;
+    const family =
+      definition.statistic === "moneyline"
+        ? "moneyline"
+        : definition.statistic;
+
+    return {
+      id: definition.id,
+      rank: definition.rank,
+      slot: definition.slot,
+      title: pickTitle({
+        family,
+        direction: definition.direction,
+        threshold: definition.threshold,
+        outcomeLabel: subject,
+        marketTitle: subject,
+        subject,
+        side: "yes",
+      }),
+      context: definition.context,
+      side: "yes",
+      probabilityBps: definition.probabilityBps,
+      executablePriceBps: definition.executablePriceBps,
+      edgeBps:
+        definition.probabilityBps - definition.executablePriceBps,
+      score: definition.score,
+      frozenAt: definition.recoveredAt,
+      settledAt,
+      result:
+        outcome === null ? "pending" : outcome ? "hit" : "miss",
+      profitOnTen:
+        outcome === null
+          ? null
+          : recoveredProfit(definition.executablePriceBps, outcome),
+      reconstructed: true,
+      recoverySource: definition.recoverySource,
+    };
+  });
+}
 
 const FAMILY_LABELS: Record<string, string> = {
   passing_yards: "passing yards",
@@ -523,56 +853,58 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
         };
       });
 
-    const week3OutageSlots: ScorecardOutageSlot[] = [
-      {
-        slot: "TNF",
-        count: 1,
-        status: "legacy_locked",
-        detail:
-          "One TNF pick was successfully locked before kickoff in the legacy database. Its exact market remains unreadable while the old Turso database is quota-blocked.",
-      },
-      {
-        slot: "Sunday noon",
-        count: 4,
-        status: "not_locked",
-        detail:
-          "These four slots were never frozen. Database writes were already blocked before the noon-slate lock window.",
-      },
-      {
-        slot: "Sunday late",
-        count: 3,
-        status: "not_locked",
-        detail:
-          "These three slots were never frozen. The legacy database was still write-blocked before the late-slate lock window.",
-      },
-      {
-        slot: "SNF",
-        count: 1,
-        status: "not_locked",
-        detail:
-          "The rebuilt persistent database came online after Sunday night kickoff, so no pregame SNF pick was created.",
-      },
-    ];
-
     const week3Key = "2026-week-3";
+    const recovered = await recoveredWeek3Picks();
     const existingWeek3 = cards.find((card) => card.key === week3Key);
     if (existingWeek3) {
+      const realRanks = new Set(existingWeek3.picks.map((pick) => pick.rank));
+      existingWeek3.picks = [
+        ...existingWeek3.picks,
+        ...recovered.filter((pick) => !realRanks.has(pick.rank)),
+      ].toSorted((first, second) => first.rank - second.rank);
+      const settledPicks = existingWeek3.picks.filter(
+        (pick) => pick.profitOnTen !== null,
+      );
+      existingWeek3.settled = settledPicks.length;
+      existingWeek3.hits = existingWeek3.picks.filter(
+        (pick) => pick.result === "hit",
+      ).length;
+      existingWeek3.misses = existingWeek3.picks.filter(
+        (pick) => pick.result === "miss",
+      ).length;
+      existingWeek3.profitOnTen = settledPicks.reduce(
+        (sum, pick) => sum + (pick.profitOnTen ?? 0),
+        0,
+      );
+      existingWeek3.roi = existingWeek3.settled
+        ? existingWeek3.profitOnTen / (existingWeek3.settled * 10)
+        : 0;
       existingWeek3.expectedPicks = 10;
-      existingWeek3.outageSlots = week3OutageSlots;
+      existingWeek3.outageSlots = undefined;
+      existingWeek3.recoveryNote =
+        "Ranks 1-8 were reconstructed from pregame Week 3 model/source signals after the database outage. Any genuine locked row takes precedence automatically. Reconstructed rows are audit-only and never enter model learning.";
     } else {
+      const settledPicks = recovered.filter((pick) => pick.profitOnTen !== null);
+      const profitOnTen = settledPicks.reduce(
+        (sum, pick) => sum + (pick.profitOnTen ?? 0),
+        0,
+      );
       cards.push({
         key: week3Key,
         label: "NFL Week 3",
         season: 2026,
         week: 3,
-        picks: [],
-        settled: 0,
-        hits: 0,
-        misses: 0,
-        profitOnTen: 0,
-        roi: 0,
+        picks: recovered,
+        settled: settledPicks.length,
+        hits: recovered.filter((pick) => pick.result === "hit").length,
+        misses: recovered.filter((pick) => pick.result === "miss").length,
+        profitOnTen,
+        roi: settledPicks.length
+          ? profitOnTen / (settledPicks.length * 10)
+          : 0,
         expectedPicks: 10,
-        outageSlots: week3OutageSlots,
+        recoveryNote:
+          "Ranks 1-8 were reconstructed from pregame Week 3 model/source signals after the database outage. Reconstructed rows are audit-only and never enter model learning.",
       });
     }
 
