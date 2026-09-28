@@ -816,6 +816,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
           ...MONEYLINE_SOURCE_INFO[source],
           moneylineOnly: true,
           coverageCount: 0,
+          recoveredCoverageCount: 0,
           lastCapturedAt: null as string | null,
           lastGradedAt: null as string | null,
         })),
