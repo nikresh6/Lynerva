@@ -451,7 +451,7 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
       grouped.set(key, group);
     }
 
-    const cards = [...grouped.entries()]
+    const cards: WeeklyScorecard[] = [...grouped.entries()]
       .map(([key, picksRows]) => {
         const first = picksRows[0]!;
         const picks: ScorecardPick[] = picksRows.map((row) => {
