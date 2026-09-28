@@ -249,6 +249,22 @@ const RECOVERED_WEEK3_PICKS: RecoveredWeek3Definition[] = [
     recoveredAt: "2026-09-27T20:00:00.000Z",
     recoverySource: "Dimers Week 3 pregame prop model",
   },
+  {
+    id: "recovered-2026-w3-snf-1",
+    rank: 9,
+    slot: "SNF",
+    playerName: "Jaylen Waddle",
+    matchup: "DEN-LAR",
+    context: "Rams at Broncos",
+    statistic: "receptions",
+    direction: "under",
+    threshold: 5.5,
+    probabilityBps: 7100,
+    executablePriceBps: 6420,
+    score: 86,
+    recoveredAt: "2026-09-28T00:15:00.000Z",
+    recoverySource: "Dimers Week 3 pregame prop board, 71.0% model probability and 6.8% edge",
+  },
 ];
 
 function recoveredNameKey(value: string) {
@@ -882,7 +898,7 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
       existingWeek3.expectedPicks = 10;
       existingWeek3.outageSlots = undefined;
       existingWeek3.recoveryNote =
-        "Ranks 1-8 were reconstructed from pregame Week 3 model/source signals after the database outage. Any genuine locked row takes precedence automatically. Reconstructed rows are audit-only and never enter model learning.";
+        "Ranks 1-9 were reconstructed from pregame Week 3 model/source signals after the database outage. Any genuine locked row takes precedence automatically. Reconstructed rows are audit-only and never enter model learning.";
     } else {
       const settledPicks = recovered.filter((pick) => pick.profitOnTen !== null);
       const profitOnTen = settledPicks.reduce(
@@ -904,7 +920,7 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
           : 0,
         expectedPicks: 10,
         recoveryNote:
-          "Ranks 1-8 were reconstructed from pregame Week 3 model/source signals after the database outage. Reconstructed rows are audit-only and never enter model learning.",
+          "Ranks 1-9 were reconstructed from pregame Week 3 model/source signals after the database outage. Reconstructed rows are audit-only and never enter model learning.",
       });
     }
 
