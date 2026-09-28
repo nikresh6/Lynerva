@@ -36,10 +36,7 @@ const MODEL_ID = "model_hybrid_consensus_learning_v6";
 const WRITE_CHUNK_SIZE = 50;
 const RECENT_ROW_LIMIT = 10_000;
 const LISTING_MAX_AGE_MS = 60 * 60_000;
-const PREDICTION_MAX_AGE_MS = 60 * 60_000;
-const NON_PRIORITY_PREDICTION_MIN_AGE_MS = 30 * 60_000;
-const PRIORITY_PREDICTION_MAX_AGE_MS = 5 * 60_000;
-const PRIORITY_PREDICTION_COUNT = 200;
+const PREDICTION_CHANGE_THRESHOLD_BPS = 25;
 
 type PredictionState = {
   predictedProbabilityBps: number;
@@ -104,29 +101,6 @@ export async function persistMarkets(payload: MarketsPayload) {
   // state in memory instead of re-scanning large Turso tables every five
   // minutes. A process restart simply causes one fresh persistence pass.
   await ensurePersistenceIndexes();
-
-  const priorityPredictionListingIds = new Set(
-    payload.opportunities
-      .filter(
-        (opportunity) =>
-          !opportunity.isLive &&
-          opportunity.model.probabilityBps !== null &&
-          opportunity.executablePriceBps !== null &&
-          opportunity.edgeBps !== null,
-      )
-      .toSorted(
-        (first, second) =>
-          (second.lynervaScore ?? second.opportunityScore ?? -Infinity) -
-          (first.lynervaScore ?? first.opportunityScore ?? -Infinity),
-      )
-      .slice(0, PRIORITY_PREDICTION_COUNT)
-      .map((opportunity) =>
-        stableId(
-          "listing",
-          `${opportunity.platform}:${opportunity.platformMarketId}:${opportunity.platformOutcomeId ?? "yes"}`,
-        ),
-      ),
-  );
 
   await db
     .insert(modelVersions)
@@ -584,40 +558,32 @@ export async function persistMarkets(payload: MarketsPayload) {
         continue;
       }
 
+      // Only persist pregame state. Once kickoff happens the last pregame row
+      // stays frozen until settlement, so live information can never leak into
+      // historical calibration or the weekly scorecard.
+      if (opportunity.isLive || opportunity.status !== "open") continue;
+
       const latestPrediction = predictionStateByListing.get(listingId);
       const recommendedProbabilityBps =
         opportunity.recommendedProbabilityBps ??
         opportunity.model.probabilityBps;
-      const predictionAgeMs = latestPrediction
-        ? now.getTime() - latestPrediction.predictedAt.getTime()
-        : Infinity;
-      const priorityPrediction = priorityPredictionListingIds.has(listingId);
-      const materialPredictionChange =
-        !!latestPrediction &&
-        (Math.abs(
-          latestPrediction.predictedProbabilityBps -
-            recommendedProbabilityBps,
-        ) >= 100 ||
-          Math.abs(
-            latestPrediction.executablePriceBps -
-              opportunity.executablePriceBps,
-          ) >= 100);
-      const minPredictionAgeMs = priorityPrediction
-        ? PRIORITY_PREDICTION_MAX_AGE_MS
-        : NON_PRIORITY_PREDICTION_MIN_AGE_MS;
-      const maxPredictionAgeMs = priorityPrediction
-        ? PRIORITY_PREDICTION_MAX_AGE_MS
-        : PREDICTION_MAX_AGE_MS;
       const predictionChanged =
         !latestPrediction ||
-        predictionAgeMs >= maxPredictionAgeMs ||
-        (materialPredictionChange &&
-          predictionAgeMs >= minPredictionAgeMs);
+        Math.abs(
+          latestPrediction.predictedProbabilityBps -
+            recommendedProbabilityBps,
+        ) >= PREDICTION_CHANGE_THRESHOLD_BPS ||
+        Math.abs(
+          latestPrediction.executablePriceBps -
+            opportunity.executablePriceBps,
+        ) >= PREDICTION_CHANGE_THRESHOLD_BPS;
 
       if (!predictionChanged) continue;
 
       predictionRows.push({
-        id: crypto.randomUUID(),
+        // One mutable pregame prediction row per listing. Historical locked
+        // scorecard picks are cloned into immutable rows by scorecard.ts.
+        id: stableId("prediction_current", listingId),
         normalizedMarketId: normalizedId,
         listingId,
         modelVersionId: MODEL_ID,
@@ -694,7 +660,26 @@ export async function persistMarkets(payload: MarketsPayload) {
     }
 
     if (predictionRows.length) {
-      await db.insert(predictions).values(predictionRows);
+      await db
+        .insert(predictions)
+        .values(predictionRows)
+        .onConflictDoUpdate({
+          target: predictions.id,
+          set: {
+            normalizedMarketId: sql`excluded.normalized_market_id`,
+            listingId: sql`excluded.listing_id`,
+            modelVersionId: sql`excluded.model_version_id`,
+            predictedProbabilityBps: sql`excluded.predicted_probability_bps`,
+            executablePriceBps: sql`excluded.executable_price_bps`,
+            edgeBps: sql`excluded.edge_bps`,
+            reliabilityBps: sql`excluded.reliability_bps`,
+            opportunityScore: sql`excluded.opportunity_score`,
+            sampleSize: sql`excluded.sample_size`,
+            features: sql`excluded.features`,
+            explanation: sql`excluded.explanation`,
+            predictedAt: sql`excluded.predicted_at`,
+          },
+        });
       predictionsStored += predictionRows.length;
       for (const row of predictionRows) {
         predictionStateByListing.set(row.listingId, {

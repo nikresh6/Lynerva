@@ -16,11 +16,16 @@ import {
 import { runMoneylineSourceLearning } from "@/lib/model/moneyline-learning";
 import { settleKalshiPredictions } from "@/lib/model/results";
 import { lockEligibleScorecards } from "@/lib/model/scorecard";
+import {
+  allowBulkDatabaseWrites,
+  runStorageMaintenance,
+} from "@/lib/db/storage-maintenance";
+import { applyWeek3ProjectionRecovery } from "@/lib/recovery/week3-source-projections";
 
 const MARKET_INITIAL_DELAY_MS = 15_000;
 const MARKET_INTERVAL_MS = 5 * 60_000;
 const NFLVERSE_INITIAL_DELAY_MS = 30_000;
-const NFLVERSE_INTERVAL_MS = 2 * 60 * 60_000;
+const NFLVERSE_INTERVAL_MS = 12 * 60 * 60_000;
 const FINAL_GRADING_INITIAL_DELAY_MS = 60_000;
 const FINAL_GRADING_INTERVAL_MS = 30 * 60_000;
 
@@ -67,6 +72,11 @@ function databaseBackoffActive() {
   return Date.now() < databaseBlockedUntil;
 }
 
+function memoryPressureHigh() {
+  const rssMb = process.memoryUsage().rss / 1024 / 1024;
+  return rssMb >= 780;
+}
+
 function logJob(
   job: string,
   status: "started" | "completed" | "failed",
@@ -87,13 +97,31 @@ async function persistCurrentMarkets() {
   logJob("markets", "started");
 
   try {
+    await runStorageMaintenance();
+    await applyWeek3ProjectionRecovery();
+    if (!(await allowBulkDatabaseWrites())) {
+      logJob("markets", "completed", {
+        skipped: "database storage emergency",
+      });
+      return;
+    }
+    if (memoryPressureHigh()) {
+      logJob("markets", "completed", {
+        skipped: "memory pressure",
+        rssMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+      });
+      return;
+    }
+
     const payload = await getFreshMarketOpportunities();
     const stored = await persistMarkets(payload);
     await lockEligibleScorecards();
+    await runStorageMaintenance();
     logJob("markets", "completed", {
       sourceProjectionsStored: stored.sourceProjectionsStored,
       listingsStored: stored.listingsStored,
       snapshotsStored: stored.snapshotsStored,
+      predictionsStored: stored.predictionsStored,
     });
   } catch (error) {
     noteDatabaseBlock(error);
@@ -175,6 +203,7 @@ async function gradeFinalEspnGames() {
         ...rows.map((row) => ({
           week,
           playerName: row.playerName,
+          kickoffAt: new Date(game.startsAt),
           passingYards: row.passingYards,
           passingTouchdowns: row.passingTouchdowns,
           passingInterceptions: row.passingInterceptions,
@@ -245,14 +274,16 @@ export function startRailwayBackgroundJobs() {
   globalState.__lynervaRailwaySchedulerStarted = true;
 
   console.info(
-    "[lynerva-background] Railway scheduler active: markets and scorecard locks every 5m, ESPN final grading every 30m, nflverse backfill every 2h.",
+    "[lynerva-background] Railway scheduler active: bounded market state and scorecard locks every 5m, ESPN final grading every 30m, nflverse durability backfill every 12h.",
   );
 
   // Market persistence runs every five minutes so each scorecard slate can
   // freeze against the latest snapshot at its five-minute pre-kickoff cutoff.
   // Source projections themselves remain first-capture immutable for learning.
   // Final ESPN box scores grade completed games quickly,
-  // while nflverse remains the durable historical backfill. Learned weights
+  // while nflverse remains the durable historical backfill. The full-season
+  // ingest runs twice daily instead of every two hours to reduce Railway CPU
+  // and network churn. Learned weights
   // remain effective for the following week, so partial Sunday results never
   // leak into later games from the same NFL week.
   recurringJob(

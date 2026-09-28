@@ -20,6 +20,12 @@ async function main() {
   });
 
   try {
+    if (url.startsWith("file:")) {
+      await client.execute("PRAGMA auto_vacuum = INCREMENTAL");
+      await client.execute("PRAGMA journal_mode = WAL");
+      await client.execute("PRAGMA synchronous = NORMAL");
+      await client.execute("PRAGMA busy_timeout = 5000");
+    }
     const db = drizzle(client);
     await migrate(db, { migrationsFolder: "./drizzle" });
     console.log(
