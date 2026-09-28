@@ -137,6 +137,7 @@ export type ProjectionPerformanceRow = {
   source: string;
   statistic: string;
   sampleSize: number;
+  learningSampleSize: number;
   recoveredSampleSize: number;
   meanAbsoluteError: number;
   medianAbsoluteError: number;
@@ -288,6 +289,9 @@ export async function getProjectionSourcePerformance(season = 2026) {
           statistic: sourceWeightHistory.statistic,
           weight: sourceWeightHistory.weight,
           effectiveWeek: sourceWeightHistory.effectiveWeek,
+          sampleSize: sourceWeightHistory.sampleSize,
+          mae: sourceWeightHistory.mae,
+          recentMae: sourceWeightHistory.recentMae,
         })
         .from(sourceWeightHistory)
         .where(eq(sourceWeightHistory.season, season))
@@ -402,17 +406,52 @@ export async function getProjectionSourcePerformance(season = 2026) {
       ]),
     );
 
-    const baselineWeight = 1 / Math.max(ACTIVE_PROJECTION_SOURCES.length, 1);
+    const currentBaselineWeight =
+      1 / Math.max(ACTIVE_PROJECTION_SOURCES.length, 1);
+    const legacyBaselineByStatistic = new Map<string, number>();
+    const firstWeightWeekByStatistic = new Map<string, number>();
+    for (const row of weightRows) {
+      const previous = firstWeightWeekByStatistic.get(row.statistic);
+      if (previous === undefined || row.effectiveWeek < previous) {
+        firstWeightWeekByStatistic.set(row.statistic, row.effectiveWeek);
+      }
+    }
+    for (const [statistic, week] of firstWeightWeekByStatistic) {
+      const sourcesAtStart = new Set(
+        weightRows
+          .filter(
+            (row) =>
+              row.statistic === statistic && row.effectiveWeek === week,
+          )
+          .map((row) => row.source),
+      );
+      if (sourcesAtStart.size) {
+        legacyBaselineByStatistic.set(statistic, 1 / sourcesAtStart.size);
+      }
+    }
+
     const weightHistoryByKey = new Map<
       string,
-      Array<{ week: number; weight: number }>
+      Array<{
+        week: number;
+        weight: number;
+        sampleSize: number;
+        mae: number | null;
+        recentMae: number | null;
+      }>
     >();
 
     for (const row of weightRows) {
       const key = `${row.statistic}:${row.source}`;
       const history = weightHistoryByKey.get(key) ?? [];
       if (!history.some((item) => item.week === row.effectiveWeek)) {
-        history.push({ week: row.effectiveWeek, weight: row.weight });
+        history.push({
+          week: row.effectiveWeek,
+          weight: row.weight,
+          sampleSize: row.sampleSize,
+          mae: row.mae,
+          recentMae: row.recentMae,
+        });
       }
       weightHistoryByKey.set(key, history);
     }
@@ -483,6 +522,11 @@ export async function getProjectionSourcePerformance(season = 2026) {
         const weightHistory = weightHistoryByKey.get(weightKey) ?? [];
         const latestWeight = weightHistory.at(-1) ?? null;
         const priorWeight = weightHistory.at(-2) ?? null;
+        const baselineWeight =
+          latestWeight
+            ? legacyBaselineByStatistic.get(group.statistic) ??
+              currentBaselineWeight
+            : currentBaselineWeight;
         const previousWeight = latestWeight
           ? priorWeight?.weight ?? baselineWeight
           : null;
@@ -506,6 +550,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
           source: group.source,
           statistic: group.statistic,
           sampleSize,
+          learningSampleSize: latestWeight?.sampleSize ?? 0,
           recoveredSampleSize: group.recoveredCount,
           meanAbsoluteError:
             group.abs.reduce((sum, value) => sum + value, 0) /
@@ -531,7 +576,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
               actualValue: example.actualValue,
               absoluteError: example.error,
             })),
-          weight: latestWeight?.weight ?? null,
+          weight: latestWeight?.weight ?? baselineWeight,
           baselineWeight,
           previousWeight,
           previousWeightWeek: priorWeight?.week ?? null,
@@ -560,7 +605,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
       return {
         ...row,
         learnedTarget: total > 0 ? strength / total : 1 / 6,
-        confidence: clamp((row.sampleSize - 20) / 180, 0, 0.75),
+        confidence: clamp((row.learningSampleSize - 20) / 180, 0, 0.75),
       };
     });
 

@@ -28,6 +28,83 @@ const LEARNABLE_STATISTICS = new Set([
   "touchdowns",
 ]);
 
+type LegacySourceWeightRow = {
+  statistic: string;
+  source: string;
+  weight: number;
+  sampleSize: number;
+  mae: number | null;
+  recentMae: number | null;
+};
+
+// Exact Week 3 weight history recovered from the production audit that ran
+// against the original Turso database on 2026-09-21 before the quota outage.
+// These rows are original learned state, not postgame reconstruction.
+const LEGACY_WEEK3_SOURCE_WEIGHTS: LegacySourceWeightRow[] = [
+  { statistic: "passing_interceptions", source: "cbs", weight: 0.1672, sampleSize: 34, mae: 0.6323529411764706, recentMae: 0.6323529411764706 },
+  { statistic: "passing_interceptions", source: "espn", weight: 0.1668, sampleSize: 28, mae: 0.6096824288214285, recentMae: 0.6096824288214285 },
+  { statistic: "passing_interceptions", source: "fantasypros", weight: 0.1652, sampleSize: 10, mae: 0.74, recentMae: 0.74 },
+  { statistic: "passing_interceptions", source: "numberfire", weight: 0.1652, sampleSize: 0, mae: null, recentMae: null },
+  { statistic: "passing_interceptions", source: "rotoballer", weight: 0.1675, sampleSize: 30, mae: 0.6233333333333334, recentMae: 0.6233333333333334 },
+  { statistic: "passing_interceptions", source: "sleeper", weight: 0.1680, sampleSize: 30, mae: 0.5963333333333332, recentMae: 0.5963333333333332 },
+
+  { statistic: "passing_touchdowns", source: "cbs", weight: 0.1672, sampleSize: 36, mae: 0.8305555555555556, recentMae: 0.8305555555555556 },
+  { statistic: "passing_touchdowns", source: "espn", weight: 0.1667, sampleSize: 28, mae: 0.9433765000000002, recentMae: 0.9433765000000002 },
+  { statistic: "passing_touchdowns", source: "fantasypros", weight: 0.1666, sampleSize: 10, mae: 1, recentMae: 1 },
+  { statistic: "passing_touchdowns", source: "numberfire", weight: 0.1666, sampleSize: 18, mae: 0.9905555555555554, recentMae: 0.9905555555555554 },
+  { statistic: "passing_touchdowns", source: "rotoballer", weight: 0.1662, sampleSize: 30, mae: 0.98, recentMae: 0.98 },
+  { statistic: "passing_touchdowns", source: "sleeper", weight: 0.1668, sampleSize: 30, mae: 0.979, recentMae: 0.979 },
+
+  { statistic: "passing_yards", source: "cbs", weight: 0.1672, sampleSize: 36, mae: 52.04166666666666, recentMae: 52.04166666666666 },
+  { statistic: "passing_yards", source: "espn", weight: 0.1672, sampleSize: 28, mae: 48.95316311428572, recentMae: 48.95316311428572 },
+  { statistic: "passing_yards", source: "fantasypros", weight: 0.1665, sampleSize: 10, mae: 54.28000000000001, recentMae: 54.28000000000001 },
+  { statistic: "passing_yards", source: "numberfire", weight: 0.1665, sampleSize: 18, mae: 58.96444444444445, recentMae: 58.96444444444445 },
+  { statistic: "passing_yards", source: "rotoballer", weight: 0.1660, sampleSize: 30, mae: 55.28333333333334, recentMae: 55.28333333333334 },
+  { statistic: "passing_yards", source: "sleeper", weight: 0.1665, sampleSize: 30, mae: 54.784666666666666, recentMae: 54.784666666666666 },
+
+  { statistic: "receiving_touchdowns", source: "cbs", weight: 0.1721, sampleSize: 242, mae: 0.2681818181818186, recentMae: 0.1474999999999999 },
+  { statistic: "receiving_touchdowns", source: "espn", weight: 0.1830, sampleSize: 247, mae: 0.2482771462672065, recentMae: 0.119538566025 },
+  { statistic: "receiving_touchdowns", source: "fantasypros", weight: 0.1379, sampleSize: 28, mae: 0.5964285714285714, recentMae: 0.5964285714285714 },
+  { statistic: "receiving_touchdowns", source: "numberfire", weight: 0.1410, sampleSize: 0, mae: null, recentMae: null },
+  { statistic: "receiving_touchdowns", source: "rotoballer", weight: 0.1830, sampleSize: 228, mae: 0.2649122807017548, recentMae: 0.20999999999999988 },
+  { statistic: "receiving_touchdowns", source: "sleeper", weight: 0.1830, sampleSize: 284, mae: 0.23683098591549295, recentMae: 0.14549999999999996 },
+
+  { statistic: "receiving_yards", source: "cbs", weight: 0.1746, sampleSize: 242, mae: 16.855371900826444, recentMae: 12.185 },
+  { statistic: "receiving_yards", source: "espn", weight: 0.1694, sampleSize: 247, mae: 17.333761914133603, recentMae: 14.854364992549996 },
+  { statistic: "receiving_yards", source: "fantasypros", weight: 0.1498, sampleSize: 28, mae: 28.710714285714285, recentMae: 28.710714285714285 },
+  { statistic: "receiving_yards", source: "numberfire", weight: 0.1486, sampleSize: 33, mae: 28.277878787878787, recentMae: 28.277878787878787 },
+  { statistic: "receiving_yards", source: "rotoballer", weight: 0.1608, sampleSize: 228, mae: 18.078070175438587, recentMae: 17.67 },
+  { statistic: "receiving_yards", source: "sleeper", weight: 0.1967, sampleSize: 284, mae: 14.89820422535212, recentMae: 13.960499999999993 },
+
+  { statistic: "receptions", source: "cbs", weight: 0.1730, sampleSize: 242, mae: 1.2764462809917363, recentMae: 1.085 },
+  { statistic: "receptions", source: "espn", weight: 0.1737, sampleSize: 247, mae: 1.2926920162833997, recentMae: 1.1799911855749996 },
+  { statistic: "receptions", source: "fantasypros", weight: 0.1557, sampleSize: 28, mae: 1.9107142857142856, recentMae: 1.9107142857142856 },
+  { statistic: "receptions", source: "numberfire", weight: 0.1544, sampleSize: 33, mae: 1.9712121212121216, recentMae: 1.9712121212121216 },
+  { statistic: "receptions", source: "rotoballer", weight: 0.1588, sampleSize: 228, mae: 1.322807017543859, recentMae: 1.3050000000000002 },
+  { statistic: "receptions", source: "sleeper", weight: 0.1844, sampleSize: 284, mae: 1.1391901408450702, recentMae: 1.19975 },
+
+  { statistic: "rushing_touchdowns", source: "cbs", weight: 0.1810, sampleSize: 209, mae: 0.15645933014354074, recentMae: 0.07500000000000002 },
+  { statistic: "rushing_touchdowns", source: "espn", weight: 0.1810, sampleSize: 156, mae: 0.22387201169871784, recentMae: 0.08042228592500003 },
+  { statistic: "rushing_touchdowns", source: "fantasypros", weight: 0.1461, sampleSize: 28, mae: 0.3928571428571429, recentMae: 0.3928571428571429 },
+  { statistic: "rushing_touchdowns", source: "numberfire", weight: 0.1470, sampleSize: 0, mae: null, recentMae: null },
+  { statistic: "rushing_touchdowns", source: "rotoballer", weight: 0.1639, sampleSize: 118, mae: 0.288135593220339, recentMae: 0.2399999999999999 },
+  { statistic: "rushing_touchdowns", source: "sleeper", weight: 0.1810, sampleSize: 224, mae: 0.1617410714285714, recentMae: 0.07299999999999994 },
+
+  { statistic: "rushing_yards", source: "cbs", weight: 0.2024, sampleSize: 207, mae: 9.645410628019327, recentMae: 4.4325 },
+  { statistic: "rushing_yards", source: "espn", weight: 0.1598, sampleSize: 156, mae: 12.550317809846153, recentMae: 3.986641728375001 },
+  { statistic: "rushing_yards", source: "fantasypros", weight: 0.1399, sampleSize: 36, mae: 16.825000000000003, recentMae: 16.825000000000003 },
+  { statistic: "rushing_yards", source: "numberfire", weight: 0.1435, sampleSize: 0, mae: null, recentMae: null },
+  { statistic: "rushing_yards", source: "rotoballer", weight: 0.1319, sampleSize: 119, mae: 15.02521008403361, recentMae: 8.967499999999998 },
+  { statistic: "rushing_yards", source: "sleeper", weight: 0.2224, sampleSize: 224, mae: 9.20625, recentMae: 3.776499999999998 },
+
+  { statistic: "touchdowns", source: "cbs", weight: 0.1567, sampleSize: 187, mae: 0.3962566844919787, recentMae: 0.39 },
+  { statistic: "touchdowns", source: "espn", weight: 0.1852, sampleSize: 206, mae: 0.35109375659223285, recentMae: 0.29746306147499996 },
+  { statistic: "touchdowns", source: "fantasypros", weight: 0.1483, sampleSize: 32, mae: 0.6437499999999999, recentMae: 0.6437499999999999 },
+  { statistic: "touchdowns", source: "numberfire", weight: 0.1411, sampleSize: 52, mae: 0.631730769230769, recentMae: 0.6779999999999998 },
+  { statistic: "touchdowns", source: "rotoballer", weight: 0.1828, sampleSize: 192, mae: 0.36666666666666686, recentMae: 0.3399999999999999 },
+  { statistic: "touchdowns", source: "sleeper", weight: 0.1859, sampleSize: 220, mae: 0.3450454545454544, recentMae: 0.29324999999999996 },
+];
+
 type WeightValue = {
   effectiveWeek: number;
   weights: Record<string, number>;
@@ -183,6 +260,42 @@ async function stableId(prefix: string, value: string) {
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
   return `${prefix}_${hex.slice(0, 24)}`;
+}
+
+export async function restoreLegacySourceWeightHistory() {
+  await ensureSourceLearningSchema();
+  const db = getDb();
+  const values = await Promise.all(
+    LEGACY_WEEK3_SOURCE_WEIGHTS.map(async (row) => ({
+      id: await stableId(
+        "source_weight",
+        `2026:3:${row.statistic}:${row.source}`,
+      ),
+      season: 2026,
+      effectiveWeek: 3,
+      statistic: row.statistic,
+      source: row.source,
+      weight: row.weight,
+      sampleSize: row.sampleSize,
+      mae: row.mae,
+      recentMae: row.recentMae,
+    })),
+  );
+
+  let inserted = 0;
+  for (let index = 0; index < values.length; index += 100) {
+    const chunk = values.slice(index, index + 100);
+    if (!chunk.length) continue;
+    await db
+      .insert(sourceWeightHistory)
+      .values(chunk)
+      .onConflictDoNothing({
+        target: sourceWeightHistory.id,
+      });
+    inserted += chunk.length;
+  }
+  weightCache.clear();
+  return { attempted: values.length, inserted };
 }
 
 export async function getLearnedSourceWeights(

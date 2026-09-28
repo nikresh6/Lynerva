@@ -17,6 +17,7 @@ type PerformanceRow = {
   source: string;
   statistic: string;
   sampleSize: number;
+  learningSampleSize: number;
   recoveredSampleSize: number;
   meanAbsoluteError: number;
   medianAbsoluteError: number;
@@ -259,7 +260,7 @@ export function SourceDashboard({
               ["Current slate", coverageWeek ? `Week ${coverageWeek}` : "Waiting"],
               ["Prop reporting", `${playerSourcesReporting}/${playerSources.length} sources`],
               ["Graded rows", totalGrades.toLocaleString()],
-              ["Recovered W3", recoveredRows ? recoveredRows.toLocaleString() : "None"],
+              ["Recovered rows", recoveredRows ? recoveredRows.toLocaleString() : "None"],
             ].map(([label, value]) => (
               <div key={label} className="rounded-2xl border bg-background/70 p-3.5">
                 <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-faint">
@@ -274,8 +275,8 @@ export function SourceDashboard({
 
       {recoveredRows > 0 ? (
         <div className="rounded-2xl border bg-surface p-4 text-xs leading-5 text-muted">
-          <span className="font-semibold text-foreground">Week 3 recovery:</span>{" "}
-          {recoveredRows.toLocaleString()} projection rows were restored after the database outage.
+          <span className="font-semibold text-foreground">Recovered source history:</span>{" "}
+          {recoveredRows.toLocaleString()} current-slate projection rows were restored after the database outage.
           They are shown for coverage and reference, but they are excluded from learned model weights.
         </div>
       ) : null}
@@ -665,6 +666,10 @@ export function SourceDashboard({
                             <div className="flex items-center justify-between rounded-xl border bg-surface px-3 py-2.5">
                               <span className="text-[10px] text-muted">Learning confidence</span>
                               <span className="text-xs font-semibold tabular">{(row.confidence * 100).toFixed(0)}%</span>
+                            </div>
+                            <div className="flex items-center justify-between rounded-xl border bg-surface px-3 py-2.5">
+                              <span className="text-[10px] text-muted">Original learning sample</span>
+                              <span className="text-xs font-semibold tabular">{row.learningSampleSize.toLocaleString()}</span>
                             </div>
                             <div className="flex items-center justify-between rounded-xl border border-accent/25 bg-accent-bg/40 px-3 py-2.5">
                               <span className="text-[10px] font-semibold">Current model influence</span>
