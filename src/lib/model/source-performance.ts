@@ -354,6 +354,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
         : await db
             .select({
               source: sourceProjections.source,
+              provenance: sourceProjections.provenance,
               count: count(),
             })
             .from(sourceProjections)
@@ -363,10 +364,21 @@ export async function getProjectionSourcePerformance(season = 2026) {
                 eq(sourceProjections.week, coverageWeek),
               ),
             )
-            .groupBy(sourceProjections.source);
-    const coverageBySource = new Map(
-      coverageRows.map((row) => [row.source, Number(row.count)]),
-    );
+            .groupBy(sourceProjections.source, sourceProjections.provenance);
+    const coverageBySource = new Map<string, number>();
+    const recoveredCoverageBySource = new Map<string, number>();
+    for (const row of coverageRows) {
+      coverageBySource.set(
+        row.source,
+        (coverageBySource.get(row.source) ?? 0) + Number(row.count),
+      );
+      if (row.provenance !== "live_capture") {
+        recoveredCoverageBySource.set(
+          row.source,
+          (recoveredCoverageBySource.get(row.source) ?? 0) + Number(row.count),
+        );
+      }
+    }
     const projectionUpdatedBySource = new Map(
       latestProjectionRows.map((row) => [
         row.source,
@@ -765,6 +777,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
           ...PROJECTION_SOURCE_INFO[source],
           moneylineOnly: false,
           coverageCount: coverageBySource.get(source) ?? 0,
+          recoveredCoverageCount: recoveredCoverageBySource.get(source) ?? 0,
           lastCapturedAt: projectionUpdatedBySource.get(source) ?? null,
           lastGradedAt: gradeUpdatedBySource.get(source) ?? null,
         })),
@@ -773,6 +786,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
           ...MONEYLINE_SOURCE_INFO[source],
           moneylineOnly: true,
           coverageCount: coverageByMoneylineSource.get(source)?.size ?? 0,
+          recoveredCoverageCount: 0,
           lastCapturedAt:
             latestMoneylineCapture.get(source)?.toISOString() ?? null,
           lastGradedAt:
@@ -793,6 +807,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
           ...PROJECTION_SOURCE_INFO[source],
           moneylineOnly: false,
           coverageCount: 0,
+          recoveredCoverageCount: 0,
           lastCapturedAt: null as string | null,
           lastGradedAt: null as string | null,
         })),
