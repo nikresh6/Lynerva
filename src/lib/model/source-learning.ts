@@ -341,7 +341,6 @@ async function gradeNewSourceProjections(season: number) {
       and(
         eq(sourceProjections.season, season),
         inArray(sourceProjections.week, finalWeeks),
-        eq(sourceProjections.learningEligible, true),
         isNull(sourceProjectionGrades.projectionId),
       ),
     );
@@ -430,7 +429,6 @@ async function gradeSourceProjectionsFromActualRows(
           sourceProjections.week,
           [...new Set(actualRows.map((row) => row.week))],
         ),
-        eq(sourceProjections.learningEligible, true),
         isNull(sourceProjectionGrades.projectionId),
       ),
     );

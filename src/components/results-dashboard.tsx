@@ -112,8 +112,11 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
     : 0;
   const evidenceCopy = useMemo(() => {
     if (!week) return "Nothing is being counted before the answer exists.";
+    if (week.recoveryNote) {
+      return "Week 3 includes recovered picks reconstructed from pregame signals after the database outage. They are labeled below and kept out of model learning.";
+    }
     if (week.outageSlots?.length) {
-      return "Week 3 is being shown as an audit record, not reconstructed with hindsight. Missing locks stay visibly missing and do not affect the record or ROI.";
+      return "Week 3 is being shown as an audit record. Missing locks stay visibly missing and do not affect the record or ROI.";
     }
     if (week.settled === 0) return "Nothing is being counted before the answer exists.";
     if (week.settled < week.picks.length) {
@@ -248,6 +251,13 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
         </section>
       ) : null}
 
+      {week.recoveryNote ? (
+        <div className="rounded-2xl border bg-surface p-4 text-xs leading-5 text-muted">
+          <span className="font-semibold text-foreground">Recovered Week 3 card:</span>{" "}
+          {week.recoveryNote}
+        </div>
+      ) : null}
+
       <section className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
         <EquityCurve week={week} />
         <div className="rounded-2xl border bg-surface p-5">
@@ -284,6 +294,14 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
                     <span className="rounded-full border bg-background px-2 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-muted">
                       {pick.slot}
                     </span>
+                    {pick.reconstructed ? (
+                      <span
+                        className="rounded-full border bg-background px-2 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-muted"
+                        title={pick.recoverySource}
+                      >
+                        Recovered
+                      </span>
+                    ) : null}
                     <span className={cn(
                       "inline-flex items-center gap-1 rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-[0.08em]",
                       pick.result === "hit"
@@ -295,7 +313,9 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
                       {pick.result === "hit" ? <Check className="size-3" /> : pick.result === "miss" ? <X className="size-3" /> : <Clock3 className="size-3" />}
                       {pick.result}
                     </span>
-                    <span className="text-[9px] text-faint">Frozen {shortTime(pick.frozenAt)}</span>
+                    <span className="text-[9px] text-faint">
+                      {pick.reconstructed ? "Recovered cutoff" : "Frozen"} {shortTime(pick.frozenAt)}
+                    </span>
                   </div>
                   <h3 className="mt-2 text-sm font-semibold leading-5">{pick.title}</h3>
                   <p className="mt-1 truncate text-[10px] text-faint">{pick.context}</p>

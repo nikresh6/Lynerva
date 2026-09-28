@@ -137,6 +137,7 @@ export type ProjectionPerformanceRow = {
   source: string;
   statistic: string;
   sampleSize: number;
+  recoveredSampleSize: number;
   meanAbsoluteError: number;
   medianAbsoluteError: number;
   p90AbsoluteError: number;
@@ -273,6 +274,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
           absoluteError: sourceProjectionGrades.absoluteError,
           squaredError: sourceProjectionGrades.squaredError,
           gradedAt: sourceProjectionGrades.gradedAt,
+          provenance: sourceProjections.provenance,
         })
         .from(sourceProjectionGrades)
         .innerJoin(
@@ -354,6 +356,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
         : await db
             .select({
               source: sourceProjections.source,
+              provenance: sourceProjections.provenance,
               count: count(),
             })
             .from(sourceProjections)
@@ -363,10 +366,21 @@ export async function getProjectionSourcePerformance(season = 2026) {
                 eq(sourceProjections.week, coverageWeek),
               ),
             )
-            .groupBy(sourceProjections.source);
-    const coverageBySource = new Map(
-      coverageRows.map((row) => [row.source, Number(row.count)]),
-    );
+            .groupBy(sourceProjections.source, sourceProjections.provenance);
+    const coverageBySource = new Map<string, number>();
+    const recoveredCoverageBySource = new Map<string, number>();
+    for (const row of coverageRows) {
+      coverageBySource.set(
+        row.source,
+        (coverageBySource.get(row.source) ?? 0) + Number(row.count),
+      );
+      if (row.provenance !== "live_capture") {
+        recoveredCoverageBySource.set(
+          row.source,
+          (recoveredCoverageBySource.get(row.source) ?? 0) + Number(row.count),
+        );
+      }
+    }
     const projectionUpdatedBySource = new Map(
       latestProjectionRows.map((row) => [
         row.source,
@@ -415,6 +429,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
         abs: number[];
         squared: number[];
         signed: number[];
+        recoveredCount: number;
         recent: Array<{
           error: number;
           gradedAt: number;
@@ -443,11 +458,13 @@ export async function getProjectionSourcePerformance(season = 2026) {
           abs: [],
           squared: [],
           signed: [],
+          recoveredCount: 0,
           recent: [],
         };
       group.abs.push(row.absoluteError);
       group.squared.push(row.squaredError);
       group.signed.push(row.projectedValue - row.actualValue);
+      if (row.provenance !== "live_capture") group.recoveredCount += 1;
       group.recent.push({
         error: row.absoluteError,
         gradedAt: row.gradedAt.getTime(),
@@ -489,6 +506,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
           source: group.source,
           statistic: group.statistic,
           sampleSize,
+          recoveredSampleSize: group.recoveredCount,
           meanAbsoluteError:
             group.abs.reduce((sum, value) => sum + value, 0) /
             Math.max(sampleSize, 1),
@@ -765,6 +783,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
           ...PROJECTION_SOURCE_INFO[source],
           moneylineOnly: false,
           coverageCount: coverageBySource.get(source) ?? 0,
+          recoveredCoverageCount: recoveredCoverageBySource.get(source) ?? 0,
           lastCapturedAt: projectionUpdatedBySource.get(source) ?? null,
           lastGradedAt: gradeUpdatedBySource.get(source) ?? null,
         })),
@@ -773,6 +792,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
           ...MONEYLINE_SOURCE_INFO[source],
           moneylineOnly: true,
           coverageCount: coverageByMoneylineSource.get(source)?.size ?? 0,
+          recoveredCoverageCount: 0,
           lastCapturedAt:
             latestMoneylineCapture.get(source)?.toISOString() ?? null,
           lastGradedAt:
@@ -793,6 +813,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
           ...PROJECTION_SOURCE_INFO[source],
           moneylineOnly: false,
           coverageCount: 0,
+          recoveredCoverageCount: 0,
           lastCapturedAt: null as string | null,
           lastGradedAt: null as string | null,
         })),
@@ -801,6 +822,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
           ...MONEYLINE_SOURCE_INFO[source],
           moneylineOnly: true,
           coverageCount: 0,
+          recoveredCoverageCount: 0,
           lastCapturedAt: null as string | null,
           lastGradedAt: null as string | null,
         })),
