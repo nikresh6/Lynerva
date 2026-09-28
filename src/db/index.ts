@@ -7,7 +7,7 @@ import * as schema from "./schema";
 let client: Client | undefined;
 let database: LibSQLDatabase<typeof schema> | undefined;
 
-function requireDatabaseUrl() {
+export function activeDatabaseUrl() {
   const url =
     process.env.HUDDLEMARK_DATABASE_URL ??
     process.env.TURSO_DATABASE_URL;
@@ -20,7 +20,7 @@ function requireDatabaseUrl() {
 }
 
 function databaseClientConfig() {
-  const url = requireDatabaseUrl();
+  const url = activeDatabaseUrl();
   return {
     url,
     ...(url.startsWith("file:")
