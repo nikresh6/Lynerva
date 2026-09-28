@@ -288,11 +288,10 @@ function candidatePool(
     perPlayerStat.set(statKey, (perPlayerStat.get(statKey) ?? 0) + 1);
     perGame.set(game, (perGame.get(game) ?? 0) + 1);
     perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
-    // The optimizer runs interactively in the browser. The previous 320-leg
-    // pool expanded into millions of duplicate partial tickets before the
-    // beam could prune them. A quality-ranked 160-leg board still preserves
-    // broad game/player coverage while keeping clicks responsive on phones.
-    if (selected.length >= 160) break;
+    // Keep the interactive optimizer bounded. The full market board can have
+    // thousands of contracts, but the quality-ranked first 96 preserve broad
+    // game/player coverage without exploding the combinatorial beam.
+    if (selected.length >= 96) break;
   }
   return selected;
 }
@@ -539,7 +538,7 @@ function searchCombinations(
   if (eligible.length === 0) return [];
 
   const targetReturn = Math.sqrt(options.minReturn * options.maxReturn);
-  const beamWidth = resultLimit > 1 ? 1_200 : 1_500;
+  const beamWidth = resultLimit > 1 ? 420 : 520;
   let frontier: SearchState[] = [
     {
       legs: [],
@@ -740,7 +739,7 @@ function searchCombinations(
               stateSearchValue(second, targetReturn, options.objective) -
               stateSearchValue(first, targetReturn, options.objective),
           )
-          .slice(0, resultLimit > 1 ? 48 : 56),
+          .slice(0, resultLimit > 1 ? 20 : 24),
       )
       .toSorted(
         (first, second) =>
