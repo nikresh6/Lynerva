@@ -74,6 +74,7 @@ type SourceSummary = {
   note: string;
   moneylineOnly: boolean;
   coverageCount: number;
+  recoveredCoverageCount: number;
   lastCapturedAt: string | null;
   lastGradedAt: string | null;
 };
@@ -224,9 +225,14 @@ export function SourceDashboard({
       .filter((value): value is string => Boolean(value))
       .toSorted()
       .at(-1) ?? null;
-  const sourcesReporting = sources.filter(
+  const playerSources = sources.filter((source) => !source.moneylineOnly);
+  const playerSourcesReporting = playerSources.filter(
     (source) => source.coverageCount > 0,
   ).length;
+  const recoveredRows = playerSources.reduce(
+    (sum, source) => sum + source.recoveredCoverageCount,
+    0,
+  );
 
   return (
     <div className="space-y-8">
@@ -250,9 +256,9 @@ export function SourceDashboard({
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-2">
             {[
               ["Current slate", coverageWeek ? `Week ${coverageWeek}` : "Waiting"],
-              ["Reporting", `${sourcesReporting}/${sources.length} sources`],
+              ["Prop reporting", `${playerSourcesReporting}/${playerSources.length} sources`],
               ["Graded rows", totalGrades.toLocaleString()],
-              ["Season", String(season)],
+              ["Recovered W3", recoveredRows ? recoveredRows.toLocaleString() : "None"],
             ].map(([label, value]) => (
               <div key={label} className="rounded-2xl border bg-background/70 p-3.5">
                 <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-faint">
@@ -264,6 +270,14 @@ export function SourceDashboard({
           </div>
         </div>
       </section>
+
+      {recoveredRows > 0 ? (
+        <div className="rounded-2xl border bg-surface p-4 text-xs leading-5 text-muted">
+          <span className="font-semibold text-foreground">Week 3 recovery:</span>{" "}
+          {recoveredRows.toLocaleString()} projection rows were restored after the database outage.
+          They are shown for coverage and reference, but they are excluded from learned model weights.
+        </div>
+      ) : null}
 
       <section aria-labelledby="freshness-heading">
         <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
@@ -356,6 +370,11 @@ export function SourceDashboard({
                   <div>
                     <p className="text-[9px] uppercase tracking-[0.08em] text-faint">Published rows</p>
                     <p className="mt-1 text-sm font-semibold tabular">{source.coverageCount}</p>
+                    {source.recoveredCoverageCount > 0 ? (
+                      <p className="mt-0.5 text-[8px] text-faint">
+                        {source.recoveredCoverageCount} recovered
+                      </p>
+                    ) : null}
                   </div>
                   <div>
                     <p className="text-[9px] uppercase tracking-[0.08em] text-faint">Graded</p>
