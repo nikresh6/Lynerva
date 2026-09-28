@@ -234,9 +234,22 @@ export async function persistMarkets(payload: MarketsPayload) {
     projectionWindows.set(`${season}:${week}`, { season, week });
   }
 
+  const activePregamePlayerKeys = new Set(
+    payload.opportunities.flatMap((opportunity) => {
+      if (opportunity.isLive || !opportunity.canonical?.subject) return [];
+      const key = normalizeLearningPlayer(opportunity.canonical.subject);
+      return key ? [key] : [];
+    }),
+  );
+
   for (const { season, week } of projectionWindows.values()) {
     const sourceStatLines = await getWeeklyProjectionStatSnapshots(season, week);
     for (const point of sourceStatLines) {
+      // A weekly projection page can keep already-finished Sunday players
+      // visible. After an outage, treating those rows as newly captured
+      // pregame evidence would create hindsight contamination. Only capture
+      // broad source rows for players who still have a current pregame market.
+      if (!activePregamePlayerKeys.has(point.playerKey)) continue;
       const id = stableId(
         "source_projection",
         `${season}:${week}:${point.playerKey}:${point.statistic}:${point.source}`,
