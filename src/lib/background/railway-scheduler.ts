@@ -33,6 +33,8 @@ const NFLVERSE_INITIAL_DELAY_MS = 2 * 60_000;
 const NFLVERSE_INTERVAL_MS = 12 * 60 * 60_000;
 const FINAL_GRADING_INITIAL_DELAY_MS = 60_000;
 const FINAL_GRADING_INTERVAL_MS = 30 * 60_000;
+const SCORECARD_LOCK_INITIAL_DELAY_MS = 30_000;
+const SCORECARD_LOCK_INTERVAL_MS = 60_000;
 const STORAGE_MAINTENANCE_INITIAL_DELAY_MS = 3 * 60_000;
 const STORAGE_MAINTENANCE_INTERVAL_MS = 6 * 60 * 60_000;
 const OUTAGE_RECOVERY_INITIAL_DELAY_MS = 20_000;
@@ -46,6 +48,7 @@ type SchedulerGlobal = typeof globalThis & {
 let marketJobRunning = false;
 let nflverseJobRunning = false;
 let finalGradingJobRunning = false;
+let scorecardLockJobRunning = false;
 let databaseBlockedUntil = 0;
 let lastFinalLearningFingerprint: string | null = null;
 let lastMarketPersistenceAt = 0;
@@ -231,6 +234,22 @@ async function persistCurrentMarkets() {
   }
 }
 
+async function lockScorecardsIndependently() {
+  if (scorecardLockJobRunning || databaseBackoffActive()) return;
+  scorecardLockJobRunning = true;
+  try {
+    // This is intentionally independent from market persistence. A slow or
+    // failed market refresh must never prevent the scorecard from freezing the
+    // latest prediction that existed before the cutoff.
+    await lockEligibleScorecards();
+  } catch (error) {
+    noteDatabaseBlock(error);
+    logJob("scorecard-lock", "failed", error);
+  } finally {
+    scorecardLockJobRunning = false;
+  }
+}
+
 async function refreshNflverseAndLearning() {
   if (nflverseJobRunning || databaseBackoffActive()) return;
   nflverseJobRunning = true;
@@ -373,7 +392,7 @@ export function startRailwayBackgroundJobs() {
   globalState.__lynervaRailwaySchedulerStarted = true;
 
   console.info(
-    "[lynerva-background] Railway scheduler active: market persistence every 30m normally and every 5m near kickoff, ESPN final grading every 30m, nflverse backfill every 12h, storage maintenance every 6h.",
+    "[lynerva-background] Railway scheduler active: market persistence every 30m normally and every 5m near kickoff, independent scorecard lock checks every 1m, ESPN final grading every 30m, nflverse backfill every 12h, storage maintenance every 6h.",
   );
 
   // The scheduler wakes every five minutes but full market persistence runs
@@ -392,6 +411,11 @@ export function startRailwayBackgroundJobs() {
     persistCurrentMarkets,
     MARKET_INITIAL_DELAY_MS,
     MARKET_TICK_MS,
+  );
+  recurringJob(
+    lockScorecardsIndependently,
+    SCORECARD_LOCK_INITIAL_DELAY_MS,
+    SCORECARD_LOCK_INTERVAL_MS,
   );
   recurringJob(
     gradeFinalEspnGames,
