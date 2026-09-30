@@ -142,6 +142,14 @@ function exactTime(value: string | null) {
 }
 
 function trend(row: PerformanceRow) {
+  if (row.learningSampleSize <= 0) {
+    return {
+      label: "Prior only · no source grades yet",
+      Icon: Minus,
+      tone: "text-faint",
+    };
+  }
+
   if (row.weight === null || row.weightWeek === null) {
     return { label: "Waiting for first learned week", Icon: Minus, tone: "text-faint" };
   }
@@ -199,11 +207,17 @@ export function SourceDashboard({
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const selectedRows = rows
     .filter((row) => row.statistic === selectedStat)
-    .toSorted(
-      (first, second) =>
+    .toSorted((first, second) => {
+      const firstHasGrades = first.sampleSize > 0;
+      const secondHasGrades = second.sampleSize > 0;
+      if (firstHasGrades !== secondHasGrades) {
+        return firstHasGrades ? -1 : 1;
+      }
+      return (
         first.robustError - second.robustError ||
-        second.sampleSize - first.sampleSize,
-    );
+        second.sampleSize - first.sampleSize
+      );
+    });
 
   const selectedMoneylineRows = moneylineRows.toSorted(
     (first, second) =>
@@ -585,13 +599,19 @@ export function SourceDashboard({
                     <div className="flex min-w-0 items-center gap-3">
                       <span className={cn(
                         "grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-bold",
-                        index === 0 ? "bg-positive-bg text-positive" : "bg-background text-muted",
+                        index === 0 && row.sampleSize > 0 ? "bg-positive-bg text-positive" : "bg-background text-muted",
                       )}>
                         {index + 1}
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-semibold">{source?.name ?? row.source}</p>
-                        {index === 0 ? <p className="text-[9px] text-positive">Lowest error so far</p> : <p className="text-[9px] text-faint">Click for calculation</p>}
+                        {row.sampleSize === 0 ? (
+                          <p className="text-[9px] text-faint">Waiting for graded samples</p>
+                        ) : index === 0 ? (
+                          <p className="text-[9px] text-positive">Lowest error so far</p>
+                        ) : (
+                          <p className="text-[9px] text-faint">Click for calculation</p>
+                        )}
                       </div>
                       <ChevronDown className={cn("size-4 shrink-0 text-faint transition-transform sm:hidden", expanded && "rotate-180")} />
                     </div>
@@ -601,8 +621,14 @@ export function SourceDashboard({
                     </div>
                     <div>
                       <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Typical miss</p>
-                      <p className="text-sm font-semibold tabular">{row.robustError.toFixed(1)} {unit}</p>
-                      <p className="text-[9px] text-faint">Bias {row.bias >= 0 ? "+" : ""}{row.bias.toFixed(1)}</p>
+                      <p className="text-sm font-semibold tabular">
+                        {row.sampleSize === 0 ? "Waiting" : `${row.robustError.toFixed(1)} ${unit}`}
+                      </p>
+                      <p className="text-[9px] text-faint">
+                        {row.sampleSize === 0
+                          ? "No completed projection grades"
+                          : `Bias ${row.bias >= 0 ? "+" : ""}${row.bias.toFixed(1)}`}
+                      </p>
                     </div>
                     <div className="flex items-center justify-between gap-3">
                       <div>
