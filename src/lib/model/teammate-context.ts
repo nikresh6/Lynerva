@@ -270,7 +270,7 @@ async function computeTeammateContextAdjustment(input: {
         ),
       ]);
       const historyRows =
-        currentHistory.values.length >= 3
+        currentHistory.values.length >= 4
           ? currentHistory.values.slice(0, 8)
           : priorHistory.values.slice(0, 12);
       if (historyRows.length) {
