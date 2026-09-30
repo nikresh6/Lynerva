@@ -320,6 +320,7 @@ async function refreshNflverseAndLearning() {
       season,
       gamesStored: result.gamesStored,
       statsStored: result.statsStored,
+      playerHistoryCoverage: result.playerHistoryCoverage,
       learning: result.learning,
       moneylineLearning,
     });
