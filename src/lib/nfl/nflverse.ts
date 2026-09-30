@@ -79,15 +79,23 @@ export async function ingestNflverseSeason(season: number) {
   await ensureSourceLearningSchema();
   const seasonGames = games.filter((row) => Number(row.season) === season);
   const validGameIds = new Set<string>();
+  const eligibleHistoryGameIds = new Set<string>();
   const gameByTeamWeek = new Map<string, string>();
   let gamesStored = 0;
   let playersStored = 0;
   let statsStored = 0;
+  const storedHistoryGamesByPlayer = new Map<
+    string,
+    { name: string; gameIds: Set<string> }
+  >();
 
   for (const row of seasonGames) {
     const startsAt = kickoff(row);
     if (!row.game_id || !startsAt || !row.home_team || !row.away_team) continue;
     validGameIds.add(row.game_id);
+    if ((row.game_type || "REG") === "REG" && Boolean(row.result)) {
+      eligibleHistoryGameIds.add(row.game_id);
+    }
     gameByTeamWeek.set(
       `${row.week}:${row.home_team}:${row.away_team}`,
       row.game_id,
@@ -189,14 +197,50 @@ export async function ingestNflverseSeason(season: number) {
           },
         });
       statsStored += 1;
+      if (eligibleHistoryGameIds.has(gameId)) {
+        const stored = storedHistoryGamesByPlayer.get(playerId) ?? {
+          name,
+          gameIds: new Set<string>(),
+        };
+        stored.name = name;
+        stored.gameIds.add(gameId);
+        storedHistoryGamesByPlayer.set(playerId, stored);
+      }
     }));
   }
+
+  const storedPlayerGameCounts = [...storedHistoryGamesByPlayer.values()]
+    .map((player) => ({
+      player: player.name,
+      games: player.gameIds.size,
+    }))
+    .toSorted(
+      (first, second) =>
+        first.games - second.games || first.player.localeCompare(second.player),
+    );
+  const playerHistoryCoverage = {
+    players: storedPlayerGameCounts.length,
+    oneGame: storedPlayerGameCounts.filter((row) => row.games === 1).length,
+    twoGames: storedPlayerGameCounts.filter((row) => row.games === 2).length,
+    threeGames: storedPlayerGameCounts.filter((row) => row.games === 3).length,
+    fourPlusGames: storedPlayerGameCounts.filter((row) => row.games >= 4).length,
+    minGames: storedPlayerGameCounts.at(0)?.games ?? 0,
+    maxGames: storedPlayerGameCounts.at(-1)?.games ?? 0,
+    belowFourExamples: storedPlayerGameCounts
+      .filter((row) => row.games < 4)
+      .slice(0, 12),
+    fourPlusExamples: storedPlayerGameCounts
+      .filter((row) => row.games >= 4)
+      .slice(-12),
+  };
+
   const learning = await runSourceLearningLoop(season);
   return {
     season,
     gamesStored,
     playersStored,
     statsStored,
+    playerHistoryCoverage,
     learning,
   };
 }
