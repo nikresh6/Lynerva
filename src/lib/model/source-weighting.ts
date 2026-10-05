@@ -18,6 +18,21 @@ export interface SourceGradeSample {
   source: string;
   absoluteError: number;
   gradedAt: Date;
+  statistic?: string;
+  projectedValue?: number;
+  actualValue?: number;
+}
+
+export interface SourceAccuracyMetric {
+  source: string;
+  rawSampleSize: number;
+  effectiveSampleSize: number;
+  mae: number | null;
+  recentMae: number | null;
+  normalizedMedianError: number | null;
+  normalizedRecentMedianError: number | null;
+  normalizedP90Error: number | null;
+  normalizedRobustError: number | null;
 }
 
 export interface LearnedSourceWeight {
@@ -57,51 +72,162 @@ function quantile(values: number[], q: number) {
   );
 }
 
+type WeightedError = {
+  value: number;
+  weight: number;
+};
+
+function weightedQuantile(points: WeightedError[], q: number) {
+  const eligible = points
+    .filter(
+      (point) =>
+        Number.isFinite(point.value) &&
+        Number.isFinite(point.weight) &&
+        point.weight > 0,
+    )
+    .toSorted((a, b) => a.value - b.value);
+  if (!eligible.length) return null;
+
+  const totalWeight = eligible.reduce((sum, point) => sum + point.weight, 0);
+  const target = totalWeight * clamp(q, 0, 1);
+  let cumulative = 0;
+  for (const point of eligible) {
+    cumulative += point.weight;
+    if (cumulative >= target) return point.value;
+  }
+  return eligible.at(-1)?.value ?? null;
+}
+
+function gradeMagnitude(sample: SourceGradeSample) {
+  if (
+    sample.projectedValue === undefined ||
+    sample.actualValue === undefined ||
+    !Number.isFinite(sample.projectedValue) ||
+    !Number.isFinite(sample.actualValue)
+  ) {
+    return null;
+  }
+
+  return Math.max(
+    Math.abs(sample.projectedValue),
+    Math.abs(sample.actualValue),
+  );
+}
+
+export function calculateSourceAccuracyMetrics(
+  samples: SourceGradeSample[],
+  sources: readonly string[] = ACTIVE_PROJECTION_SOURCES,
+): SourceAccuracyMetric[] {
+  const byStatistic = new Map<string, SourceGradeSample[]>();
+  for (const sample of samples) {
+    const statistic = sample.statistic ?? "__legacy__";
+    const rows = byStatistic.get(statistic) ?? [];
+    rows.push(sample);
+    byStatistic.set(statistic, rows);
+  }
+
+  const normalizedBySample = new Map<
+    SourceGradeSample,
+    { normalizedError: number; informationWeight: number }
+  >();
+
+  for (const rows of byStatistic.values()) {
+    const magnitudes = rows
+      .map(gradeMagnitude)
+      .filter((value): value is number => value !== null && value > 0);
+    const referenceMagnitude = quantile(magnitudes, 0.8);
+
+    for (const sample of rows) {
+      const magnitude = gradeMagnitude(sample);
+      if (magnitude === null || referenceMagnitude === null) {
+        // Legacy/tests without projection context retain the old absolute-error
+        // behavior instead of being silently reinterpreted.
+        normalizedBySample.set(sample, {
+          normalizedError: sample.absoluteError,
+          informationWeight: 1,
+        });
+        continue;
+      }
+
+      const safeReference = Math.max(referenceMagnitude, 1e-6);
+      const normalizationFloor = Math.max(safeReference * 0.2, 1e-6);
+      normalizedBySample.set(sample, {
+        // Scale the miss by the size of the actual prediction problem. A
+        // 3-yard miss on a 125-yard result is meaningfully better than a
+        // 1-yard miss on a player projected for essentially no usage.
+        normalizedError:
+          sample.absoluteError / Math.max(magnitude, normalizationFloor),
+        // Near-zero bench calls are low-information observations. They stay in
+        // the audit trail, but cannot manufacture hundreds of "easy" grades.
+        informationWeight: clamp(magnitude / safeReference, 0, 1),
+      });
+    }
+  }
+
+  return sources.map((source) => {
+    const rows = samples
+      .filter((sample) => sample.source === source)
+      .toSorted(
+        (first, second) =>
+          second.gradedAt.getTime() - first.gradedAt.getTime(),
+      );
+    const recentRows = rows.slice(0, 40);
+    const allErrors = rows.map((row) => row.absoluteError);
+    const recentErrors = recentRows.map((row) => row.absoluteError);
+    const scored = rows.map((row) => ({
+      value: normalizedBySample.get(row)?.normalizedError ?? row.absoluteError,
+      weight: normalizedBySample.get(row)?.informationWeight ?? 1,
+    }));
+    const recentScored = recentRows.map((row) => ({
+      value: normalizedBySample.get(row)?.normalizedError ?? row.absoluteError,
+      weight: normalizedBySample.get(row)?.informationWeight ?? 1,
+    }));
+
+    const normalizedMedianError = weightedQuantile(scored, 0.5);
+    const normalizedRecentMedianError = weightedQuantile(recentScored, 0.5);
+    const normalizedP90Error = weightedQuantile(scored, 0.9);
+    const normalizedRobustError =
+      normalizedMedianError === null
+        ? null
+        : 0.5 * normalizedMedianError +
+          0.3 *
+            (normalizedRecentMedianError ?? normalizedMedianError) +
+          0.2 * (normalizedP90Error ?? normalizedMedianError);
+
+    return {
+      source,
+      rawSampleSize: rows.length,
+      effectiveSampleSize: scored.reduce(
+        (sum, point) => sum + point.weight,
+        0,
+      ),
+      mae: mean(allErrors),
+      recentMae: mean(recentErrors),
+      normalizedMedianError,
+      normalizedRecentMedianError,
+      normalizedP90Error,
+      normalizedRobustError,
+    };
+  });
+}
+
 export function calculateSourceWeights(
   samples: SourceGradeSample[],
   sources: readonly string[] = ACTIVE_PROJECTION_SOURCES,
 ): LearnedSourceWeight[] {
   const prior = 1 / Math.max(sources.length, 1);
-  const bySource = new Map<string, SourceGradeSample[]>();
-
-  for (const source of sources) bySource.set(source, []);
-  for (const sample of samples) {
-    if (!bySource.has(sample.source)) continue;
-    bySource.get(sample.source)!.push(sample);
-  }
-
-  const metrics = sources.map((source) => {
-    const rows = (bySource.get(source) ?? []).toSorted(
-      (first, second) => second.gradedAt.getTime() - first.gradedAt.getTime(),
-    );
-    const allErrors = rows.map((row) => row.absoluteError);
-    const recentErrors = rows.slice(0, 40).map((row) => row.absoluteError);
-    const mae = mean(allErrors);
-    const recentMae = mean(recentErrors);
-    const medianError = quantile(allErrors, 0.5);
-    const recentMedianError = quantile(recentErrors, 0.5);
-    const p90Error = quantile(allErrors, 0.9);
-
-    // Weight sources on a robust error score rather than raw average error.
-    // Median captures the normal miss, recent median lets current form matter,
-    // and p90 still penalizes sources that regularly produce ugly misses.
-    // One freak projection therefore cannot destroy an otherwise good source.
-    const robustError =
-      medianError === null
+  const accuracy = calculateSourceAccuracyMetrics(samples, sources);
+  const metrics = accuracy.map((metric) => ({
+    source: metric.source,
+    sampleSize: metric.rawSampleSize,
+    effectiveSampleSize: metric.effectiveSampleSize,
+    mae: metric.mae,
+    recentMae: metric.recentMae,
+    performance:
+      metric.normalizedRobustError === null
         ? null
-        : 0.5 * medianError +
-          0.3 * (recentMedianError ?? medianError) +
-          0.2 * (p90Error ?? medianError);
-
-    return {
-      source,
-      sampleSize: rows.length,
-      mae,
-      recentMae,
-      performance:
-        robustError === null ? null : 1 / Math.max(robustError, 0.25),
-    };
-  });
+        : 1 / Math.max(metric.normalizedRobustError, 0.05),
+  }));
 
   const performanceTotal = metrics.reduce(
     (sum, metric) => sum + (metric.performance ?? 0),
@@ -113,9 +239,13 @@ export function calculateSourceWeights(
       metric.performance !== null && performanceTotal > 0
         ? metric.performance / performanceTotal
         : prior;
-    // Small samples stay close to equal weights. The learned component ramps
-    // from 0% after 20 rows to its 75% cap at 155 graded observations.
-    const confidence = clamp((metric.sampleSize - 20) / 180, 0, 0.75);
+    // Confidence uses starter-equivalent information, not raw row count.
+    // Trivial near-zero projections therefore cannot create fake certainty.
+    const confidence = clamp(
+      (metric.effectiveSampleSize - 20) / 180,
+      0,
+      0.75,
+    );
     return {
       ...metric,
       rawWeight:
