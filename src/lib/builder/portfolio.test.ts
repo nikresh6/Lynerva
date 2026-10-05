@@ -7,7 +7,6 @@ function opportunity(
   matchup: string,
   price: number,
   model: number,
-  threshold = 50,
 ): MarketOpportunity {
   return {
     platform: "kalshi",
@@ -89,6 +88,7 @@ function playerProp(
     | "touchdowns",
   price: number,
   model: number,
+  threshold = 50,
 ): MarketOpportunity {
   const market = opportunity(id, "LAR-NYG", price, model);
   return {
