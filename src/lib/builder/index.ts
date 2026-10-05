@@ -48,6 +48,7 @@ interface SearchState {
   priceProduct: number;
   probabilityProduct: number;
   rawModelProbabilityProduct: number;
+  searchValue?: number;
 }
 
 function gameKey(market: MarketOpportunity) {
@@ -614,6 +615,14 @@ function searchCombinations(
           rawModelProbabilityProduct:
             state.rawModelProbabilityProduct * candidate.modelProbability,
         };
+        // Beam sorting compares the same partial states many times. Cache this
+        // relatively expensive shape/EV score once per state instead of
+        // recalculating it inside every Array.sort comparison.
+        nextState.searchValue = stateSearchValue(
+          nextState,
+          targetReturn,
+          options.objective,
+        );
 
         if (nextState.legs.length >= minLegs) {
           const built = buildFromState(nextState);
@@ -740,15 +749,19 @@ function searchCombinations(
         rows
           .toSorted(
             (first, second) =>
-              stateSearchValue(second, targetReturn, options.objective) -
-              stateSearchValue(first, targetReturn, options.objective),
+              (second.searchValue ??
+                stateSearchValue(second, targetReturn, options.objective)) -
+              (first.searchValue ??
+                stateSearchValue(first, targetReturn, options.objective)),
           )
           .slice(0, resultLimit > 1 ? 48 : 56),
       )
       .toSorted(
         (first, second) =>
-          stateSearchValue(second, targetReturn, options.objective) -
-          stateSearchValue(first, targetReturn, options.objective),
+          (second.searchValue ??
+            stateSearchValue(second, targetReturn, options.objective)) -
+          (first.searchValue ??
+            stateSearchValue(first, targetReturn, options.objective)),
       )
       .slice(0, beamWidth);
   }
