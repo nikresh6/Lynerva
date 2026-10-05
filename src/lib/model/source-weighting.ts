@@ -254,7 +254,7 @@ export function calculateSourceWeights(
     performance:
       metric.normalizedRobustError === null
         ? null
-        : 1 / Math.max(metric.normalizedRobustError, 0.05),
+        : 1 / Math.max(metric.normalizedRobustError, 0.01),
   }));
 
   const performanceTotal = metrics.reduce(
