@@ -383,6 +383,34 @@ describe("combination builder", () => {
     ).toBe(false);
   });
 
+  it("can deliberately search for longer parlays when the portfolio asks for them", () => {
+    const sameGameMarkets = Array.from({ length: 10 }, (_, index) => ({
+      ...opportunity(
+        `LONG${index}`,
+        "ATL-NO",
+        6_400 + (index % 3) * 150,
+        7_200 + (index % 3) * 120,
+      ),
+      lynervaScore: 70 + index,
+    }));
+
+    const results = buildRankedCombinations(
+      sameGameMarkets,
+      {
+        ...baseOptions,
+        minReturn: 12,
+        maxReturn: 80,
+        minLegs: 5,
+        maxLegs: 8,
+        mode: "sgp",
+      },
+      6,
+    );
+
+    expect(results.length).toBeGreaterThan(0);
+    expect(results.every((result) => result.legs.length >= 5)).toBe(true);
+  });
+
   it("keeps every ranked parlay inside the requested return band when valid tickets exist", () => {
     const sameGameMarkets = Array.from({ length: 8 }, (_, index) => ({
       ...opportunity(
