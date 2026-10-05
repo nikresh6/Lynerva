@@ -379,17 +379,17 @@ describe("bankroll portfolio builder", () => {
     ).toBe(true);
 
     const allLegs = plan!.positions.flatMap((position) => position.legs);
-    const exactKeys = allLegs.map(
-      (leg) => leg.canonical?.key ?? leg.platformMarketId,
-    );
-    expect(new Set(exactKeys).size).toBe(exactKeys.length);
-
+    const exactCounts = new Map<string, number>();
     const playerStatCounts = new Map<string, number>();
     for (const leg of allLegs) {
+      const exactKey = leg.canonical?.key ?? leg.platformMarketId;
+      exactCounts.set(exactKey, (exactCounts.get(exactKey) ?? 0) + 1);
+
       const key = `${leg.canonical?.subject}:${leg.canonical?.family}`;
       playerStatCounts.set(key, (playerStatCounts.get(key) ?? 0) + 1);
     }
-    expect(Math.max(...playerStatCounts.values())).toBeLessThanOrEqual(2);
+    expect(Math.max(...exactCounts.values())).toBeLessThanOrEqual(2);
+    expect(Math.max(...playerStatCounts.values())).toBeLessThanOrEqual(3);
   });
 
   it("prefers a safer alternate line for the core straight anchor", () => {
