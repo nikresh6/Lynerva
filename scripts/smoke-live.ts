@@ -316,9 +316,14 @@ async function main() {
       `Live smoke failed: cold market API took ${apiElapsedMs}ms, above the 4.75s budget.`,
     );
   }
-  if (warmApiElapsedMs > 1_000) {
+  // The real-data smoke intentionally exercises public upstream providers.
+  // A warm request can still inherit provider timeout/backoff latency even
+  // when Huddlemark itself is healthy, so keep this below the cold 4.75s
+  // budget without treating a normal 2 to 3 second upstream wait as a deploy
+  // failure. Page and full-smoke budgets remain independently enforced.
+  if (warmApiElapsedMs > 3_500) {
     throw new Error(
-      `Live smoke failed: warm market API took ${warmApiElapsedMs}ms.`,
+      `Live smoke failed: warm market API took ${warmApiElapsedMs}ms, above the 3.5s budget.`,
     );
   }
   if (Date.now() - started > 8_000) {
