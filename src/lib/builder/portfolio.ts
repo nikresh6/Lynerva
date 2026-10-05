@@ -218,32 +218,30 @@ function candidateSingleGameCompatible(
     }
   }
 
-  for (const existing of selected) {
-    for (const candidateLeg of candidate.legs) {
-      for (const existingLeg of existing.legs) {
-        if (marketKey(candidateLeg) === marketKey(existingLeg)) return false;
-      }
-    }
-  }
-
-  // Separate tickets may reuse a strong player, especially through a safer
-  // alternate line or a hedge/middle, but cap repeated exposure so the plan
-  // does not become eight versions of the same thesis.
+  // Separate tickets may deliberately reuse a strong anchor. A good straight
+  // can also be one leg of a core or upside parlay. Cap that exposure rather
+  // than banning it outright, otherwise one-game portfolios cannot layer risk.
+  const exactMarketCounts = new Map<string, number>();
   const playerStatCounts = new Map<string, number>();
   const subjectCounts = new Map<string, number>();
   for (const leg of [
     ...selected.flatMap((row) => row.legs),
     ...candidate.legs,
   ]) {
+    const market = marketKey(leg);
+    const nextMarket = (exactMarketCounts.get(market) ?? 0) + 1;
+    if (nextMarket > 2) return false;
+    exactMarketCounts.set(market, nextMarket);
+
     const statKey = playerStatKey(leg);
     const nextStat = (playerStatCounts.get(statKey) ?? 0) + 1;
-    if (nextStat > 2) return false;
+    if (nextStat > 3) return false;
     playerStatCounts.set(statKey, nextStat);
 
     const subject =
-      leg.canonical?.subject.toLowerCase() ?? marketKey(leg);
+      leg.canonical?.subject.toLowerCase() ?? market;
     const nextSubject = (subjectCounts.get(subject) ?? 0) + 1;
-    if (nextSubject > 3) return false;
+    if (nextSubject > 4) return false;
     subjectCounts.set(subject, nextSubject);
   }
 
@@ -989,31 +987,35 @@ function selectSingleGamePortfolioCandidates(
             "core_straight",
             "value_straight",
             "aggressive_straight",
+            "hail_mary",
             "core_parlay",
             "upside_parlay",
             "upside_parlay",
-            "hail_mary",
             "hail_mary",
           ]
         : [
             "core_straight",
             "hedge_straight",
             "value_straight",
-            "core_parlay",
-            "core_parlay",
-            "upside_parlay",
-            "upside_parlay",
             "hail_mary",
+            "core_parlay",
+            "core_parlay",
+            "upside_parlay",
+            "upside_parlay",
           ];
 
   for (const role of sleeveOrder) {
     if (chosen.length >= maxPositions) break;
-    const candidate = ranked.find(
-      (row) =>
-        row.role === role &&
-        !chosen.some((selected) => selected.id === row.id) &&
-        candidateSingleGameCompatible(row, chosen),
-    );
+
+    // Keep the optimizer's purpose-built sleeve choice when it remains
+    // compatible. This preserves the safer alternate-line anchor and the
+    // reserved longshot before generic ranking fills the remaining slots.
+    const eligible = (row: Candidate) =>
+      row.role === role &&
+      !chosen.some((selected) => selected.id === row.id) &&
+      candidateSingleGameCompatible(row, chosen);
+    const candidate = seeded.find(eligible) ?? ranked.find(eligible);
+
     if (candidate) chosen.push(candidate);
   }
 
