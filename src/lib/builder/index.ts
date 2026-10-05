@@ -290,11 +290,12 @@ function candidatePool(
     perPlayerStat.set(statKey, (perPlayerStat.get(statKey) ?? 0) + 1);
     perGame.set(game, (perGame.get(game) ?? 0) + 1);
     perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
-    // The optimizer runs interactively in the browser. The previous 320-leg
-    // pool expanded into millions of duplicate partial tickets before the
-    // beam could prune them. A quality-ranked 160-leg board still preserves
-    // broad game/player coverage while keeping clicks responsive on phones.
-    if (selected.length >= 160) break;
+    // Full weekly boards need a tighter search surface than a scoped game.
+    // Keep all the depth on normal/scoped boards, but cap huge slates before
+    // the combinatorial beam expands. The portfolio path receives the same
+    // high-quality top of board while one-game alternate lines remain intact.
+    const candidateLimit = opportunities.length > 220 ? 96 : 160;
+    if (selected.length >= candidateLimit) break;
   }
   return selected;
 }
@@ -543,7 +544,15 @@ function searchCombinations(
   if (eligible.length === 0) return [];
 
   const targetReturn = Math.sqrt(options.minReturn * options.maxReturn);
-  const beamWidth = resultLimit > 1 ? 1_200 : 1_500;
+  const largeBoard = eligible.length > 80;
+  const beamWidth =
+    resultLimit > 1
+      ? largeBoard
+        ? 420
+        : 900
+      : largeBoard
+        ? 600
+        : 1_200;
   let frontier: SearchState[] = [
     {
       legs: [],
@@ -754,7 +763,7 @@ function searchCombinations(
               (first.searchValue ??
                 stateSearchValue(first, targetReturn, options.objective)),
           )
-          .slice(0, resultLimit > 1 ? 48 : 56),
+          .slice(0, resultLimit > 1 ? (largeBoard ? 22 : 40) : (largeBoard ? 30 : 48)),
       )
       .toSorted(
         (first, second) =>
