@@ -974,7 +974,7 @@ export function BuilderWorkbench() {
             </div>
             <div className="mt-2 flex items-center gap-2 text-[10px] text-muted sm:mt-0">
               <span className="size-1.5 rounded-full bg-positive" />
-              {currentMarkets.length.toLocaleString()} eligible live markets
+              {currentMarkets.length.toLocaleString()} eligible markets
             </div>
           </div>
         </div>
