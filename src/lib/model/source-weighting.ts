@@ -203,12 +203,23 @@ export function calculateSourceAccuracyMetrics(
     const normalizedMedianError = weightedQuantile(scored, 0.5);
     const normalizedRecentMedianError = weightedQuantile(recentScored, 0.5);
     const normalizedP90Error = weightedQuantile(scored, 0.9);
+    const recentEffectiveSampleSize = recentScored.reduce(
+      (sum, point) => sum + point.weight,
+      0,
+    );
+    const recentConfidence = clamp(recentEffectiveSampleSize / 20, 0, 1);
+    const recentComponent =
+      normalizedMedianError === null
+        ? null
+        : normalizedMedianError +
+          recentConfidence *
+            ((normalizedRecentMedianError ?? normalizedMedianError) -
+              normalizedMedianError);
     const normalizedRobustError =
       normalizedMedianError === null
         ? null
         : 0.5 * normalizedMedianError +
-          0.3 *
-            (normalizedRecentMedianError ?? normalizedMedianError) +
+          0.3 * (recentComponent ?? normalizedMedianError) +
           0.2 * (normalizedP90Error ?? normalizedMedianError);
 
     return {
