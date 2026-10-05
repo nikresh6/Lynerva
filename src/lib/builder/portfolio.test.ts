@@ -376,6 +376,13 @@ describe("bankroll portfolio builder", () => {
         (position) =>
           position.kind === "parlay" && position.legs.length >= 5,
       ),
+      JSON.stringify(
+        plan!.positions.map((position) => ({
+          role: position.role,
+          kind: position.kind,
+          legs: position.legs.map((leg) => leg.platformMarketId),
+        })),
+      ),
     ).toBe(true);
 
     const allLegs = plan!.positions.flatMap((position) => position.legs);
@@ -420,7 +427,16 @@ describe("bankroll portfolio builder", () => {
       (position) => position.role === "core_straight",
     );
     expect(coreStraight).toBeDefined();
-    expect(coreStraight?.legs[0]?.platformMarketId).toBe("SAFE35");
+    expect(
+      coreStraight?.legs[0]?.platformMarketId,
+      JSON.stringify(
+        plan?.positions.map((position) => ({
+          role: position.role,
+          kind: position.kind,
+          legs: position.legs.map((leg) => leg.platformMarketId),
+        })),
+      ),
+    ).toBe("SAFE35");
   });
 
   it("uses a genuine middle or counterweight when the board offers one", () => {
