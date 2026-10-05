@@ -1333,7 +1333,49 @@ export function buildPortfolioPlan(
 
   const targetReturn = clamp(options.targetPayout / options.amount, 1.05, 250);
   const straights = straightCandidates(opportunities, options);
-  const parlays = parlayCandidates(opportunities, options);
+  let parlays = parlayCandidates(opportunities, options);
+
+  // A one-game portfolio with a meaningful upside target should have access to
+  // at least one genuinely long-form ticket when the board can support it.
+  // The normal candidate bands prioritize overall quality and distinctness, so
+  // explicitly backfill this sleeve if those passes happened to prune every
+  // 5+ leg combination.
+  if (
+    options.singleGame &&
+    options.risk !== "lower" &&
+    targetReturn >= 3.5 &&
+    options.maxLegs >= 5 &&
+    !parlays.some((row) => row.legs.length >= 5)
+  ) {
+    const minimumLongLegs = Math.min(options.maxLegs, 5);
+    const objective: BuilderObjective =
+      options.risk === "higher" ? "max_ev" : "balanced";
+    const safetyScores = lineSafetyScores(opportunities);
+    const explicitLong = buildCombinationCandidates(
+      opportunities,
+      {
+        minReturn: 8,
+        maxReturn: 180,
+        minLegs: minimumLongLegs,
+        maxLegs: options.maxLegs,
+        platform: options.platform,
+        live: options.live,
+        mode: "sgp",
+        objective,
+      },
+      24,
+    )
+      .filter((combination) => combination.legs.length >= minimumLongLegs)
+      .map((combination) =>
+        parlayCandidate(combination, "sgp", safetyScores),
+      );
+
+    const existingIds = new Set(parlays.map((row) => row.id));
+    parlays = [
+      ...parlays,
+      ...explicitLong.filter((row) => !existingIds.has(row.id)),
+    ];
+  }
 
   if (!straights.length && !parlays.length) return null;
 
