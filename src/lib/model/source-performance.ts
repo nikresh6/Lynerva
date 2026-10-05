@@ -12,7 +12,10 @@ import {
   sourceProjections,
   sourceWeightHistory,
 } from "@/db/schema";
-import { ACTIVE_PROJECTION_SOURCES } from "./source-weighting";
+import {
+  ACTIVE_PROJECTION_SOURCES,
+  calculateSourceAccuracyMetrics,
+} from "./source-weighting";
 import {
   MONEYLINE_WEIGHT_PRIORS,
   type MoneylineSource,
@@ -227,6 +230,8 @@ export type ProjectionPerformanceRow = {
   p90AbsoluteError: number;
   recentMedianAbsoluteError: number;
   robustError: number;
+  normalizedRobustError: number | null;
+  effectiveSampleSize: number;
   rmse: number;
   bias: number;
   learnedTarget: number;
@@ -359,6 +364,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
           squaredError: sourceProjectionGrades.squaredError,
           gradedAt: sourceProjectionGrades.gradedAt,
           provenance: sourceProjections.provenance,
+          learningEligible: sourceProjections.learningEligible,
         })
         .from(sourceProjectionGrades)
         .innerJoin(
@@ -598,6 +604,38 @@ export async function getProjectionSourcePerformance(season = 2026) {
       groups.set(key, group);
     }
 
+    const accuracyMetricByKey = new Map<
+      string,
+      ReturnType<typeof calculateSourceAccuracyMetrics>[number]
+    >();
+
+    for (const statistic of [...new Set(gradeRows.map((row) => row.statistic))]) {
+      const samples = gradeRows
+        .filter(
+          (row) =>
+            row.statistic === statistic &&
+            row.learningEligible === true &&
+            ACTIVE_PROJECTION_SOURCES.includes(
+              row.source as (typeof ACTIVE_PROJECTION_SOURCES)[number],
+            ),
+        )
+        .map((row) => ({
+          source: row.source,
+          statistic: row.statistic,
+          projectedValue: row.projectedValue,
+          actualValue: row.actualValue,
+          absoluteError: row.absoluteError,
+          gradedAt: row.gradedAt,
+        }));
+
+      for (const metric of calculateSourceAccuracyMetrics(
+        samples,
+        ACTIVE_PROJECTION_SOURCES,
+      )) {
+        accuracyMetricByKey.set(`${statistic}:${metric.source}`, metric);
+      }
+    }
+
     // Build the Source Room from the union of raw graded rows and persisted
     // learned history. The Turso outage left some original pre-outage grade
     // rows unavailable even though their exact learned weights/metrics were
@@ -666,6 +704,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
           latestWeight?.week === 3
             ? LEGACY_WEEK3_PERFORMANCE.get(weightKey) ?? null
             : null;
+        const accuracyMetric = accuracyMetricByKey.get(weightKey) ?? null;
 
         return {
           source: group.source,
@@ -686,6 +725,12 @@ export async function getProjectionSourcePerformance(season = 2026) {
             legacyMetric?.recentMedianAbsoluteError ??
             recentMedianAbsoluteError,
           robustError: legacyMetric?.robustError ?? recoveredRobustError,
+          normalizedRobustError:
+            accuracyMetric?.normalizedRobustError ?? null,
+          effectiveSampleSize:
+            accuracyMetric?.effectiveSampleSize ??
+            latestWeight?.sampleSize ??
+            0,
           rmse: Math.sqrt(
             group.squared.reduce((sum, value) => sum + value, 0) /
               Math.max(rawGradeCount, 1),
@@ -718,22 +763,43 @@ export async function getProjectionSourcePerformance(season = 2026) {
       },
     );
 
+    const strengthByKey = new Map<string, number>();
     const performanceTotals = new Map<string, number>();
-    for (const row of baseRows) {
-      const strength = 1 / Math.max(row.robustError, 0.25);
-      performanceTotals.set(
-        row.statistic,
-        (performanceTotals.get(row.statistic) ?? 0) + strength,
+
+    for (const statistic of [...new Set(baseRows.map((row) => row.statistic))]) {
+      const statRows = baseRows.filter((row) => row.statistic === statistic);
+      const availableStrengths = statRows.flatMap((row) =>
+        row.normalizedRobustError === null
+          ? []
+          : [1 / Math.max(row.normalizedRobustError, 0.05)],
       );
+      const neutralStrength =
+        availableStrengths.length > 0
+          ? availableStrengths.reduce((sum, value) => sum + value, 0) /
+            availableStrengths.length
+          : 1;
+
+      for (const row of statRows) {
+        const strength =
+          row.normalizedRobustError === null
+            ? neutralStrength
+            : 1 / Math.max(row.normalizedRobustError, 0.05);
+        strengthByKey.set(`${row.statistic}:${row.source}`, strength);
+        performanceTotals.set(
+          row.statistic,
+          (performanceTotals.get(row.statistic) ?? 0) + strength,
+        );
+      }
     }
 
     const rows: ProjectionPerformanceRow[] = baseRows.map((row) => {
-      const strength = 1 / Math.max(row.robustError, 0.25);
+      const strength =
+        strengthByKey.get(`${row.statistic}:${row.source}`) ?? 1;
       const total = performanceTotals.get(row.statistic) ?? strength;
       return {
         ...row,
         learnedTarget: total > 0 ? strength / total : 1 / 6,
-        confidence: clamp((row.learningSampleSize - 20) / 180, 0, 0.75),
+        confidence: clamp((row.effectiveSampleSize - 20) / 180, 0, 0.75),
       };
     });
 
