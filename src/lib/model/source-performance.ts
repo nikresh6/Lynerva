@@ -771,7 +771,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
       const availableStrengths = statRows.flatMap((row) =>
         row.normalizedRobustError === null
           ? []
-          : [1 / Math.max(row.normalizedRobustError, 0.05)],
+          : [1 / Math.max(row.normalizedRobustError, 0.01)],
       );
       const neutralStrength =
         availableStrengths.length > 0
@@ -783,7 +783,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
         const strength =
           row.normalizedRobustError === null
             ? neutralStrength
-            : 1 / Math.max(row.normalizedRobustError, 0.05);
+            : 1 / Math.max(row.normalizedRobustError, 0.01);
         strengthByKey.set(`${row.statistic}:${row.source}`, strength);
         performanceTotals.set(
           row.statistic,
