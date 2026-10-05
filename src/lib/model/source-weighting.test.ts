@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { ACTIVE_PROJECTION_SOURCES, calculateSourceWeights } from "./source-weighting";
+import {
+  ACTIVE_PROJECTION_SOURCES,
+  calculateSourceAccuracyMetrics,
+  calculateSourceWeights,
+} from "./source-weighting";
 
 function samples(
   source: string,
@@ -62,6 +66,84 @@ describe("source weighting", () => {
     const espn = weights.find((item) => item.source === "espn")!;
     const cbs = weights.find((item) => item.source === "cbs")!;
     expect(espn.weight).toBeGreaterThan(cbs.weight);
+  });
+
+  it("does not reward sources for padding the sample with trivial near-zero calls", () => {
+    const date = new Date("2026-09-20T00:00:00Z");
+    const rows = [
+      ...Array.from({ length: 200 }, () => ({
+        source: "bench-heavy",
+        statistic: "receiving_yards",
+        projectedValue: 1.1,
+        actualValue: 0,
+        absoluteError: 1.1,
+        gradedAt: date,
+      })),
+      ...Array.from({ length: 200 }, () => ({
+        source: "starter-heavy",
+        statistic: "receiving_yards",
+        projectedValue: 128,
+        actualValue: 125,
+        absoluteError: 3,
+        gradedAt: date,
+      })),
+    ];
+
+    const metrics = calculateSourceAccuracyMetrics(rows, [
+      "bench-heavy",
+      "starter-heavy",
+    ]);
+    const bench = metrics.find((item) => item.source === "bench-heavy")!;
+    const starter = metrics.find((item) => item.source === "starter-heavy")!;
+
+    expect(bench.effectiveSampleSize).toBeLessThan(20);
+    expect(starter.effectiveSampleSize).toBeGreaterThan(150);
+    expect(starter.normalizedRobustError ?? 1).toBeLessThan(
+      bench.normalizedRobustError ?? 0,
+    );
+
+    const weights = calculateSourceWeights(rows, [
+      "bench-heavy",
+      "starter-heavy",
+    ]);
+    expect(
+      weights.find((item) => item.source === "starter-heavy")!.weight,
+    ).toBeGreaterThan(
+      weights.find((item) => item.source === "bench-heavy")!.weight,
+    );
+  });
+
+  it("still penalizes a tiny projection when the player actually produces", () => {
+    const date = new Date("2026-09-20T00:00:00Z");
+    const rows = [
+      {
+        source: "bad-zero",
+        statistic: "receiving_yards",
+        projectedValue: 1,
+        actualValue: 45,
+        absoluteError: 44,
+        gradedAt: date,
+      },
+      {
+        source: "good-starter",
+        statistic: "receiving_yards",
+        projectedValue: 48,
+        actualValue: 45,
+        absoluteError: 3,
+        gradedAt: date,
+      },
+    ];
+    const metrics = calculateSourceAccuracyMetrics(rows, [
+      "bad-zero",
+      "good-starter",
+    ]);
+    expect(
+      metrics.find((item) => item.source === "bad-zero")!
+        .normalizedRobustError ?? 0,
+    ).toBeGreaterThan(
+      metrics.find((item) => item.source === "good-starter")!
+        .normalizedRobustError ?? 1,
+    );
   });
 
   it("uses recent performance without discarding long-run accuracy", () => {
