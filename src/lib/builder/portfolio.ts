@@ -72,6 +72,7 @@ interface Candidate {
   expectedValueMultiplier: number;
   score: number;
   displayScore: number;
+  lineSafety: number;
   parlayMode: "multi_game" | "sgp" | null;
 }
 
@@ -115,6 +116,48 @@ function pickDirection(market: MarketOpportunity) {
   return "yes";
 }
 
+function marketVariantKey(market: MarketOpportunity) {
+  return `${marketKey(market)}:${market.recommendedSide ?? "yes"}`;
+}
+
+function lineSafetyScores(opportunities: MarketOpportunity[]) {
+  const groups = new Map<string, MarketOpportunity[]>();
+  for (const market of opportunities) {
+    const threshold = market.canonical?.threshold;
+    const direction = pickDirection(market);
+    if (
+      !market.canonical ||
+      threshold === null ||
+      threshold === undefined ||
+      (direction !== "over" && direction !== "under")
+    ) {
+      continue;
+    }
+
+    const key = `${playerStatKey(market)}|${direction}`;
+    const rows = groups.get(key) ?? [];
+    rows.push(market);
+    groups.set(key, rows);
+  }
+
+  const scores = new Map<string, number>();
+  for (const rows of groups.values()) {
+    const direction = pickDirection(rows[0]!);
+    const sorted = rows.toSorted((first, second) => {
+      const left = first.canonical?.threshold ?? 0;
+      const right = second.canonical?.threshold ?? 0;
+      return direction === "over" ? left - right : right - left;
+    });
+    for (let index = 0; index < sorted.length; index += 1) {
+      const market = sorted[index]!;
+      const score =
+        sorted.length <= 1 ? 0.5 : 1 - index / (sorted.length - 1);
+      scores.set(marketVariantKey(market), score);
+    }
+  }
+  return scores;
+}
+
 const YARDAGE_FAMILIES = new Set([
   "passing_yards",
   "rushing_yards",
@@ -140,7 +183,20 @@ function allowedSingleGameSubjectPair(
 
   const firstFamily = first.canonical?.family ?? "other";
   const secondFamily = second.canonical?.family ?? "other";
+  const firstThreshold = first.canonical?.threshold;
+  const secondThreshold = second.canonical?.threshold;
+  const nestedAlternateLine =
+    firstFamily === secondFamily &&
+    first.canonical?.statistic === second.canonical?.statistic &&
+    firstThreshold !== null &&
+    firstThreshold !== undefined &&
+    secondThreshold !== null &&
+    secondThreshold !== undefined &&
+    firstThreshold !== secondThreshold &&
+    pickDirection(first) === pickDirection(second);
+
   return (
+    nestedAlternateLine ||
     (YARDAGE_FAMILIES.has(firstFamily) &&
       TOUCHDOWN_FAMILIES.has(secondFamily)) ||
     (TOUCHDOWN_FAMILIES.has(firstFamily) &&
@@ -173,6 +229,19 @@ function candidateSingleGameCompatible(
     }
   }
 
+  // Nested alternate lines are useful as a risk ladder, but do not let the
+  // entire plan become repeated versions of the same player/stat thesis.
+  const playerStatCounts = new Map<string, number>();
+  for (const leg of [
+    ...selected.flatMap((row) => row.legs),
+    ...candidate.legs,
+  ]) {
+    const key = playerStatKey(leg);
+    const next = (playerStatCounts.get(key) ?? 0) + 1;
+    if (next > 2) return false;
+    playerStatCounts.set(key, next);
+  }
+
   return true;
 }
 
@@ -182,6 +251,7 @@ function subjectTeam(
 ) {
   const subject = market.canonical?.subject;
   if (!subject) return null;
+  if (market.canonical?.family === "moneyline") return subject.toUpperCase();
   return subjectTeams?.[subject] ?? null;
 }
 
@@ -332,8 +402,33 @@ function hedgeBonus(
         const differentTeam =
           Boolean(candidateTeam && existingTeam && candidateTeam !== existingTeam);
 
-        if (oppositeDirection) offsets += candidateTeam === existingTeam ? 1 : 0.7;
-        else if (differentTeam) offsets += 0.25;
+        const samePlayerStat =
+          playerStatKey(candidateLeg) === playerStatKey(existingLeg);
+        const candidateThreshold = candidateLeg.canonical?.threshold;
+        const existingThreshold = existingLeg.canonical?.threshold;
+        const middleWindow =
+          samePlayerStat &&
+          oppositeDirection &&
+          candidateThreshold !== null &&
+          candidateThreshold !== undefined &&
+          existingThreshold !== null &&
+          existingThreshold !== undefined &&
+          ((candidateDirection === "over" &&
+            candidateThreshold < existingThreshold) ||
+            (candidateDirection === "under" &&
+              existingDirection === "over" &&
+              existingThreshold < candidateThreshold));
+
+        const moneylineCounterweight =
+          differentTeam &&
+          (candidateLeg.canonical?.family === "moneyline" ||
+            existingLeg.canonical?.family === "moneyline");
+
+        if (middleWindow) offsets += 1.5;
+        else if (oppositeDirection) {
+          offsets += candidateTeam === existingTeam ? 1 : 0.7;
+        } else if (moneylineCounterweight) offsets += 0.8;
+        else if (differentTeam) offsets += 0.18;
       }
     }
   }
@@ -352,6 +447,7 @@ function straightCandidates(
   options: PortfolioPlanOptions,
 ) {
   const rows: Candidate[] = [];
+  const safetyScores = lineSafetyScores(opportunities);
 
   for (const market of opportunities) {
     if (
@@ -398,6 +494,7 @@ function straightCandidates(
       expectedValueMultiplier,
       score,
       displayScore: market.lynervaScore ?? 50,
+      lineSafety: safetyScores.get(marketVariantKey(market)) ?? 0.5,
       parlayMode: null,
     });
   }
@@ -430,6 +527,7 @@ function parlayRole(grossReturn: number): PortfolioRole {
 function parlayCandidate(
   combination: BuiltCombination,
   mode: "multi_game" | "sgp",
+  safetyScores: Map<string, number>,
 ): Candidate {
   const id = combination.legs
     .map(marketKey)
@@ -451,6 +549,12 @@ function parlayCandidate(
     expectedValueMultiplier: combination.expectedValueMultiplier,
     score,
     displayScore: combination.lynervaScore,
+    lineSafety:
+      combination.legs.reduce(
+        (sum, leg) =>
+          sum + (safetyScores.get(marketVariantKey(leg)) ?? 0.5),
+        0,
+      ) / Math.max(combination.legs.length, 1),
     parlayMode: mode,
   };
 }
@@ -473,11 +577,15 @@ function parlayCandidates(
 
   const candidates: Candidate[] = [];
   const seen = new Set<string>();
+  const safetyScores = lineSafetyScores(opportunities);
+  const longLegFloor = Math.min(options.maxLegs, 5);
+  const hailLegFloor = Math.min(options.maxLegs, 6);
 
   const returnBands = [
-    { minReturn: 1.3, maxReturn: 6, limit: 48 },
-    { minReturn: 4.5, maxReturn: 20, limit: 48 },
-    { minReturn: 25, maxReturn: 150, limit: 40 },
+    { minReturn: 1.3, maxReturn: 6, minLegs: 2, limit: 52 },
+    { minReturn: 4.5, maxReturn: 20, minLegs: Math.min(options.maxLegs, 3), limit: 52 },
+    { minReturn: 12, maxReturn: 60, minLegs: longLegFloor, limit: 44 },
+    { minReturn: 25, maxReturn: 180, minLegs: hailLegFloor, limit: 44 },
   ] as const;
 
   for (const mode of modes) {
@@ -488,6 +596,7 @@ function parlayCandidates(
           minReturn: band.minReturn,
           maxReturn: band.maxReturn,
           maxLegs: options.maxLegs,
+          minLegs: band.minLegs,
           platform: options.platform,
           live: options.live,
           mode,
@@ -507,7 +616,7 @@ function parlayCandidates(
           continue;
         }
 
-        const candidate = parlayCandidate(combination, mode);
+        const candidate = parlayCandidate(combination, mode, safetyScores);
         if (seen.has(candidate.id)) continue;
         seen.add(candidate.id);
         candidates.push(candidate);
@@ -533,6 +642,8 @@ function bestCandidate(
     legProbabilityMin?: number;
     legProbabilityMax?: number;
     requireHedge?: boolean;
+    lineSafetyMin?: number;
+    preferSaferLines?: boolean;
     role: PortfolioRole;
     subjectTeams?: PortfolioPlanOptions["subjectTeams"];
   },
@@ -596,6 +707,12 @@ function bestCandidate(
     ) {
       continue;
     }
+    if (
+      options.lineSafetyMin !== undefined &&
+      candidate.lineSafety < options.lineSafetyMin
+    ) {
+      continue;
+    }
 
     const hedge = hedgeBonus(candidate, avoid, options.subjectTeams);
     if (options.requireHedge && hedge <= 0) continue;
@@ -634,7 +751,8 @@ function bestCandidate(
       1.45 * maxOverlap -
       0.8 * probabilityDistance -
       returnPenalty * returnDistance +
-      hedge;
+      hedge +
+      (options.preferSaferLines ? 0.32 * candidate.lineSafety : 0);
 
     if (score > bestScore) {
       best = { ...candidate, role: options.role };
@@ -656,6 +774,7 @@ function selectPortfolioCandidates(
   parlays: Candidate[],
   risk: PortfolioRisk,
   targetReturn: number,
+  maxLegs: number,
   subjectTeams?: PortfolioPlanOptions["subjectTeams"],
 ) {
   const selected: Candidate[] = [];
@@ -685,14 +804,27 @@ function selectPortfolioCandidates(
     }
   };
 
-  // Core straights should be believable, useful bets, not 85%-95% contracts
-  // that consume bankroll for very little upside.
-  addBest(straights, targetReturn < 2.5 ? 1 : 2, {
+  // Start with a safer alternate-line anchor when one exists. This is the
+  // insurance sleeve: it trades some payout for a line with more room while
+  // still requiring a useful modeled probability.
+  addBest(straights, 1, {
     probabilityMin: 0.5,
-    probabilityMax: 0.72,
-    probabilityTarget: risk === "lower" ? 0.64 : 0.59,
+    probabilityMax: 0.82,
+    probabilityTarget: risk === "lower" ? 0.68 : 0.62,
+    lineSafetyMin: 0.6,
+    preferSaferLines: true,
     role: "core_straight",
   });
+
+  if (targetReturn >= 2.5) {
+    addBest(straights, 1, {
+      probabilityMin: 0.48,
+      probabilityMax: 0.74,
+      probabilityTarget: risk === "lower" ? 0.62 : 0.57,
+      preferSaferLines: true,
+      role: "core_straight",
+    });
+  }
 
   // Add a true offset when the board contains one. This is not forced if the
   // available markets do not provide a sensible hedge.
@@ -729,7 +861,7 @@ function selectPortfolioCandidates(
   // ordinary parlays consume all of the distinct exposure. It remains a tiny
   // bankroll sleeve, but must actually be 25x+ rather than a relaxed fallback
   // wearing a Hail Mary label.
-  if (targetReturn >= 5 || risk === "higher") {
+  if (targetReturn >= 3.5 || risk === "higher") {
     addBest(
       parlays,
       1,
@@ -737,9 +869,9 @@ function selectPortfolioCandidates(
         probabilityMax: 0.12,
         returnMin: 25,
         returnMax: 150,
-        returnTarget: clamp(targetReturn * 8, 25, 80),
-        legCountMin: 4,
-        legCountMax: 8,
+        returnTarget: clamp(targetReturn * 8, 25, 90),
+        legCountMin: Math.min(maxLegs, risk === "higher" ? 5 : 6),
+        legCountMax: maxLegs,
         role: "hail_mary",
       },
       false,
@@ -758,14 +890,18 @@ function selectPortfolioCandidates(
     legCountMin: 2,
     legCountMax: 4,
     legProbabilityMin: 0.45,
-    legProbabilityMax: 0.78,
+    legProbabilityMax: 0.82,
+    preferSaferLines: true,
     role: "core_parlay",
   });
 
   // Value parlays may be longer, but each leg still needs to carry a
   // meaningful share of the payout. No market-family quotas are imposed.
   if (targetReturn >= 2.5 || risk !== "lower") {
-    addBest(parlays, risk === "higher" ? 2 : 1, {
+    addBest(
+      parlays,
+      risk === "higher" ? 3 : targetReturn >= 3.5 ? 2 : 1,
+      {
       probabilityMin: 0.035,
       probabilityMax: 0.3,
       probabilityTarget: 0.12,
@@ -777,7 +913,8 @@ function selectPortfolioCandidates(
       legProbabilityMin: 0.3,
       legProbabilityMax: 0.75,
       role: "upside_parlay",
-    });
+      },
+    );
   }
 
   return selected;
@@ -796,6 +933,7 @@ function selectSingleGamePortfolioCandidates(
     parlays,
     risk,
     targetReturn,
+    Math.max(2, ...parlays.map((row) => row.legs.length), 2),
     subjectTeams,
   );
 
@@ -830,21 +968,48 @@ function selectSingleGamePortfolioCandidates(
   });
 
   const chosen: Candidate[] = [];
+  const sleeveOrder: PortfolioRole[] =
+    risk === "lower"
+      ? [
+          "core_straight",
+          "hedge_straight",
+          "value_straight",
+          "core_parlay",
+          "core_parlay",
+          "upside_parlay",
+        ]
+      : risk === "higher"
+        ? [
+            "core_straight",
+            "value_straight",
+            "aggressive_straight",
+            "core_parlay",
+            "upside_parlay",
+            "upside_parlay",
+            "hail_mary",
+            "hail_mary",
+          ]
+        : [
+            "core_straight",
+            "hedge_straight",
+            "value_straight",
+            "core_parlay",
+            "core_parlay",
+            "upside_parlay",
+            "upside_parlay",
+            "hail_mary",
+          ];
 
-  const bestStraight = ranked.find(
-    (candidate) =>
-      candidate.kind === "straight" &&
-      candidateSingleGameCompatible(candidate, chosen),
-  );
-  if (bestStraight) chosen.push(bestStraight);
-
-  const bestParlay = ranked.find(
-    (candidate) =>
-      candidate.kind === "parlay" &&
-      !chosen.some((row) => row.id === candidate.id) &&
-      candidateSingleGameCompatible(candidate, chosen),
-  );
-  if (bestParlay && chosen.length < maxPositions) chosen.push(bestParlay);
+  for (const role of sleeveOrder) {
+    if (chosen.length >= maxPositions) break;
+    const candidate = ranked.find(
+      (row) =>
+        row.role === role &&
+        !chosen.some((selected) => selected.id === row.id) &&
+        candidateSingleGameCompatible(row, chosen),
+    );
+    if (candidate) chosen.push(candidate);
+  }
 
   for (const candidate of ranked) {
     if (chosen.length >= maxPositions) break;
@@ -937,6 +1102,7 @@ function targetShares(
   candidates: Candidate[],
   risk: PortfolioRisk,
   targetReturn: number,
+  amount: number,
 ) {
   if (!candidates.length) return null;
 
@@ -956,18 +1122,40 @@ function targetShares(
         ? Math.min(preferred.max, 0.005)
         : 0;
 
+    const practicalDollarFloor =
+      amount <= 30 ? 0.5 : amount <= 100 ? 1 : 2;
+    const practicalShareFloor = Math.min(
+      0.035,
+      practicalDollarFloor / Math.max(amount, 0.01),
+    );
+    const roleMinimum =
+      candidate.role === "hail_mary"
+        ? targetReturn >= 3.5 && risk !== "lower"
+          ? Math.max(hailMinimum, practicalShareFloor)
+          : hailMinimum
+        : Math.max(
+            preferred.min * 0.6,
+            practicalShareFloor,
+            highTargetRiskMinimum,
+          );
+
     return {
-      // Roles describe the position rather than fixed quotas. For a genuinely
-      // high requested return, however, keep a modest amount of capital in
-      // lower-probability straight value instead of solving the whole target
-      // with only parlays.
-      min: Math.max(highTargetRiskMinimum, hailMinimum),
+      // Every selected sleeve receives a practical stake. The previous
+      // zero-floor allocation could select eight ideas and then fund only two
+      // of them, making the Builder behave like a top-picks list.
+      min: Math.min(preferred.max, roleMinimum),
       max:
         candidate.role === "hail_mary"
           ? preferred.max
           : Math.min(concentrationCap, Math.max(preferred.max, 0.12)),
     };
   });
+
+  const minimumTotal = bounds.reduce((sum, row) => sum + row.min, 0);
+  if (minimumTotal > 0.72) {
+    const scale = 0.72 / minimumTotal;
+    bounds = bounds.map((row) => ({ ...row, min: row.min * scale }));
+  }
 
   let maxTotal = bounds.reduce((sum, row) => sum + row.max, 0);
   if (maxTotal < 0.9999) {
@@ -1067,7 +1255,7 @@ export function buildPortfolioPlan(
 
   const maxPositions = Math.max(
     1,
-    Math.min(options.maxPositions ?? (options.singleGame ? 4 : 12), 12),
+    Math.min(options.maxPositions ?? (options.singleGame ? 8 : 12), 12),
   );
   const selected = options.singleGame
     ? selectSingleGamePortfolioCandidates(
@@ -1083,12 +1271,18 @@ export function buildPortfolioPlan(
         parlays,
         options.risk,
         targetReturn,
+        options.maxLegs,
         options.subjectTeams,
       ).slice(0, maxPositions);
 
   if (!selected.length) return null;
 
-  const shares = targetShares(selected, options.risk, targetReturn);
+  const shares = targetShares(
+    selected,
+    options.risk,
+    targetReturn,
+    options.amount,
+  );
   if (!shares) return null;
 
   const positions = selected.map((candidate, index) =>
