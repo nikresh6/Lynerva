@@ -24,6 +24,8 @@ type PerformanceRow = {
   p90AbsoluteError: number;
   recentMedianAbsoluteError: number;
   robustError: number;
+  normalizedRobustError: number | null;
+  effectiveSampleSize: number;
   rmse: number;
   bias: number;
   learnedTarget: number;
@@ -213,7 +215,10 @@ export function SourceDashboard({
       if (firstHasGrades !== secondHasGrades) {
         return firstHasGrades ? -1 : 1;
       }
+      const firstFair = first.normalizedRobustError ?? Number.POSITIVE_INFINITY;
+      const secondFair = second.normalizedRobustError ?? Number.POSITIVE_INFINITY;
       return (
+        firstFair - secondFair ||
         first.robustError - second.robustError ||
         second.sampleSize - first.sampleSize
       );
@@ -432,7 +437,7 @@ export function SourceDashboard({
             <p className="mt-2 max-w-2xl text-xs leading-5 text-muted">
               {selectedStat === "moneyline"
                 ? "Moneylines are ranked by Brier score. Lower is better because the score rewards accurate probabilities and penalizes confident misses, instead of only counting who picked the winner."
-                : "“Typical miss” is a robust error score, not a mystery average. Click any source to see the exact formula, its real graded player examples, and how that error turns into model influence."}
+                : "“Fair miss” normalizes error for the size of the prediction and downweights trivial near-zero calls. A 1-yard miss on a WR5 projected near zero no longer looks better than a 3-yard miss on a 125-yard performance. Click any source for the raw and normalized breakdown."}
             </p>
           </div>
           <div className="scrollbar-subtle flex max-w-full gap-1 overflow-x-auto pb-1" role="tablist" aria-label="Projection statistic">
@@ -575,7 +580,7 @@ export function SourceDashboard({
           <div className="hidden grid-cols-[1.2fr_0.7fr_0.8fr_0.9fr] gap-3 border-b bg-background px-4 py-2.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-faint sm:grid">
             <span>Source</span>
             <span>Graded</span>
-            <span>Typical miss</span>
+            <span>Fair miss</span>
             <span>Model influence</span>
           </div>
           {selectedRows.length ? (
@@ -620,14 +625,20 @@ export function SourceDashboard({
                       <p className="text-sm font-semibold tabular">{row.sampleSize.toLocaleString()}</p>
                     </div>
                     <div>
-                      <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Typical miss</p>
+                      <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Fair miss</p>
                       <p className="text-sm font-semibold tabular">
-                        {row.sampleSize === 0 ? "Waiting" : `${row.robustError.toFixed(1)} ${unit}`}
+                        {row.sampleSize === 0
+                          ? "Waiting"
+                          : row.normalizedRobustError === null
+                            ? `${row.robustError.toFixed(1)} ${unit}`
+                            : `${(row.normalizedRobustError * 100).toFixed(1)}%`}
                       </p>
                       <p className="text-[9px] text-faint">
                         {row.sampleSize === 0
                           ? "No completed projection grades"
-                          : `Bias ${row.bias >= 0 ? "+" : ""}${row.bias.toFixed(1)}`}
+                          : row.normalizedRobustError === null
+                            ? `Bias ${row.bias >= 0 ? "+" : ""}${row.bias.toFixed(1)}`
+                            : `Raw typical miss ${row.robustError.toFixed(1)} ${unit}`}
                       </p>
                     </div>
                     <div className="flex items-center justify-between gap-3">
@@ -668,11 +679,31 @@ export function SourceDashboard({
                             </div>
                           </div>
                           <div className="mt-3 rounded-xl border bg-surface-raised/45 p-3">
-                            <p className="text-[9px] uppercase tracking-[0.08em] text-faint">With the real numbers</p>
+                            <p className="text-[9px] uppercase tracking-[0.08em] text-faint">Raw error audit</p>
                             <p className="mt-1 text-sm font-semibold tabular">{formula}</p>
                             <p className="mt-2 text-[10px] leading-4 text-muted">
-                              The simple average absolute miss is {row.meanAbsoluteError.toFixed(1)} {unit}. Huddlemark uses the robust {row.robustError.toFixed(1)} {unit} score instead so one freak projection cannot dominate the source.
+                              The simple average absolute miss is {row.meanAbsoluteError.toFixed(1)} {unit}. These raw numbers remain visible for auditing, but source learning now uses the fair normalized score below.
                             </p>
+                          </div>
+                          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                            <div className="rounded-xl border border-accent/25 bg-accent-bg/35 p-3">
+                              <p className="text-[8px] uppercase tracking-[0.08em] text-faint">Fair normalized miss</p>
+                              <p className="mt-1 text-lg font-semibold tabular text-accent">
+                                {row.normalizedRobustError === null
+                                  ? "Legacy only"
+                                  : `${(row.normalizedRobustError * 100).toFixed(1)}%`}
+                              </p>
+                              <p className="mt-1 text-[9px] leading-4 text-muted">
+                                Error is scaled to the size of the prediction problem, so tiny bench-player calls cannot win the leaderboard just by landing near zero.
+                              </p>
+                            </div>
+                            <div className="rounded-xl border bg-surface p-3">
+                              <p className="text-[8px] uppercase tracking-[0.08em] text-faint">Effective learning sample</p>
+                              <p className="mt-1 text-lg font-semibold tabular">{row.effectiveSampleSize.toFixed(1)}</p>
+                              <p className="mt-1 text-[9px] leading-4 text-muted">
+                                Starter-equivalent signal after low-information near-zero projections are downweighted. Raw graded rows: {row.sampleSize.toLocaleString()}.
+                              </p>
+                            </div>
                           </div>
                         </div>
 
@@ -694,8 +725,8 @@ export function SourceDashboard({
                               <span className="text-xs font-semibold tabular">{(row.confidence * 100).toFixed(0)}%</span>
                             </div>
                             <div className="flex items-center justify-between rounded-xl border bg-surface px-3 py-2.5">
-                              <span className="text-[10px] text-muted">Original learning sample</span>
-                              <span className="text-xs font-semibold tabular">{row.learningSampleSize.toLocaleString()}</span>
+                              <span className="text-[10px] text-muted">Effective learning sample</span>
+                              <span className="text-xs font-semibold tabular">{row.effectiveSampleSize.toFixed(1)}</span>
                             </div>
                             <div className="flex items-center justify-between rounded-xl border border-accent/25 bg-accent-bg/40 px-3 py-2.5">
                               <span className="text-[10px] font-semibold">Current model influence</span>
@@ -757,7 +788,7 @@ export function SourceDashboard({
                           </div>
 
                           <p className="mt-3 text-[9px] leading-4 text-faint">
-                            Accuracy strength is 1 ÷ typical miss. The source is then shrunk toward an equal share until it has enough graded rows. Learning confidence starts at 0% through 20 grades and reaches its 75% cap at 155 graded rows.
+                            Accuracy strength is based on 1 ÷ fair normalized miss. Near-zero projections carry little learning weight, while real misses on meaningful performances still count. The source is then shrunk toward an equal share until it has enough starter-equivalent signal. Learning confidence starts at 0% through 20 effective samples and reaches its 75% cap at 155.
                           </p>
                         </div>
                       </div>
