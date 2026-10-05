@@ -521,6 +521,40 @@ function straightCandidates(
   return selected;
 }
 
+function isSafestAlternateStraight(
+  candidate: Candidate,
+  straights: Candidate[],
+) {
+  const market = candidate.legs[0];
+  const threshold = market?.canonical?.threshold;
+  const direction = market ? pickDirection(market) : null;
+  if (
+    !market ||
+    threshold === null ||
+    threshold === undefined ||
+    (direction !== "over" && direction !== "under")
+  ) {
+    return false;
+  }
+
+  const peers = straights.filter((row) => {
+    const peer = row.legs[0];
+    return (
+      peer &&
+      playerStatKey(peer) === playerStatKey(market) &&
+      pickDirection(peer) === direction &&
+      peer.canonical?.threshold !== null &&
+      peer.canonical?.threshold !== undefined
+    );
+  });
+  if (peers.length < 2) return false;
+
+  const thresholds = peers.map((row) => row.legs[0]!.canonical!.threshold!);
+  const safestThreshold =
+    direction === "over" ? Math.min(...thresholds) : Math.max(...thresholds);
+  return Math.abs(threshold - safestThreshold) < 1e-9;
+}
+
 function parlayRole(grossReturn: number): PortfolioRole {
   if (grossReturn < 6) return "core_parlay";
   if (grossReturn < 25) return "upside_parlay";
@@ -982,11 +1016,10 @@ function selectSingleGamePortfolioCandidates(
         row.role === "core_straight" &&
         row.probability >= 0.5 &&
         row.probability <= 0.85 &&
-        row.lineSafety >= 0.6,
+        isSafestAlternateStraight(row, straights),
     )
     .toSorted(
       (first, second) =>
-        second.lineSafety - first.lineSafety ||
         second.expectedValueMultiplier - first.expectedValueMultiplier ||
         second.score - first.score,
     )[0];
@@ -1001,14 +1034,17 @@ function selectSingleGamePortfolioCandidates(
     const longshot = [...seeded, ...parlays]
       .filter(
         (row) =>
-          row.role === "hail_mary" &&
+          row.kind === "parlay" &&
           row.legs.length >= minimumLongLegs &&
+          row.grossReturn >= Math.max(8, targetReturn * 2) &&
           !chosen.some((selected) => selected.id === row.id),
       )
       .toSorted(
         (first, second) =>
-          second.score - first.score ||
-          second.expectedValueMultiplier - first.expectedValueMultiplier,
+          Number(second.role === "hail_mary") -
+            Number(first.role === "hail_mary") ||
+          second.grossReturn - first.grossReturn ||
+          second.score - first.score,
       )
       .find((row) => candidateSingleGameCompatible(row, chosen));
     if (longshot) chosen.push(longshot);
