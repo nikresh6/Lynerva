@@ -7,6 +7,7 @@ function opportunity(
   matchup: string,
   price: number,
   model: number,
+  threshold = 50,
 ): MarketOpportunity {
   return {
     platform: "kalshi",
@@ -99,7 +100,7 @@ function playerProp(
       family,
       statistic: family,
       direction: family === "touchdowns" ? "yes" : "over",
-      threshold: family === "touchdowns" ? 0.5 : 50,
+      threshold: family === "touchdowns" ? 0.5 : threshold,
       subject,
       matchup: "LAR-NYG",
     },
@@ -333,56 +334,143 @@ describe("bankroll portfolio builder", () => {
     expect(largestParlayStake).toBeLessThanOrEqual(1.7);
   });
 
-  it("caps one-game portfolios at four bets without repeated players except yards plus TD", () => {
+  it("builds a funded one-game portfolio instead of collapsing to two or three top picks", () => {
     const oneGameMarkets = [
-      playerProp("PUKA-YDS", "Puka Nacua", "receiving_yards", 5_800, 6_900),
-      playerProp("PUKA-TD", "Puka Nacua", "touchdowns", 3_800, 4_900),
-      playerProp("PUKA-REC", "Puka Nacua", "receptions", 5_400, 6_500),
-      playerProp("STAFFORD-PASS", "Matthew Stafford", "passing_yards", 6_100, 7_100),
-      playerProp("KYREN-RUSH", "Kyren Williams", "rushing_yards", 5_700, 6_700),
-      playerProp("KYREN-TD", "Kyren Williams", "touchdowns", 4_500, 5_500),
-      playerProp("NABERS-YDS", "Malik Nabers", "receiving_yards", 5_300, 6_400),
-      playerProp("DART-PASS", "Jaxson Dart", "passing_yards", 5_500, 6_600),
+      playerProp("PITTS-YDS", "Kyle Pitts", "receiving_yards", 6_600, 7_500, 34.5),
+      playerProp("PITTS-YDS-MID", "Kyle Pitts", "receiving_yards", 5_500, 6_800, 49.5),
+      playerProp("PITTS-YDS-HIGH", "Kyle Pitts", "receiving_yards", 4_200, 5_500, 64.5),
+      playerProp("PITTS-TD", "Kyle Pitts", "touchdowns", 3_700, 4_800),
+      playerProp("LONDON-YDS", "Drake London", "receiving_yards", 5_700, 6_800, 62.5),
+      playerProp("BIJAN-RUSH", "Bijan Robinson", "rushing_yards", 5_900, 7_000, 71.5),
+      playerProp("BIJAN-TD", "Bijan Robinson", "touchdowns", 4_700, 5_700),
+      playerProp("PENIX-PASS", "Michael Penix", "passing_yards", 6_100, 7_200, 224.5),
+      playerProp("OLAVE-YDS", "Chris Olave", "receiving_yards", 5_500, 6_600, 64.5),
+      playerProp("SHAHEED-YDS", "Rashid Shaheed", "receiving_yards", 5_100, 6_200, 48.5),
+      playerProp("KAMARA-RUSH", "Alvin Kamara", "rushing_yards", 5_400, 6_500, 53.5),
+      playerProp("KAMARA-TD", "Alvin Kamara", "touchdowns", 4_100, 5_100),
+      playerProp("CARR-PASS", "Derek Carr", "passing_yards", 5_700, 6_800, 218.5),
+      playerProp("MOREAU-YDS", "Foster Moreau", "receiving_yards", 4_900, 5_900, 24.5),
     ];
 
     const plan = buildPortfolioPlan(oneGameMarkets, {
-      amount: 100,
-      targetPayout: 250,
+      amount: 25,
+      targetPayout: 100,
       risk: "balanced",
       platform: "either",
       live: "pregame",
       mode: "sgp",
-      maxLegs: 4,
+      maxLegs: 10,
       singleGame: true,
-      maxPositions: 4,
+      maxPositions: 8,
     });
 
     expect(plan).not.toBeNull();
-    expect(plan!.positions.length).toBeLessThanOrEqual(4);
+    expect(plan!.positions.length).toBeGreaterThanOrEqual(6);
+    expect(plan!.positions.length).toBeLessThanOrEqual(8);
+    expect(plan!.totalStake).toBeCloseTo(25, 2);
+    expect(plan!.positions.every((position) => position.stake >= 0.49)).toBe(true);
+    expect(plan!.positions.some((position) => position.kind === "straight")).toBe(true);
+    expect(plan!.positions.some((position) => position.kind === "parlay")).toBe(true);
+    expect(
+      plan!.positions.some(
+        (position) =>
+          position.kind === "parlay" && position.legs.length >= 5,
+      ),
+    ).toBe(true);
 
-    const legs = plan!.positions.flatMap((position) => position.legs);
-    for (let firstIndex = 0; firstIndex < legs.length; firstIndex += 1) {
-      for (let secondIndex = firstIndex + 1; secondIndex < legs.length; secondIndex += 1) {
-        const first = legs[firstIndex]!;
-        const second = legs[secondIndex]!;
-        if (first.canonical?.subject !== second.canonical?.subject) continue;
-        if (first.canonical?.key === second.canonical?.key) {
-          throw new Error("one-game portfolio repeated the exact same market");
-        }
+    const allLegs = plan!.positions.flatMap((position) => position.legs);
+    const exactKeys = allLegs.map(
+      (leg) => leg.canonical?.key ?? leg.platformMarketId,
+    );
+    expect(new Set(exactKeys).size).toBe(exactKeys.length);
 
-        const yardage = new Set([
-          "passing_yards",
-          "rushing_yards",
-          "receiving_yards",
-        ]);
-        const touchdowns = new Set(["touchdowns"]);
-        const firstFamily = first.canonical?.family ?? "other";
-        const secondFamily = second.canonical?.family ?? "other";
-        expect(
-          (yardage.has(firstFamily) && touchdowns.has(secondFamily)) ||
-            (touchdowns.has(firstFamily) && yardage.has(secondFamily)),
-        ).toBe(true);
-      }
+    const playerStatCounts = new Map<string, number>();
+    for (const leg of allLegs) {
+      const key = `${leg.canonical?.subject}:${leg.canonical?.family}`;
+      playerStatCounts.set(key, (playerStatCounts.get(key) ?? 0) + 1);
     }
+    expect(Math.max(...playerStatCounts.values())).toBeLessThanOrEqual(2);
   });
+
+  it("prefers a safer alternate line for the core straight anchor", () => {
+    const oneGameMarkets = [
+      playerProp("SAFE35", "Kyle Pitts", "receiving_yards", 7_000, 7_800, 34.5),
+      playerProp("MID50", "Kyle Pitts", "receiving_yards", 5_500, 6_800, 49.5),
+      playerProp("HIGH65", "Kyle Pitts", "receiving_yards", 4_000, 5_500, 64.5),
+      playerProp("LONDON", "Drake London", "receiving_yards", 5_500, 6_500, 69.5),
+      playerProp("BIJAN", "Bijan Robinson", "rushing_yards", 5_600, 6_700, 70.5),
+      playerProp("PENIX", "Michael Penix", "passing_yards", 5_800, 6_900, 225.5),
+      playerProp("OLAVE", "Chris Olave", "receiving_yards", 5_300, 6_400, 63.5),
+      playerProp("KAMARA", "Alvin Kamara", "rushing_yards", 5_200, 6_300, 51.5),
+    ];
+
+    const plan = buildPortfolioPlan(oneGameMarkets, {
+      amount: 50,
+      targetPayout: 150,
+      risk: "balanced",
+      platform: "either",
+      live: "pregame",
+      mode: "sgp",
+      maxLegs: 6,
+      singleGame: true,
+      maxPositions: 6,
+    });
+
+    const coreStraight = plan?.positions.find(
+      (position) => position.role === "core_straight",
+    );
+    expect(coreStraight).toBeDefined();
+    expect(coreStraight?.legs[0]?.platformMarketId).toBe("SAFE35");
+  });
+
+  it("uses a genuine middle or counterweight when the board offers one", () => {
+    const over = playerProp(
+      "PITTS-OVER-35",
+      "Kyle Pitts",
+      "receiving_yards",
+      6_400,
+      7_400,
+      34.5,
+    );
+    const under = playerProp(
+      "PITTS-OVER-75",
+      "Kyle Pitts",
+      "receiving_yards",
+      4_500,
+      6_600,
+      74.5,
+    );
+    under.recommendedSide = "no";
+    under.recommendedProbabilityBps = 6_600;
+    under.executablePriceBps = 5_500;
+    under.edgeBps = 1_100;
+
+    const plan = buildPortfolioPlan(
+      [
+        over,
+        under,
+        playerProp("LONDON", "Drake London", "receiving_yards", 5_500, 6_500, 69.5),
+        playerProp("BIJAN", "Bijan Robinson", "rushing_yards", 5_600, 6_700, 70.5),
+        playerProp("PENIX", "Michael Penix", "passing_yards", 5_800, 6_900, 225.5),
+        playerProp("OLAVE", "Chris Olave", "receiving_yards", 5_300, 6_400, 63.5),
+        playerProp("KAMARA", "Alvin Kamara", "rushing_yards", 5_200, 6_300, 51.5),
+      ],
+      {
+        amount: 50,
+        targetPayout: 150,
+        risk: "balanced",
+        platform: "either",
+        live: "pregame",
+        mode: "sgp",
+        maxLegs: 6,
+        singleGame: true,
+        maxPositions: 6,
+      },
+    );
+
+    expect(
+      plan?.positions.some((position) => position.role === "hedge_straight"),
+    ).toBe(true);
+  });
+
 });
