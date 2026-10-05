@@ -972,6 +972,48 @@ function selectSingleGamePortfolioCandidates(
   });
 
   const chosen: Candidate[] = [];
+
+  // Reserve the insurance anchor explicitly. Generic utility ranking can
+  // prefer the juicier main line, but the bankroll builder should use a safer
+  // alternate line when the same player/stat offers one with real model value.
+  const safeAnchor = straights
+    .filter(
+      (row) =>
+        row.role === "core_straight" &&
+        row.probability >= 0.5 &&
+        row.probability <= 0.85 &&
+        row.lineSafety >= 0.6,
+    )
+    .toSorted(
+      (first, second) =>
+        second.lineSafety - first.lineSafety ||
+        second.expectedValueMultiplier - first.expectedValueMultiplier ||
+        second.score - first.score,
+    )[0];
+  if (safeAnchor) chosen.push({ ...safeAnchor, role: "core_straight" });
+
+  // For a 3.5x+ target, reserve one genuine long-form upside ticket when the
+  // board can support it. This is a small sleeve, not a forced majority bet.
+  const shouldReserveLongshot =
+    risk === "higher" || (risk !== "lower" && targetReturn >= 3.5);
+  if (shouldReserveLongshot && chosen.length < maxPositions) {
+    const minimumLongLegs = Math.min(maxLegs, 5);
+    const longshot = [...seeded, ...parlays]
+      .filter(
+        (row) =>
+          row.role === "hail_mary" &&
+          row.legs.length >= minimumLongLegs &&
+          !chosen.some((selected) => selected.id === row.id),
+      )
+      .toSorted(
+        (first, second) =>
+          second.score - first.score ||
+          second.expectedValueMultiplier - first.expectedValueMultiplier,
+      )
+      .find((row) => candidateSingleGameCompatible(row, chosen));
+    if (longshot) chosen.push(longshot);
+  }
+
   const sleeveOrder: PortfolioRole[] =
     risk === "lower"
       ? [
@@ -987,7 +1029,6 @@ function selectSingleGamePortfolioCandidates(
             "core_straight",
             "value_straight",
             "aggressive_straight",
-            "hail_mary",
             "core_parlay",
             "upside_parlay",
             "upside_parlay",
@@ -997,7 +1038,6 @@ function selectSingleGamePortfolioCandidates(
             "core_straight",
             "hedge_straight",
             "value_straight",
-            "hail_mary",
             "core_parlay",
             "core_parlay",
             "upside_parlay",
