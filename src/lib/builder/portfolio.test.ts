@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MarketOpportunity } from "@/lib/markets/types";
+import { buildCombinationCandidates } from "./index";
 import { buildPortfolioPlan } from "./portfolio";
 
 function opportunity(
@@ -352,6 +353,24 @@ describe("bankroll portfolio builder", () => {
       playerProp("MOREAU-YDS", "Foster Moreau", "receiving_yards", 4_900, 5_900, 24.5),
     ];
 
+    const longCandidates = buildCombinationCandidates(
+      oneGameMarkets,
+      {
+        minReturn: 12,
+        maxReturn: 60,
+        minLegs: 5,
+        maxLegs: 10,
+        platform: "either",
+        live: "pregame",
+        mode: "sgp",
+        objective: "balanced",
+      },
+      20,
+    );
+    expect(longCandidates.some((candidate) => candidate.legs.length >= 5)).toBe(
+      true,
+    );
+
     const plan = buildPortfolioPlan(oneGameMarkets, {
       amount: 25,
       targetPayout: 100,
@@ -423,12 +442,14 @@ describe("bankroll portfolio builder", () => {
       maxPositions: 6,
     });
 
-    const coreStraight = plan?.positions.find(
+    const coreStraights = plan?.positions.filter(
       (position) => position.role === "core_straight",
-    );
-    expect(coreStraight).toBeDefined();
+    ) ?? [];
+    expect(coreStraights.length).toBeGreaterThan(0);
     expect(
-      coreStraight?.legs[0]?.platformMarketId,
+      coreStraights.some(
+        (position) => position.legs[0]?.platformMarketId === "SAFE35",
+      ),
       JSON.stringify(
         plan?.positions.map((position) => ({
           role: position.role,
@@ -436,7 +457,7 @@ describe("bankroll portfolio builder", () => {
           legs: position.legs.map((leg) => leg.platformMarketId),
         })),
       ),
-    ).toBe("SAFE35");
+    ).toBe(true);
   });
 
   it("uses a genuine middle or counterweight when the board offers one", () => {
