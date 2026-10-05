@@ -597,13 +597,9 @@ export async function runSourceLearningFromActuals(
       season,
       actualRows,
     );
-    if (!graded) {
-      return {
-        graded: 0,
-        effectiveWeek: null,
-        weightsStored: 0,
-      };
-    }
+    // Recompute even when no brand-new rows were graded. This lets a scoring
+    // formula update take effect from the existing frozen pregame history
+    // without waiting for another NFL game to finish.
     const weights = await recomputeSourceWeights(season);
     return {
       graded,
@@ -628,6 +624,8 @@ async function recomputeSourceWeights(season: number) {
       source: sourceProjections.source,
       statistic: sourceProjections.statistic,
       week: sourceProjections.week,
+      projectedValue: sourceProjections.projectedValue,
+      actualValue: sourceProjectionGrades.actualValue,
       absoluteError: sourceProjectionGrades.absoluteError,
       gradedAt: sourceProjectionGrades.gradedAt,
     })
@@ -658,6 +656,9 @@ async function recomputeSourceWeights(season: number) {
       .filter((row) => row.statistic === statistic)
       .map((row) => ({
         source: row.source,
+        statistic: row.statistic,
+        projectedValue: row.projectedValue,
+        actualValue: row.actualValue,
         absoluteError: row.absoluteError,
         gradedAt: row.gradedAt,
       }));
@@ -703,13 +704,9 @@ export async function runSourceLearningLoop(season: number) {
   try {
     await ensureSourceLearningSchema();
     const graded = await gradeNewSourceProjections(season);
-    if (!graded) {
-      return {
-        graded: 0,
-        effectiveWeek: null,
-        weightsStored: 0,
-      };
-    }
+    // Recompute even when no brand-new rows were graded. This lets a scoring
+    // formula update take effect from the existing frozen pregame history
+    // without waiting for another NFL game to finish.
     const weights = await recomputeSourceWeights(season);
     return {
       graded,
