@@ -515,7 +515,7 @@ export function BuilderWorkbench() {
       maxLegs: portfolioRequest.maxLegs,
       subjectTeams: portfolioRequest.subjectTeams,
       singleGame: portfolioRequest.singleGame,
-      maxPositions: portfolioRequest.singleGame ? 4 : undefined,
+      maxPositions: portfolioRequest.singleGame ? 8 : undefined,
     });
   }, [portfolioRequest]);
   const portfolioPlan = customPortfolioPlan ?? generatedPortfolioPlan;
@@ -1587,8 +1587,9 @@ export function BuilderWorkbench() {
                 <p className="text-sm font-semibold">Bankroll plan</p>
                 <p className="mt-1 text-[11px] leading-5 text-muted">
                   Tell Huddlemark how much you want to put in and the payout you
-                  want to aim for. It spreads the money across straight bets and
-                  model-backed parlays instead of forcing everything into one ticket.
+                  want to aim for. It builds a real portfolio across safer
+                  alternate lines, value straights, counterweights, core parlays,
+                  and small upside tickets instead of just repeating the top picks.
                 </p>
               </div>
               <div className="mt-2 flex items-center gap-2 text-[10px] text-muted sm:mt-0">
@@ -1731,7 +1732,7 @@ export function BuilderWorkbench() {
                   current={portfolioScope}
                   onClick={setPortfolioScope}
                   title="One game"
-                  description="Up to four focused bets from one matchup."
+                  description="Up to eight coordinated bets from one matchup."
                   icon={<Target className="size-3.5" />}
                 />
               </div>
@@ -1751,9 +1752,10 @@ export function BuilderWorkbench() {
                     ))}
                   </select>
                   <p className="mt-1.5 text-[9px] leading-4 text-faint">
-                    One-game plans use at most four bets. The same player cannot
-                    appear twice unless the overlap is a yardage bet paired with
-                    a touchdown bet.
+                    One-game plans can use up to eight funded bets. Huddlemark
+                    can ladder safer alternate lines, reuse a strong player in
+                    controlled spots, add a real counterweight when one exists,
+                    and reserve a small sleeve for longer upside parlays.
                   </p>
                 </label>
               ) : (
@@ -1838,7 +1840,7 @@ export function BuilderWorkbench() {
           <div className="flex flex-col gap-2 border-t bg-surface-raised/45 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
             <p className="text-[10px] leading-4 text-muted">
               {portfolioScope === "single"
-                ? "One-game mode caps the plan at four bets and avoids repeated players, except yardage plus touchdown."
+                ? "One-game mode can fund up to eight distinct tickets, including safer alternate-line anchors, counterweights, core parlays, and a small upside sleeve when the board supports them."
                 : "Set the amount, target, and risk first. The plan is calculated only after you click Build."}
             </p>
             <button
