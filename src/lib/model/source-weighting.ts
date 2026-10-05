@@ -135,7 +135,24 @@ export function calculateSourceAccuracyMetrics(
     const magnitudes = rows
       .map(gradeMagnitude)
       .filter((value): value is number => value !== null && value > 0);
-    const referenceMagnitude = quantile(magnitudes, 0.8);
+    const bySource = new Map<string, number[]>();
+    for (const sample of rows) {
+      const magnitude = gradeMagnitude(sample);
+      if (magnitude === null || magnitude <= 0) continue;
+      const values = bySource.get(sample.source) ?? [];
+      values.push(magnitude);
+      bySource.set(sample.source, values);
+    }
+    const sourceReferenceMagnitudes = [...bySource.values()]
+      .map((values) => quantile(values, 0.75))
+      .filter((value): value is number => value !== null && value > 0);
+    // Coverage breadth must not define the scale. If one provider publishes
+    // hundreds of WR5 rows, those extra tiny values cannot drag the reference
+    // magnitude down and turn zero-usage calls into an accuracy advantage.
+    const referenceMagnitude = Math.max(
+      quantile(magnitudes, 0.8) ?? 0,
+      quantile(sourceReferenceMagnitudes, 0.75) ?? 0,
+    );
 
     for (const sample of rows) {
       const magnitude = gradeMagnitude(sample);
