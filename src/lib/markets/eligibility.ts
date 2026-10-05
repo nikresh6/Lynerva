@@ -67,17 +67,11 @@ export function isModelBackedOpportunity(market: MarketOpportunity) {
 }
 
 export function isBuilderSearchableOpportunity(market: MarketOpportunity) {
-  if (!isPricedOpportunity(market)) return false;
-  if (
-    market.executablePriceBps === null ||
-    market.executablePriceBps < 200 ||
-    market.executablePriceBps > 9_800
-  ) {
-    return false;
-  }
-  if (market.model.reliabilityBps < 2_500) return false;
-  if (market.spreadBps !== null && market.spreadBps > 2_500) return false;
-  return true;
+  // The Builder should expose the same executable modeled board that its
+  // optimizer can search. Reliability and spread are ranking inputs, not
+  // pre-display gates. Applying stricter UI-only cutoffs can hide an entire
+  // slate even while the optimizer has valid priced candidates.
+  return isPricedOpportunity(market);
 }
 
 export function isBuilderEligibleOpportunity(market: MarketOpportunity) {
