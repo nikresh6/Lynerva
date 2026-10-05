@@ -262,7 +262,11 @@ export function GameBetsModal({
       if (normalizeMatchup(market.canonical?.matchup) !== targetMatchup) {
         return false;
       }
-      if (market.lynervaScore === null || market.recommendedSide === null) {
+      // The shared market feed already contains only executable, model-backed
+      // opportunities. A Pick Score can legitimately be unavailable while a
+      // priced recommendation is still usable, so do not hide the whole player
+      // or game board just because lynervaScore is null.
+      if (market.recommendedSide === null) {
         return false;
       }
       return liveOnly ? market.isLive : !market.isLive;
