@@ -8,6 +8,7 @@ export interface BuilderOptions {
   minReturn: number;
   maxReturn: number;
   maxLegs: number;
+  minLegs?: number;
   platform: "either" | Platform;
   live: "all" | "pregame" | "live";
   mode: BuilderMode;
@@ -525,12 +526,14 @@ function searchCombinations(
   resultLimit: number,
   strictReturnBand = false,
 ): BuiltCombination[] {
+  const minLegs = Math.max(2, Math.floor(options.minLegs ?? 2));
   if (
     !Number.isFinite(options.minReturn) ||
     !Number.isFinite(options.maxReturn) ||
     options.minReturn <= 1 ||
     options.maxReturn < options.minReturn ||
-    options.maxLegs < 2
+    options.maxLegs < 2 ||
+    minLegs > options.maxLegs
   ) {
     return [];
   }
@@ -612,7 +615,7 @@ function searchCombinations(
             state.rawModelProbabilityProduct * candidate.modelProbability,
         };
 
-        if (nextState.legs.length >= 2) {
+        if (nextState.legs.length >= minLegs) {
           const built = buildFromState(nextState);
           const balanced = isAcceptablePayoutShape(nextState.legs);
           const returnDistance = Math.abs(
