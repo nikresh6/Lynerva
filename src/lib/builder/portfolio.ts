@@ -222,24 +222,29 @@ function candidateSingleGameCompatible(
     for (const candidateLeg of candidate.legs) {
       for (const existingLeg of existing.legs) {
         if (marketKey(candidateLeg) === marketKey(existingLeg)) return false;
-        if (!allowedSingleGameSubjectPair(candidateLeg, existingLeg)) {
-          return false;
-        }
       }
     }
   }
 
-  // Nested alternate lines are useful as a risk ladder, but do not let the
-  // entire plan become repeated versions of the same player/stat thesis.
+  // Separate tickets may reuse a strong player, especially through a safer
+  // alternate line or a hedge/middle, but cap repeated exposure so the plan
+  // does not become eight versions of the same thesis.
   const playerStatCounts = new Map<string, number>();
+  const subjectCounts = new Map<string, number>();
   for (const leg of [
     ...selected.flatMap((row) => row.legs),
     ...candidate.legs,
   ]) {
-    const key = playerStatKey(leg);
-    const next = (playerStatCounts.get(key) ?? 0) + 1;
-    if (next > 2) return false;
-    playerStatCounts.set(key, next);
+    const statKey = playerStatKey(leg);
+    const nextStat = (playerStatCounts.get(statKey) ?? 0) + 1;
+    if (nextStat > 2) return false;
+    playerStatCounts.set(statKey, nextStat);
+
+    const subject =
+      leg.canonical?.subject.toLowerCase() ?? marketKey(leg);
+    const nextSubject = (subjectCounts.get(subject) ?? 0) + 1;
+    if (nextSubject > 3) return false;
+    subjectCounts.set(subject, nextSubject);
   }
 
   return true;
@@ -927,13 +932,14 @@ function selectSingleGamePortfolioCandidates(
   targetReturn: number,
   subjectTeams: PortfolioPlanOptions["subjectTeams"],
   maxPositions: number,
+  maxLegs: number,
 ) {
   const seeded = selectPortfolioCandidates(
     straights,
     parlays,
     risk,
     targetReturn,
-    Math.max(2, ...parlays.map((row) => row.legs.length), 2),
+    maxLegs,
     subjectTeams,
   );
 
@@ -1265,6 +1271,7 @@ export function buildPortfolioPlan(
         targetReturn,
         options.subjectTeams,
         maxPositions,
+        options.maxLegs,
       )
     : selectPortfolioCandidates(
         straights,
