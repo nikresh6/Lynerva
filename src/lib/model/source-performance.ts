@@ -16,6 +16,7 @@ import {
   ACTIVE_PROJECTION_SOURCES,
   PROJECTION_STATISTICS,
   calculateSourceAccuracyMetrics,
+  normalizeLearningPlayer,
   projectionSourcesForStatistic,
   sourceSupportsStatistic,
 } from "./source-weighting";
@@ -221,6 +222,27 @@ const LEGACY_WEEK3_PERFORMANCE = new Map<string, LegacyPerformanceMetric>(
     },
   ]),
 );
+
+export type HuddlemarkPerformanceRow = {
+  statistic: string;
+  sampleSize: number;
+  meanAbsoluteError: number;
+  medianAbsoluteError: number;
+  p90AbsoluteError: number;
+  recentMedianAbsoluteError: number;
+  robustError: number;
+  normalizedRobustError: number | null;
+  effectiveSampleSize: number;
+  rmse: number;
+  bias: number;
+  examples: Array<{
+    playerName: string;
+    week: number;
+    projectedValue: number;
+    actualValue: number;
+    absoluteError: number;
+  }>;
+};
 
 export type ProjectionPerformanceRow = {
   source: string;
@@ -828,6 +850,182 @@ export async function getProjectionSourcePerformance(season = 2026) {
     });
 
     const seasonPredictionStart = new Date(Date.UTC(season, 7, 1));
+
+    const actualPlayerResults = new Map<
+      string,
+      { actualValue: number; gradedAt: Date }
+    >();
+    for (const row of gradeRows) {
+      const key =
+        row.statistic +
+        ":" +
+        row.week +
+        ":" +
+        normalizeLearningPlayer(row.playerName);
+      const existing = actualPlayerResults.get(key);
+      if (!existing || row.gradedAt > existing.gradedAt) {
+        actualPlayerResults.set(key, {
+          actualValue: row.actualValue,
+          gradedAt: row.gradedAt,
+        });
+      }
+    }
+
+    const playerPredictionRows = await db
+      .select({
+        family: normalizedMarkets.family,
+        statistic: normalizedMarkets.statistic,
+        features: predictions.features,
+        predictedAt: predictions.predictedAt,
+        kickoffAt: nflGames.kickoffAt,
+      })
+      .from(predictions)
+      .innerJoin(
+        normalizedMarkets,
+        eq(normalizedMarkets.id, predictions.normalizedMarketId),
+      )
+      .innerJoin(nflGames, eq(nflGames.id, normalizedMarkets.gameId))
+      .where(
+        and(
+          eq(nflGames.season, season),
+          gte(predictions.predictedAt, seasonPredictionStart),
+        ),
+      )
+      .orderBy(desc(predictions.predictedAt))
+      .limit(50_000);
+
+    type HuddlemarkProjectionSample = {
+      statistic: string;
+      playerName: string;
+      week: number;
+      projectedValue: number;
+      actualValue: number;
+      absoluteError: number;
+      squaredError: number;
+      predictedAt: Date;
+      gradedAt: Date;
+    };
+
+    const latestModelProjection = new Map<string, HuddlemarkProjectionSample>();
+    for (const row of playerPredictionRows) {
+      const features = row.features;
+      const statistic = row.statistic ?? row.family;
+      if (
+        features.live === true ||
+        !PROJECTION_STATISTICS.includes(
+          statistic as (typeof PROJECTION_STATISTICS)[number],
+        ) ||
+        typeof features.projectionWeek !== "number" ||
+        typeof features.subject !== "string" ||
+        row.predictedAt >= row.kickoffAt
+      ) {
+        continue;
+      }
+
+      const projectedValue =
+        typeof features.modelProjection === "number"
+          ? features.modelProjection
+          : typeof features.consensusProjection === "number"
+            ? features.consensusProjection
+            : null;
+      if (projectedValue === null || !Number.isFinite(projectedValue)) continue;
+
+      const playerName = features.subject;
+      const week = features.projectionWeek;
+      const sampleKey =
+        statistic +
+        ":" +
+        week +
+        ":" +
+        normalizeLearningPlayer(playerName);
+      if (latestModelProjection.has(sampleKey)) continue;
+
+      const actual = actualPlayerResults.get(sampleKey);
+      if (!actual) continue;
+      const absoluteError = Math.abs(projectedValue - actual.actualValue);
+      latestModelProjection.set(sampleKey, {
+        statistic,
+        playerName,
+        week,
+        projectedValue,
+        actualValue: actual.actualValue,
+        absoluteError,
+        squaredError: absoluteError ** 2,
+        predictedAt: row.predictedAt,
+        gradedAt: actual.gradedAt,
+      });
+    }
+
+    const modelRows: HuddlemarkPerformanceRow[] = PROJECTION_STATISTICS.flatMap(
+      (statistic) => {
+        const samples = [...latestModelProjection.values()]
+          .filter((sample) => sample.statistic === statistic)
+          .toSorted(
+            (first, second) =>
+              second.gradedAt.getTime() - first.gradedAt.getTime(),
+          );
+        if (!samples.length) return [];
+
+        const abs = samples
+          .map((sample) => sample.absoluteError)
+          .toSorted((first, second) => first - second);
+        const recentAbs = samples
+          .slice(0, 40)
+          .map((sample) => sample.absoluteError)
+          .toSorted((first, second) => first - second);
+        const medianAbsoluteError = quantile(abs, 0.5);
+        const p90AbsoluteError = quantile(abs, 0.9);
+        const recentMedianAbsoluteError = quantile(recentAbs, 0.5);
+        const robustError =
+          0.5 * medianAbsoluteError +
+          0.3 * recentMedianAbsoluteError +
+          0.2 * p90AbsoluteError;
+        const normalized = calculateSourceAccuracyMetrics(
+          samples.map((sample) => ({
+            source: "huddlemark",
+            statistic,
+            projectedValue: sample.projectedValue,
+            actualValue: sample.actualValue,
+            absoluteError: sample.absoluteError,
+            gradedAt: sample.gradedAt,
+          })),
+          ["huddlemark"],
+        )[0];
+
+        return [{
+          statistic,
+          sampleSize: samples.length,
+          meanAbsoluteError:
+            samples.reduce((sum, sample) => sum + sample.absoluteError, 0) /
+            samples.length,
+          medianAbsoluteError,
+          p90AbsoluteError,
+          recentMedianAbsoluteError,
+          robustError,
+          normalizedRobustError:
+            normalized?.normalizedRobustError ?? null,
+          effectiveSampleSize: normalized?.effectiveSampleSize ?? 0,
+          rmse: Math.sqrt(
+            samples.reduce((sum, sample) => sum + sample.squaredError, 0) /
+              samples.length,
+          ),
+          bias:
+            samples.reduce(
+              (sum, sample) =>
+                sum + sample.projectedValue - sample.actualValue,
+              0,
+            ) / samples.length,
+          examples: samples.slice(0, 5).map((sample) => ({
+            playerName: sample.playerName,
+            week: sample.week,
+            projectedValue: sample.projectedValue,
+            actualValue: sample.actualValue,
+            absoluteError: sample.absoluteError,
+          })),
+        }];
+      },
+    );
+
     const moneylinePredictionRows = await db
       .select({
         features: predictions.features,
@@ -1038,6 +1236,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
     return {
       season,
       rows,
+      modelRows,
       moneylineRows,
       coverageWeek,
       sources: [
