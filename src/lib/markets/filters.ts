@@ -52,6 +52,14 @@ export function parseMarketFilters(
 }
 
 function historicalHitRate(market: MarketOpportunity) {
+  const roleAdjusted =
+    market.model.components?.roleAdjustedHistoricalProbabilityBps ?? null;
+  if (roleAdjusted !== null) {
+    return market.recommendedSide === "no"
+      ? 10_000 - roleAdjusted
+      : roleAdjusted;
+  }
+
   const { seasonHits, seasonGames } = market.model.evidence;
   if (seasonHits === null || !seasonGames) return null;
   const hits =
