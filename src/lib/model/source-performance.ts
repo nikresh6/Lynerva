@@ -14,7 +14,10 @@ import {
 } from "@/db/schema";
 import {
   ACTIVE_PROJECTION_SOURCES,
+  PROJECTION_STATISTICS,
   calculateSourceAccuracyMetrics,
+  projectionSourcesForStatistic,
+  sourceSupportsStatistic,
 } from "./source-weighting";
 import {
   MONEYLINE_WEIGHT_PRIORS,
@@ -222,6 +225,7 @@ const LEGACY_WEEK3_PERFORMANCE = new Map<string, LegacyPerformanceMetric>(
 export type ProjectionPerformanceRow = {
   source: string;
   statistic: string;
+  supported: boolean;
   sampleSize: number;
   learningSampleSize: number;
   recoveredSampleSize: number;
@@ -630,7 +634,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
 
       for (const metric of calculateSourceAccuracyMetrics(
         samples,
-        ACTIVE_PROJECTION_SOURCES,
+        projectionSourcesForStatistic(statistic),
       )) {
         accuracyMetricByKey.set(`${statistic}:${metric.source}`, metric);
       }
@@ -646,6 +650,9 @@ export async function getProjectionSourcePerformance(season = 2026) {
     const performanceKeys = new Set([
       ...groups.keys(),
       ...weightHistoryByKey.keys(),
+      ...PROJECTION_STATISTICS.flatMap((statistic) =>
+        ACTIVE_PROJECTION_SOURCES.map((source) => `${statistic}:${source}`),
+      ),
     ]);
 
     const baseRows = [...performanceKeys].flatMap(
@@ -670,11 +677,19 @@ export async function getProjectionSourcePerformance(season = 2026) {
         const weightHistory = weightHistoryByKey.get(weightKey) ?? [];
         const latestWeight = weightHistory.at(-1) ?? null;
         const priorWeight = weightHistory.at(-2) ?? null;
-        const baselineWeight =
-          latestWeight
+        const supported = sourceSupportsStatistic(
+          group.source,
+          group.statistic,
+        );
+        const capableSources = projectionSourcesForStatistic(group.statistic);
+        const statBaselineWeight =
+          1 / Math.max(capableSources.length, 1);
+        const baselineWeight = supported
+          ? latestWeight
             ? legacyBaselineByStatistic.get(group.statistic) ??
-              currentBaselineWeight
-            : currentBaselineWeight;
+              statBaselineWeight
+            : statBaselineWeight
+          : 0;
         const previousWeight = latestWeight
           ? priorWeight?.weight ?? baselineWeight
           : null;
@@ -709,6 +724,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
         return {
           source: group.source,
           statistic: group.statistic,
+          supported,
           sampleSize,
           learningSampleSize: latestWeight?.sampleSize ?? 0,
           recoveredSampleSize: group.recoveredCount,
@@ -749,9 +765,9 @@ export async function getProjectionSourcePerformance(season = 2026) {
               actualValue: example.actualValue,
               absoluteError: example.error,
             })),
-          weight: latestWeight?.weight ?? baselineWeight,
+          weight: supported ? latestWeight?.weight ?? baselineWeight : 0,
           baselineWeight,
-          previousWeight,
+          previousWeight: supported ? previousWeight : 0,
           previousWeightWeek: priorWeight?.week ?? null,
           weightChange:
             latestWeight && previousWeight !== null
@@ -769,7 +785,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
     for (const statistic of [...new Set(baseRows.map((row) => row.statistic))]) {
       const statRows = baseRows.filter((row) => row.statistic === statistic);
       const availableStrengths = statRows.flatMap((row) =>
-        row.normalizedRobustError === null
+        !row.supported || row.normalizedRobustError === null
           ? []
           : [1 / Math.max(row.normalizedRobustError, 0.01)],
       );
@@ -780,6 +796,10 @@ export async function getProjectionSourcePerformance(season = 2026) {
           : 1;
 
       for (const row of statRows) {
+        if (!row.supported) {
+          strengthByKey.set(`${row.statistic}:${row.source}`, 0);
+          continue;
+        }
         const strength =
           row.normalizedRobustError === null
             ? neutralStrength
@@ -798,8 +818,12 @@ export async function getProjectionSourcePerformance(season = 2026) {
       const total = performanceTotals.get(row.statistic) ?? strength;
       return {
         ...row,
-        learnedTarget: total > 0 ? strength / total : 1 / 6,
-        confidence: clamp((row.effectiveSampleSize - 20) / 180, 0, 0.75),
+        learnedTarget:
+          row.supported && total > 0 ? strength / total : 0,
+        confidence:
+          row.supported
+            ? clamp((row.effectiveSampleSize - 20) / 180, 0, 0.75)
+            : 0,
       };
     });
 
