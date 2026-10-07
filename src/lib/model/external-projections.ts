@@ -47,9 +47,9 @@ interface ProjectionStats {
 
 type ProjectionMap = Map<string, ProjectionStats>;
 
-const PAGE_TTL_MS = 5 * 60_000;
+const PAGE_TTL_MS = 2 * 60_000;
 const FAILURE_TTL_MS = 30_000;
-const CONSENSUS_TTL_MS = 5 * 60_000;
+const CONSENSUS_TTL_MS = 2 * 60_000;
 // Public projection pages are fetched in parallel, so a slightly more patient
 // timeout materially improves coverage without adding the timeouts together.
 // The old 2.2-second cutoff intermittently erased otherwise valid ESPN and
