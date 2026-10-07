@@ -665,10 +665,22 @@ export async function persistMarkets(payload: MarketsPayload) {
           live: opportunity.isLive,
           consensusProjection:
             opportunity.model.components?.consensusProjection ?? null,
+          modelProjection:
+            opportunity.model.components?.modelProjection ?? null,
+          projectionStdDev:
+            opportunity.model.components?.projectionStdDev ?? null,
           consensusProbabilityBps:
             opportunity.model.components?.consensusProbabilityBps ?? null,
           statisticalProbabilityBps:
             opportunity.model.components?.statisticalProbabilityBps ?? null,
+          roleAdjustedHistoricalProbabilityBps:
+            opportunity.model.components?.roleAdjustedHistoricalProbabilityBps ?? null,
+          roleContinuityBps:
+            opportunity.model.components?.roleContinuityBps ?? null,
+          historicalBlendWeightBps:
+            opportunity.model.components?.historicalBlendWeightBps ?? null,
+          roleShift:
+            opportunity.model.components?.roleShift ?? null,
           contextAdjustmentBps:
             opportunity.model.components?.contextAdjustmentBps ?? 0,
           projectionSourceCount:
