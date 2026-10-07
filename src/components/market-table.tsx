@@ -98,6 +98,13 @@ function hitCount(market: MarketOpportunity) {
 }
 
 function hitRate(market: MarketOpportunity) {
+  const roleAdjusted =
+    market.model.components?.roleAdjustedHistoricalProbabilityBps ?? null;
+  if (roleAdjusted !== null) {
+    const facing =
+      market.recommendedSide === "no" ? 10_000 - roleAdjusted : roleAdjusted;
+    return Math.round(facing / 100);
+  }
   const count = hitCount(market);
   return count ? Math.round((count.hits / count.games) * 100) : null;
 }
@@ -308,7 +315,7 @@ function PastPerformance({ market }: { market: MarketOpportunity }) {
         <div>
           <h3 className="text-sm font-semibold">Past performance</h3>
           <p className="mt-1 text-xs text-muted">
-            {count ? `2026 only: this pick hit in ${count.hits} of ${count.games} game${count.games === 1 ? "" : "s"}.` : "2026 regular-season games only."}
+            {count ? `Raw 2026 record: this pick hit in ${count.hits} of ${count.games} game${count.games === 1 ? "" : "s"}.` : "2026 regular-season games only."}
           </p>
         </div>
         <span className="rounded-lg border bg-surface px-2.5 py-1.5 text-[10px] font-medium">Line {threshold}</span>
@@ -903,6 +910,21 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
     components?.statisticalProbabilityBps,
     market.recommendedSide,
   );
+  const roleAdjustedChance = pickFacingBps(
+    components?.roleAdjustedHistoricalProbabilityBps,
+    market.recommendedSide,
+  );
+  const modelProjection =
+    components?.modelProjection ?? components?.consensusProjection ?? null;
+  const projectionStdDev = components?.projectionStdDev ?? null;
+  const lineDistanceSd =
+    modelProjection !== null &&
+    projectionStdDev !== null &&
+    projectionStdDev > 0 &&
+    market.canonical?.threshold !== null &&
+    market.canonical?.threshold !== undefined
+      ? (modelProjection - market.canonical.threshold) / projectionStdDev
+      : null;
   const contextAdjustment =
     (components?.contextAdjustmentBps ?? 0) *
     (market.recommendedSide === "no" ? -1 : 1);
@@ -1005,18 +1027,69 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
           )}
         </div>
 
+        {modelProjection !== null && projectionStdDev !== null ? (
+          <div className="rounded-xl border border-accent/20 bg-accent-bg/25 p-3.5">
+            <div className="text-xs font-semibold">Huddlemark distribution</div>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div>
+                <p className="text-[8px] uppercase tracking-[0.08em] text-faint">Mean</p>
+                <p className="mt-1 text-sm font-semibold tabular">{modelProjection.toFixed(1)}</p>
+              </div>
+              <div>
+                <p className="text-[8px] uppercase tracking-[0.08em] text-faint">SD</p>
+                <p className="mt-1 text-sm font-semibold tabular">{projectionStdDev.toFixed(1)}</p>
+              </div>
+              <div>
+                <p className="text-[8px] uppercase tracking-[0.08em] text-faint">Line distance</p>
+                <p className="mt-1 text-sm font-semibold tabular">
+                  {lineDistanceSd === null
+                    ? "n/a"
+                    : `${lineDistanceSd >= 0 ? "+" : ""}${lineDistanceSd.toFixed(2)} SD`}
+                </p>
+              </div>
+              <div>
+                <p className="text-[8px] uppercase tracking-[0.08em] text-faint">Projection chance</p>
+                <p className="mt-1 text-sm font-semibold tabular">
+                  {consensusChance === null ? "n/a" : formatPercent(consensusChance)}
+                </p>
+              </div>
+            </div>
+            <p className="mt-2 text-[10px] leading-4 text-muted">
+              The mean is the current working projection. The SD blends the 2025 projection-and-position prior with this player's own 2026 game-to-game variance after Game 4.
+            </p>
+          </div>
+        ) : null}
+
         <div className="rounded-xl border bg-surface p-3.5">
-          <div className="text-xs font-semibold">This season</div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs font-semibold">2026 role-aware history</div>
+            {components?.roleShift && components.roleShift !== "stable" ? (
+              <span className="rounded-full border border-accent/25 bg-accent-bg px-2 py-0.5 text-[8px] font-semibold uppercase tracking-[0.08em] text-accent">
+                Role {components.roleShift}
+              </span>
+            ) : null}
+          </div>
           <div className="mt-1.5 text-[15px] font-semibold">
-            {statisticalChance === null
+            {roleAdjustedChance === null
               ? `${market.model.evidence.sampleSize} of 4 games`
-              : formatPercent(statisticalChance)}
+              : formatPercent(roleAdjustedChance)}
           </div>
           <p className="mt-1 text-[11px] leading-5 text-muted">
             {statisticalChance === null
               ? "Huddlemark waits for four current-season games before using player history."
-              : "Current-season player history is now part of the estimate."}
+              : components?.roleShift && components.roleShift !== "stable"
+                ? `Older games are discounted because the current role looks different. Historical evidence is carrying ${((components.roleContinuityBps ?? 10_000) / 100).toFixed(0)}% of its normal relevance.`
+                : "Current-season player history is active, with recent games weighted more heavily than older games."}
           </p>
+          {statisticalChance !== null ? (
+            <p className="mt-1 text-[9px] leading-4 text-faint">
+              Raw statistical estimate {formatPercent(statisticalChance)}
+              {components?.historicalBlendWeightBps !== null &&
+              components?.historicalBlendWeightBps !== undefined
+                ? ` · final model blend weight ${(components.historicalBlendWeightBps / 100).toFixed(0)}%`
+                : ""}
+            </p>
+          ) : null}
         </div>
 
         <div className="rounded-xl border bg-surface p-3.5">
@@ -1156,7 +1229,7 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
                 value={edgeBps === null ? "—" : `${edgeBps >= 0 ? "+" : ""}${(edgeBps / 100).toFixed(1)}pp`}
                 emphasis
               />
-              <Metric label="Hit rate" value={count ? `${Math.round((count.hits / count.games) * 100)}%` : "—"} />
+              <Metric label="Role-adjusted" value={hitRate(market) === null ? "n/a" : `${hitRate(market)}%`} />
               <Metric label="$100 profit" value={profit === null ? "—" : `${profit.toFixed(0)}`} />
             </div>
             <div className="mt-3 text-[10px] text-faint">
@@ -1374,7 +1447,7 @@ export function MarketTable({
                 <div className="metric-strip mt-4 grid grid-cols-2 gap-x-5 gap-y-3 rounded-xl border border-transparent bg-background p-3.5 sm:grid-cols-4 sm:gap-3">
                   <Metric label="Market" value={formatPercent(market.executablePriceBps)} />
                   <Metric label="Model" value={formatPercent(market.recommendedProbabilityBps)} emphasis />
-                  <Metric label="Hit rate" value={rate === null ? "—" : `${rate}%`} />
+                  <Metric label="Role-adjusted" value={rate === null ? "n/a" : `${rate}%`} />
                   <Metric label="$100 profit" value={profit === null ? "—" : `$${profit.toFixed(0)}`} />
                 </div>
 
