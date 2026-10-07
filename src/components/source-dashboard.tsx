@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 type PerformanceRow = {
   source: string;
   statistic: string;
+  supported: boolean;
   sampleSize: number;
   learningSampleSize: number;
   recoveredSampleSize: number;
@@ -144,6 +145,13 @@ function exactTime(value: string | null) {
 }
 
 function trend(row: PerformanceRow) {
+  if (!row.supported) {
+    return {
+      label: "Not used for this stat",
+      Icon: Minus,
+      tone: "text-faint",
+    };
+  }
   if (row.learningSampleSize <= 0) {
     return {
       label: "Prior only · no source grades yet",
@@ -210,6 +218,9 @@ export function SourceDashboard({
   const selectedRows = rows
     .filter((row) => row.statistic === selectedStat)
     .toSorted((first, second) => {
+      if (first.supported !== second.supported) {
+        return first.supported ? -1 : 1;
+      }
       const firstHasGrades = first.sampleSize > 0;
       const secondHasGrades = second.sampleSize > 0;
       if (firstHasGrades !== secondHasGrades) {
@@ -230,6 +241,9 @@ export function SourceDashboard({
       second.sampleSize - first.sampleSize,
   );
   const playerSourceCount = sources.filter((source) => !source.moneylineOnly).length;
+  const selectedCapableSourceCount = selectedRows.filter(
+    (row) => row.supported,
+  ).length;
 
   const totalGrades =
     rows.reduce((sum, row) => sum + row.sampleSize, 0) +
@@ -437,7 +451,7 @@ export function SourceDashboard({
             <p className="mt-2 max-w-2xl text-xs leading-5 text-muted">
               {selectedStat === "moneyline"
                 ? "Moneylines are ranked by Brier score. Lower is better because the score rewards accurate probabilities and penalizes confident misses, instead of only counting who picked the winner."
-                : "“Fair miss” normalizes error for the size of the prediction and downweights trivial near-zero calls. A 1-yard miss on a WR5 projected near zero no longer looks better than a 3-yard miss on a 125-yard performance. Click any source for the raw and normalized breakdown."}
+                : "“Fair miss” normalizes error for the size of the prediction and downweights trivial near-zero calls. Sources that do not publish the selected stat are now marked as not offered and receive 0% influence instead of looking like missing data. Click any active source for the raw and normalized breakdown."}
             </p>
           </div>
           <div className="scrollbar-subtle flex max-w-full gap-1 overflow-x-auto pb-1" role="tablist" aria-label="Projection statistic">
@@ -513,7 +527,9 @@ export function SourceDashboard({
                     </div>
                     <div>
                       <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Graded games</p>
-                      <p className="text-sm font-semibold tabular">{row.sampleSize.toLocaleString()}</p>
+                      <p className="text-sm font-semibold tabular">
+                        {row.supported ? row.sampleSize.toLocaleString() : "Not offered"}
+                      </p>
                     </div>
                     <div>
                       <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Brier score</p>
@@ -610,7 +626,9 @@ export function SourceDashboard({
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-semibold">{source?.name ?? row.source}</p>
-                        {row.sampleSize === 0 ? (
+                        {!row.supported ? (
+                          <p className="text-[9px] text-faint">Does not publish this stat</p>
+                        ) : row.sampleSize === 0 ? (
                           <p className="text-[9px] text-faint">Waiting for graded samples</p>
                         ) : index === 0 ? (
                           <p className="text-[9px] text-positive">Lowest error so far</p>
@@ -627,16 +645,20 @@ export function SourceDashboard({
                     <div>
                       <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Fair miss</p>
                       <p className="text-sm font-semibold tabular">
-                        {row.sampleSize === 0
-                          ? "Waiting"
-                          : row.normalizedRobustError === null
+                        {!row.supported
+                          ? "n/a"
+                          : row.sampleSize === 0
+                            ? "Waiting"
+                            : row.normalizedRobustError === null
                             ? `${row.robustError.toFixed(1)} ${unit}`
                             : `${(row.normalizedRobustError * 100).toFixed(1)}%`}
                       </p>
                       <p className="text-[9px] text-faint">
-                        {row.sampleSize === 0
-                          ? "No completed projection grades"
-                          : row.normalizedRobustError === null
+                        {!row.supported
+                          ? "Current adapter has no projection for this stat"
+                          : row.sampleSize === 0
+                            ? "No completed projection grades"
+                            : row.normalizedRobustError === null
                             ? `Bias ${row.bias >= 0 ? "+" : ""}${row.bias.toFixed(1)}`
                             : `Raw typical miss ${row.robustError.toFixed(1)} ${unit}`}
                       </p>
@@ -644,7 +666,13 @@ export function SourceDashboard({
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Model influence</p>
-                        <p className="text-sm font-semibold tabular">{row.weight === null ? "Waiting" : `${(row.weight * 100).toFixed(1)}%`}</p>
+                        <p className="text-sm font-semibold tabular">
+                          {!row.supported
+                            ? "0.0%"
+                            : row.weight === null
+                              ? "Waiting"
+                              : `${(row.weight * 100).toFixed(1)}%`}
+                        </p>
                         <p className={cn("mt-0.5 inline-flex items-center gap-1 text-[9px]", rowTrend.tone)}>
                           <TrendIcon className="size-3" />
                           {rowTrend.label}
@@ -714,7 +742,7 @@ export function SourceDashboard({
                           <div className="mt-3 space-y-2">
                             <div className="flex items-center justify-between rounded-xl border bg-surface px-3 py-2.5">
                               <span className="text-[10px] text-muted">Equal starting share</span>
-                              <span className="text-xs font-semibold tabular">{(100 / Math.max(playerSourceCount, 1)).toFixed(1)}%</span>
+                              <span className="text-xs font-semibold tabular">{(100 / Math.max(selectedCapableSourceCount, 1)).toFixed(1)}%</span>
                             </div>
                             <div className="flex items-center justify-between rounded-xl border bg-surface px-3 py-2.5">
                               <span className="text-[10px] text-muted">Accuracy target share</span>
