@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import {\n  parseDimersProjectionResponse,\n  parseDimersProjectionTableRows,\n} from "./dimers-projections";
+import {
+  parseDimersProjectionResponse,
+  parseDimersProjectionTableRows,
+} from "./dimers-projections";
 
 const response = [
   {
