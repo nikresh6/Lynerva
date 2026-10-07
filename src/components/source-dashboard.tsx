@@ -552,9 +552,7 @@ export function SourceDashboard({
                     </div>
                     <div>
                       <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Graded games</p>
-                      <p className="text-sm font-semibold tabular">
-                        {row.supported ? row.sampleSize.toLocaleString() : "Not offered"}
-                      </p>
+                      <p className="text-sm font-semibold tabular">{row.sampleSize.toLocaleString()}</p>
                     </div>
                     <div>
                       <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Brier score</p>
@@ -721,7 +719,9 @@ export function SourceDashboard({
                     </div>
                     <div>
                       <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Graded</p>
-                      <p className="text-sm font-semibold tabular">{row.sampleSize.toLocaleString()}</p>
+                      <p className="text-sm font-semibold tabular">
+                        {row.supported ? row.sampleSize.toLocaleString() : "Not offered"}
+                      </p>
                     </div>
                     <div>
                       <p className="text-[9px] uppercase tracking-[0.08em] text-faint sm:hidden">Fair miss</p>
