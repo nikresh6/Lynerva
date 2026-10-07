@@ -8,7 +8,10 @@ import {
   ACTIVE_PROJECTION_SOURCES,
   type ActiveProjectionSource,
 } from "./source-weighting";
-import {\n  parseDimersProjectionResponse,\n  parseDimersProjectionTableRows,\n} from "./dimers-projections";
+import {
+  parseDimersProjectionResponse,
+  parseDimersProjectionTableRows,
+} from "./dimers-projections";
 
 export type ProjectionSource =
   | "fantasypros"
