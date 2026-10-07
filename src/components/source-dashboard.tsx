@@ -790,8 +790,22 @@ export function SourceDashboard({
                           <div className="mt-3 rounded-xl border bg-surface-raised/45 p-3">
                             <p className="text-[9px] uppercase tracking-[0.08em] text-faint">Raw error audit</p>
                             <p className="mt-1 text-sm font-semibold tabular">{formula}</p>
+                            <div className="mt-3 grid grid-cols-3 gap-2">
+                              <div className="rounded-lg border bg-background px-2.5 py-2">
+                                <p className="text-[8px] uppercase tracking-[0.08em] text-faint">Mean miss</p>
+                                <p className="mt-1 text-xs font-semibold tabular">{row.meanAbsoluteError.toFixed(1)} {unit}</p>
+                              </div>
+                              <div className="rounded-lg border bg-background px-2.5 py-2">
+                                <p className="text-[8px] uppercase tracking-[0.08em] text-faint">RMSE</p>
+                                <p className="mt-1 text-xs font-semibold tabular">{row.rmse.toFixed(1)} {unit}</p>
+                              </div>
+                              <div className="rounded-lg border bg-background px-2.5 py-2">
+                                <p className="text-[8px] uppercase tracking-[0.08em] text-faint">Bias</p>
+                                <p className="mt-1 text-xs font-semibold tabular">{row.bias >= 0 ? "+" : ""}{row.bias.toFixed(1)} {unit}</p>
+                              </div>
+                            </div>
                             <p className="mt-2 text-[10px] leading-4 text-muted">
-                              The simple average absolute miss is {row.meanAbsoluteError.toFixed(1)} {unit}. These raw numbers remain visible for auditing, but source learning now uses the fair normalized score below.
+                              Mean miss is MAE, RMSE penalizes large misses more heavily, and bias shows whether the source has tended to project high or low. Source learning still uses the fair normalized score below.
                             </p>
                           </div>
                           <div className="mt-3 grid gap-2 sm:grid-cols-2">
