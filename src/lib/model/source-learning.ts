@@ -14,6 +14,7 @@ import {
   ACTIVE_PROJECTION_SOURCES,
   calculateSourceWeights,
   normalizeLearningPlayer,
+  projectionSourcesForStatistic,
 } from "./source-weighting";
 
 const LEARNABLE_STATISTICS = new Set([
@@ -662,7 +663,10 @@ async function recomputeSourceWeights(season: number) {
         absoluteError: row.absoluteError,
         gradedAt: row.gradedAt,
       }));
-    const weights = calculateSourceWeights(samples);
+    const weights = calculateSourceWeights(
+      samples,
+      projectionSourcesForStatistic(statistic),
+    );
 
     for (const weight of weights) {
       const id = await stableId(
