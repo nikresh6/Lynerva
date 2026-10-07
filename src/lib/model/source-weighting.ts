@@ -14,6 +14,64 @@ export const ACTIVE_PROJECTION_SOURCES = [
 export type ActiveProjectionSource =
   (typeof ACTIVE_PROJECTION_SOURCES)[number];
 
+export const PROJECTION_STATISTICS = [
+  "passing_yards",
+  "passing_touchdowns",
+  "passing_interceptions",
+  "rushing_yards",
+  "rushing_touchdowns",
+  "receptions",
+  "receiving_yards",
+  "receiving_touchdowns",
+  "touchdowns",
+] as const;
+
+export type ProjectionLearningStatistic =
+  (typeof PROJECTION_STATISTICS)[number];
+
+const ALL_PROJECTION_STATISTICS = [...PROJECTION_STATISTICS];
+
+export const PROJECTION_SOURCE_STATISTICS: Record<
+  ActiveProjectionSource,
+  readonly ProjectionLearningStatistic[]
+> = {
+  fantasypros: ALL_PROJECTION_STATISTICS,
+  numberfire: ALL_PROJECTION_STATISTICS,
+  espn: ALL_PROJECTION_STATISTICS,
+  cbs: ALL_PROJECTION_STATISTICS,
+  rotoballer: ALL_PROJECTION_STATISTICS,
+  sleeper: ALL_PROJECTION_STATISTICS,
+  covers: [
+    "passing_yards",
+    "rushing_yards",
+    "receiving_yards",
+    "receptions",
+  ],
+  dimers: [
+    "passing_yards",
+    "rushing_yards",
+    "receiving_yards",
+    "receptions",
+    "touchdowns",
+  ],
+};
+
+export function sourceSupportsStatistic(
+  source: string,
+  statistic: string,
+) {
+  if (!(source in PROJECTION_SOURCE_STATISTICS)) return false;
+  return PROJECTION_SOURCE_STATISTICS[source as ActiveProjectionSource].includes(
+    statistic as ProjectionLearningStatistic,
+  );
+}
+
+export function projectionSourcesForStatistic(statistic: string) {
+  return ACTIVE_PROJECTION_SOURCES.filter((source) =>
+    sourceSupportsStatistic(source, statistic),
+  );
+}
+
 export interface SourceGradeSample {
   source: string;
   absoluteError: number;
