@@ -50,6 +50,27 @@ type PerformanceRow = {
   }>;
 };
 
+type ModelPerformanceRow = {
+  statistic: string;
+  sampleSize: number;
+  meanAbsoluteError: number;
+  medianAbsoluteError: number;
+  p90AbsoluteError: number;
+  recentMedianAbsoluteError: number;
+  robustError: number;
+  normalizedRobustError: number | null;
+  effectiveSampleSize: number;
+  rmse: number;
+  bias: number;
+  examples: Array<{
+    playerName: string;
+    week: number;
+    projectedValue: number;
+    actualValue: number;
+    absoluteError: number;
+  }>;
+};
+
 type MoneylinePerformanceRow = {
   source: string;
   sampleSize: number;
@@ -196,6 +217,7 @@ export function SourceDashboard({
   season,
   coverageWeek,
   rows,
+  modelRows,
   moneylineRows,
   sources,
   generatedAt,
@@ -203,6 +225,7 @@ export function SourceDashboard({
   season: number;
   coverageWeek: number | null;
   rows: PerformanceRow[];
+  modelRows: ModelPerformanceRow[];
   moneylineRows: MoneylinePerformanceRow[];
   sources: SourceSummary[];
   generatedAt: string;
@@ -235,6 +258,8 @@ export function SourceDashboard({
       );
     });
 
+  const selectedModelRow =
+    modelRows.find((row) => row.statistic === selectedStat) ?? null;
   const selectedMoneylineRows = moneylineRows.toSorted(
     (first, second) =>
       first.brierScore - second.brierScore ||
@@ -592,7 +617,63 @@ export function SourceDashboard({
             </div>
           </div>
         ) : (
-        <div className="mt-5 overflow-hidden rounded-2xl border">
+        <div className="mt-5 space-y-3">
+          <div className="rounded-2xl border border-accent/25 bg-accent-bg/20 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-accent">
+                  Huddlemark benchmark
+                </p>
+                <h3 className="mt-1 text-base font-semibold">
+                  Latest pregame model projection
+                </h3>
+                <p className="mt-1 max-w-2xl text-[10px] leading-5 text-muted">
+                  This grades Huddlemark's own working stat projection against the final box score. It is shown as an audit benchmark and does not feed back into the source weights below.
+                </p>
+              </div>
+              {selectedModelRow ? (
+                <div className="rounded-xl border bg-background px-3 py-2 text-right">
+                  <p className="text-[8px] uppercase tracking-[0.08em] text-faint">Fair miss</p>
+                  <p className="mt-1 text-lg font-semibold tabular text-accent">
+                    {selectedModelRow.normalizedRobustError === null
+                      ? "n/a"
+                      : `${(selectedModelRow.normalizedRobustError * 100).toFixed(1)}%`}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+            {selectedModelRow ? (
+              <>
+                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                  {[
+                    ["Graded", selectedModelRow.sampleSize.toLocaleString()],
+                    ["Raw typical miss", `${selectedModelRow.robustError.toFixed(1)} ${errorUnit(selectedStat)}`],
+                    ["Mean abs miss", `${selectedModelRow.meanAbsoluteError.toFixed(1)} ${errorUnit(selectedStat)}`],
+                    ["RMSE", `${selectedModelRow.rmse.toFixed(1)} ${errorUnit(selectedStat)}`],
+                    ["Bias", `${selectedModelRow.bias >= 0 ? "+" : ""}${selectedModelRow.bias.toFixed(1)} ${errorUnit(selectedStat)}`],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-xl border bg-background p-3">
+                      <p className="text-[8px] uppercase tracking-[0.08em] text-faint">{label}</p>
+                      <p className="mt-1 text-sm font-semibold tabular">{value}</p>
+                    </div>
+                  ))}
+                </div>
+                {selectedModelRow.examples.length ? (
+                  <p className="mt-3 text-[9px] leading-4 text-faint">
+                    Recent audit: {selectedModelRow.examples.slice(0, 3).map((example) =>
+                      `${example.playerName} W${example.week}: ${example.projectedValue.toFixed(1)} projected, ${example.actualValue.toFixed(1)} actual, ${example.absoluteError.toFixed(1)} miss`
+                    ).join(" · ")}
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <p className="mt-4 text-xs text-muted">
+                No completed Huddlemark projection grades are available for this stat yet.
+              </p>
+            )}
+          </div>
+
+          <div className="overflow-hidden rounded-2xl border">
           <div className="hidden grid-cols-[1.2fr_0.7fr_0.8fr_0.9fr] gap-3 border-b bg-background px-4 py-2.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-faint sm:grid">
             <span>Source</span>
             <span>Graded</span>
@@ -867,6 +948,7 @@ export function SourceDashboard({
               <p className="mt-1 text-xs text-muted">The source remains visible, but it earns no learned advantage until games finish.</p>
             </div>
           )}
+          </div>
         </div>
         )}
       </section>
