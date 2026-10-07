@@ -8,7 +8,10 @@ import {
   ACTIVE_PROJECTION_SOURCES,
   type ActiveProjectionSource,
 } from "./source-weighting";
-import { parseDimersProjectionResponse } from "./dimers-projections";
+import {
+  parseDimersProjectionResponse,
+  parseDimersProjectionTableRows,
+} from "./dimers-projections";
 
 export type ProjectionSource =
   | "fantasypros"
@@ -47,9 +50,9 @@ interface ProjectionStats {
 
 type ProjectionMap = Map<string, ProjectionStats>;
 
-const PAGE_TTL_MS = 5 * 60_000;
+const PAGE_TTL_MS = 2 * 60_000;
 const FAILURE_TTL_MS = 30_000;
-const CONSENSUS_TTL_MS = 5 * 60_000;
+const CONSENSUS_TTL_MS = 2 * 60_000;
 // Public projection pages are fetched in parallel, so a slightly more patient
 // timeout materially improves coverage without adding the timeouts together.
 // The old 2.2-second cutoff intermittently erased otherwise valid ESPN and
@@ -232,7 +235,12 @@ function fetchText(url: string) {
     expiresAt: Date.now() + PAGE_TTL_MS,
     promise: fetch(url, {
       cache: "no-store",
-      headers: { "user-agent": "Mozilla/5.0 Lynerva/1.0" },
+      headers: {
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/152 Safari/537.36 Huddlemark/1.0",
+      },
       signal: AbortSignal.timeout(SOURCE_TIMEOUT_MS),
     }).then(async (response) => {
       if (!response.ok) {
@@ -1348,29 +1356,38 @@ function namesMatch(candidate: string, target: string) {
 function loadCovers(season: number, week: number) {
   return cachedSource("covers", season, week, async () => {
     const map: ProjectionMap = new Map();
-    const text = decode(
-      await fetchText(
-        "https://www.covers.com/sport/football/nfl/player-props",
-      ),
+    const page = await fetchText(
+      "https://www.covers.com/sport/football/nfl/player-props",
     );
+    const pageText = decode(page);
 
+    // Covers currently renders rows like:
+    // "J. Allen (QB) o240.5 Passing Yards 270.23 OVER PROJECTION".
+    // The first token can be one or two initials, so do not require exactly
+    // one initial. Accept a full first name as well, while still requiring a
+    // position, market label, line and explicit projection marker.
     const pattern =
-      /([A-Z]\.\s+[A-Za-z'’.-]+(?:\s+(?:Jr\.?|Sr\.?|II|III|IV))?)\s+\((?:QB|RB|WR|TE)\)\s+[ou]\d+(?:\.\d+)?\s+(Passing Yards|Rushing Yards|Receiving Yards|Receptions)\s+(-?\d+(?:\.\d+)?)\s+(?:OVER|UNDER)\s+PROJECTION/gi;
+      /((?:(?:[A-Z][a-z]{0,2}\.)|(?:[A-Z][A-Za-z'’.-]+))\s+[A-Za-z][A-Za-z'’.-]+(?:\s+(?:Jr\.?|Sr\.?|II|III|IV))?)\s+\((QB|RB|WR|TE)\)\s+[ou]\d+(?:\.\d+)?\s+(Passing Yards|Rushing Yards|Receiving Yards|Receptions)\s+(-?\d+(?:\.\d+)?)\s+(?:OVER|UNDER)\s+PROJECTION/gi;
 
-    for (const match of text.matchAll(pattern)) {
+    for (const match of pageText.matchAll(pattern)) {
       const player = match[1] ?? "";
-      const family = (match[2] ?? "").toUpperCase();
-      const value = Number(match[3]);
+      const position = (match[2] ?? "").toUpperCase() as
+        | "QB"
+        | "RB"
+        | "WR"
+        | "TE";
+      const family = (match[3] ?? "").toUpperCase();
+      const value = Number(match[4]);
       if (!player || !Number.isFinite(value) || value < 0) continue;
 
       if (family === "PASSING YARDS") {
-        mergeStats(map, player, { passingYards: value });
+        mergeStats(map, player, { position, passingYards: value });
       } else if (family === "RUSHING YARDS") {
-        mergeStats(map, player, { rushingYards: value });
+        mergeStats(map, player, { position, rushingYards: value });
       } else if (family === "RECEIVING YARDS") {
-        mergeStats(map, player, { receivingYards: value });
+        mergeStats(map, player, { position, receivingYards: value });
       } else if (family === "RECEPTIONS") {
-        mergeStats(map, player, { receptions: value });
+        mergeStats(map, player, { position, receptions: value });
       }
     }
 
@@ -1378,26 +1395,60 @@ function loadCovers(season: number, week: number) {
   });
 }
 
+function mergeDimersProjection(
+  map: ProjectionMap,
+  projection: ReturnType<typeof parseDimersProjectionResponse>[number],
+) {
+  mergeStats(map, projection.player, {
+    position: projection.position,
+    passingYards: projection.passingYards,
+    rushingYards: projection.rushingYards,
+    receptions: projection.receptions,
+    receivingYards: projection.receivingYards,
+    totalTouchdowns: projection.totalTouchdowns,
+  });
+}
+
 function loadDimers(season: number, week: number) {
   return cachedSource("dimers", season, week, async () => {
     const map: ProjectionMap = new Map();
-    const payload = await fetchJson(
-      `dimers:${season}:${week}`,
-      `https://levy-edge.statsinsider.com.au/round/boxscores?Sport=NFL&Round=${week}&Season=${season}`,
-      {
-        Accept: "application/json",
-        "User-Agent": "Huddlemark/1.0 projection-research",
-      },
-    );
-    for (const projection of parseDimersProjectionResponse(payload, season, week)) {
-      mergeStats(map, projection.player, {
-        position: projection.position,
-        passingYards: projection.passingYards,
-        rushingYards: projection.rushingYards,
-        receptions: projection.receptions,
-        receivingYards: projection.receivingYards,
-        totalTouchdowns: projection.totalTouchdowns,
-      });
+
+    // Keep the historical public JSON feed as the first choice because it can
+    // provide broad coverage. It has become intermittent, so an empty or
+    // failed response must not make Dimers disappear from Huddlemark.
+    try {
+      const payload = await fetchJson(
+        `dimers:${season}:${week}`,
+        `https://levy-edge.statsinsider.com.au/round/boxscores?Sport=NFL&Round=${week}&Season=${season}`,
+        {
+          Accept: "application/json",
+          "User-Agent": "Huddlemark/1.0 projection-research",
+        },
+      );
+      for (const projection of parseDimersProjectionResponse(payload, season, week)) {
+        mergeDimersProjection(map, projection);
+      }
+    } catch {
+      // Fall through to the public projection page below.
+    }
+
+    if (map.size > 0) return map;
+
+    // Dimers exposes the top rows of its current weekly projection table on
+    // the public page even when the old JSON endpoint is unavailable. Parsing
+    // those rows keeps the source live without fabricating locked Pro values.
+    try {
+      const html = await fetchText("https://www.dimers.com/nfl/player-projections");
+      const pageText = decode(html);
+      if (!new RegExp(`Projections\\s+for\\s+Week\\s+${week}\\b`, "i").test(pageText)) {
+        return map;
+      }
+      for (const projection of parseDimersProjectionTableRows(rowsFromHtml(html))) {
+        mergeDimersProjection(map, projection);
+      }
+    } catch {
+      // Dimers remains optional. A later refresh will retry after the short
+      // failure cache instead of writing fake zero projections.
     }
 
     return map;

@@ -713,6 +713,7 @@ async function computeMarketOpportunities(
         seasonGames: model.evidence.seasonGames,
         last10Hits: model.evidence.last10Hits,
         sampleSize: model.evidence.sampleSize,
+        roleAdjustedHitRateBps: model.components?.roleAdjustedHistoricalProbabilityBps ?? null,
         recommendedSide: side.side,
         liquidityCents: market.liquidityCents,
         volumeCents: market.volumeCents,

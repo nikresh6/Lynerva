@@ -80,7 +80,7 @@ function captureShare(input: {
   return 0;
 }
 
-function weightedUnpricedFraction(input: {
+export function projectionUnpricedFraction(input: {
   points: ProjectionPoint[];
   sourceWeights: Record<string, number> | null;
   eventAt: string | null;
@@ -285,7 +285,7 @@ async function computeTeammateContextAdjustment(input: {
     const unavailableShare = clamp(1 - availability.playProbability, 0, 1);
     if (unavailableShare < 0.18 && availability.risk !== "out") continue;
 
-    const unpricedFraction = weightedUnpricedFraction({
+    const unpricedFraction = projectionUnpricedFraction({
       points: input.projectionPoints,
       sourceWeights: input.sourceWeights,
       eventAt: availability.newsPublishedAt,

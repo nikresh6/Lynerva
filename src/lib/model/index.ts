@@ -22,7 +22,11 @@ import {
 import { getExternalProjectionConsensus } from "./external-projections";
 import { getEspnGameProbability } from "./game-projections";
 import { estimatePlayerStatStdDev } from "./player-variance";
-import { getTeammateContextAdjustment } from "./teammate-context";
+import { estimatePlayerRoleContext } from "./role-aware-history";
+import {
+  getTeammateContextAdjustment,
+  projectionUnpricedFraction,
+} from "./teammate-context";
 import { getMoneylineInjuryInputs } from "./moneyline-injuries";
 import { applyMoneylineInjuryScenarios } from "./moneyline-injury-scenarios";
 import { getMoneylineSourceWeights } from "./moneyline-learning";
@@ -39,7 +43,7 @@ import type {
   ModelEstimate,
 } from "@/lib/markets/types";
 
-const MODEL_VERSION = "hybrid-consensus-learning-v18";
+const MODEL_VERSION = "hybrid-consensus-learning-v19";
 
 const emptyEvidence: HistoricalEvidence = {
   last5Hits: null,
@@ -858,6 +862,14 @@ export async function estimateMarket(
       consensusProbability = probabilityFromProjection(baselineProjection);
     }
 
+    const roleContext = estimatePlayerRoleContext({
+      family: canonical.family,
+      currentProjection: baselineProjection,
+      threshold,
+      direction: canonical.direction,
+      games: sample,
+    });
+
     let statisticalProbability: number | null = null;
     let recentHits: number | null = null;
     let seasonHitCount: number | null = null;
@@ -877,7 +889,8 @@ export async function estimateMarket(
         "receptions",
       ].includes(canonical.family);
       statisticalProbability = empiricalPlayerProbability({
-        historicalHitRate: historicalHits / values.length,
+        historicalHitRate:
+          roleContext.recencyWeightedHitRate ?? historicalHits / values.length,
         recentHitRate: recentHits / last5.length,
         // A yards-above-line ratio is useful context for continuous yardage
         // props, but it is badly scaled for low-count outcomes such as 0/1 TDs
@@ -892,7 +905,7 @@ export async function estimateMarket(
       consensusProbability ??
       statisticalProbability ??
       0.5;
-    const statisticalWeight =
+    const baseStatisticalWeight =
       consensusProbability !== null && statisticalProbability !== null
         ? clamp(
             0.30 + (values.length - 4) * 0.05,
@@ -900,6 +913,10 @@ export async function estimateMarket(
             0.55,
           )
         : null;
+    const statisticalWeight =
+      baseStatisticalWeight === null
+        ? null
+        : baseStatisticalWeight * roleContext.roleContinuity;
     if (
       consensusProbability !== null &&
       statisticalProbability !== null &&
@@ -910,8 +927,16 @@ export async function estimateMarket(
         statisticalProbability * statisticalWeight;
     }
 
+    const roleAdjustedHistoricalProbability =
+      statisticalProbability !== null && consensusProbability !== null
+        ? statisticalProbability * roleContext.roleContinuity +
+          consensusProbability * (1 - roleContext.roleContinuity)
+        : statisticalProbability;
+
     let preInjuryProbability: number | null = null;
     let injuryAdjustedProjection: number | null = null;
+    let injuryActiveProjection: number | null = null;
+    let injuryUnpricedFraction: number | null = null;
 
     if (
       !isLivePlayerMarket &&
@@ -920,8 +945,22 @@ export async function estimateMarket(
     ) {
       preInjuryProbability = probability;
 
+      injuryUnpricedFraction =
+        external.points.length === 0
+          ? 1
+          : projectionUnpricedFraction({
+              points: external.points,
+              sourceWeights: external.sourceWeights,
+              eventAt: pregameAvailability.newsPublishedAt,
+              risk: pregameAvailability.risk,
+            });
+      const residualUsageIfActive =
+        1 -
+        (1 - pregameAvailability.expectedUsageIfActive) *
+          injuryUnpricedFraction;
       const activeProjection =
-        baselineProjection * pregameAvailability.expectedUsageIfActive;
+        baselineProjection * residualUsageIfActive;
+      injuryActiveProjection = activeProjection;
       injuryAdjustedProjection =
         activeProjection * pregameAvailability.playProbability;
 
@@ -1156,7 +1195,9 @@ export async function estimateMarket(
                     ? 0.46
                     : 0.28;
     const historyBoost =
-      values.length >= 4 ? clamp(values.length / 40, 0.08, 0.22) : 0;
+      values.length >= 4
+        ? clamp(values.length / 40, 0.08, 0.22) * roleContext.roleContinuity
+        : 0;
     const injuryUncertaintyPenalty =
       injuryMultiplier > 0 && injuryMultiplier < 1 ? 0.08 : 0;
     const pregameInjuryUncertaintyPenalty = pregameAvailability
@@ -1208,6 +1249,16 @@ export async function estimateMarket(
         ? `Four-game statistical model active using ${values.length} current-season regular-season games.`
         : `Statistical model locked until four current-season games; ${values.length} available now.`,
     ];
+    if (roleContext.roleShift !== "stable") {
+      factors.push(
+        "Role-change model: " +
+          roleContext.roleShift +
+          " shift detected. Older 2026 hit-rate evidence is carrying " +
+          (roleContext.roleContinuity * 100).toFixed(0) +
+          "% of its normal weight while current projections carry more of the estimate. " +
+          roleContext.reasons.join(" "),
+      );
+    }
     if (teammateContext) {
       factors.push(
         "Teammate availability context moved the working projection from " +
@@ -1309,13 +1360,15 @@ export async function estimateMarket(
           "%, chance to finish a near-normal role if active " +
           (pregameAvailability.finishProbabilityIfActive * 100).toFixed(0) +
           "%." +
-          (injuryAdjustedProjection !== null &&
+          (injuryActiveProjection !== null &&
           baselineProjection !== null
-            ? " Full-role projection " +
+            ? " Current source projection " +
               baselineProjection.toFixed(1) +
-              ", availability-adjusted expected production " +
-              injuryAdjustedProjection.toFixed(1) +
-              "."
+              ", residual active-role projection " +
+              injuryActiveProjection.toFixed(1) +
+              ". Only " +
+              ((injuryUnpricedFraction ?? 1) * 100).toFixed(0) +
+              "% of the generic injury workload haircut was applied because source movement can already price the injury."
             : ""),
       );
     }
@@ -1392,6 +1445,20 @@ export async function estimateMarket(
           statisticalProbability === null
             ? null
             : Math.round(statisticalProbability * 10_000),
+        roleAdjustedHistoricalProbabilityBps:
+          roleAdjustedHistoricalProbability === null
+            ? null
+            : Math.round(roleAdjustedHistoricalProbability * 10_000),
+        roleContinuityBps: Math.round(roleContext.roleContinuity * 10_000),
+        roleShift: roleContext.roleShift,
+        roleRecentOpportunity: roleContext.recentOpportunityAverage,
+        rolePriorOpportunity: roleContext.priorOpportunityAverage,
+        historicalBlendWeightBps:
+          statisticalWeight === null
+            ? null
+            : Math.round(statisticalWeight * 10_000),
+        modelProjection:
+          injuryActiveProjection ?? baselineProjection,
         contextAdjustmentBps: Math.round(contextAdjustment * 10_000),
         projectionSourceCount: sourceCount,
         projectionSources: external.points.map((point) => ({
@@ -1418,6 +1485,11 @@ export async function estimateMarket(
           : null,
         injuryDnpSettlementBps: null,
         injuryAdjustedProjection,
+        injuryActiveProjection,
+        injuryUnpricedFractionBps:
+          injuryUnpricedFraction === null
+            ? null
+            : Math.round(injuryUnpricedFraction * 10_000),
         injuryStatus: pregameAvailability?.status ?? null,
         injuryDetail: pregameAvailability?.detail ?? null,
         injuryBodyPart: pregameAvailability?.bodyPart ?? null,

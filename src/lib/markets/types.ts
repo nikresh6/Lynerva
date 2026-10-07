@@ -104,6 +104,13 @@ export interface ModelEstimate {
     projectionStdDevPlayerWeight?: number | null;
     consensusProbabilityBps: number | null;
     statisticalProbabilityBps: number | null;
+    roleAdjustedHistoricalProbabilityBps?: number | null;
+    roleContinuityBps?: number | null;
+    roleShift?: "up" | "down" | "stable";
+    roleRecentOpportunity?: number | null;
+    rolePriorOpportunity?: number | null;
+    historicalBlendWeightBps?: number | null;
+    modelProjection?: number | null;
     contextAdjustmentBps: number;
     projectionSourceCount: number;
     projectionSources?: Array<{
@@ -156,6 +163,8 @@ export interface ModelEstimate {
     injuryConditionalProbabilityBps?: number | null;
     injuryDnpSettlementBps?: number | null;
     injuryAdjustedProjection?: number | null;
+    injuryActiveProjection?: number | null;
+    injuryUnpricedFractionBps?: number | null;
     injuryStatus?: string | null;
     injuryDetail?: string | null;
     injuryBodyPart?: string | null;

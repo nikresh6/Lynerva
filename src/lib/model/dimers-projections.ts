@@ -133,3 +133,61 @@ export function parseDimersProjectionResponse(
 
   return projections;
 }
+
+
+export function parseDimersProjectionTableRows(rows: string[][]) {
+  const projections: DimersProjection[] = [];
+
+  for (const cells of rows) {
+    if (cells.length < 12) continue;
+    const positionText = text(cells[2]).toUpperCase();
+    if (!["QB", "RB", "WR", "TE"].includes(positionText)) continue;
+
+    const rawName = text(cells[0])
+      .replace(/^Image:\s*[^\s]+\s+/i, "")
+      .trim();
+    if (!rawName || /locked/i.test(rawName)) continue;
+
+    const position = positionText as DimersProjection["position"];
+    const passingYards = nonNegative(cells[7]);
+    const rushingYards = nonNegative(cells[8]);
+    const receptions = nonNegative(cells[9]);
+    const receivingYards = nonNegative(cells[10]);
+    const anytimeText = text(cells[11]).replace("%", "");
+    const anytimePercent = finite(anytimeText);
+    const touchdownProbability =
+      anytimePercent !== null && anytimePercent > 1
+        ? anytimePercent / 100
+        : anytimePercent;
+    const totalTouchdowns =
+      touchdownProbability !== null &&
+      touchdownProbability > 0 &&
+      touchdownProbability < 1
+        ? -Math.log(1 - touchdownProbability)
+        : undefined;
+
+    const projection: DimersProjection = {
+      player: rawName,
+      position,
+      passingYards,
+      rushingYards,
+      receptions,
+      receivingYards,
+      totalTouchdowns,
+    };
+
+    if (
+      projection.passingYards === undefined &&
+      projection.rushingYards === undefined &&
+      projection.receptions === undefined &&
+      projection.receivingYards === undefined &&
+      projection.totalTouchdowns === undefined
+    ) {
+      continue;
+    }
+
+    projections.push(projection);
+  }
+
+  return projections;
+}

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseDimersProjectionResponse } from "./dimers-projections";
+import {
+  parseDimersProjectionResponse,
+  parseDimersProjectionTableRows,
+} from "./dimers-projections";
 
 const response = [
   {
@@ -48,5 +51,33 @@ describe("Dimers projection feed", () => {
     player.recYds = -2;
     player.anytimeTD = 200;
     expect(parseDimersProjectionResponse(malformed, 2026, 3)).toEqual([]);
+  });
+});
+
+
+describe("Dimers public projection table fallback", () => {
+  it("parses only visible numeric player rows", () => {
+    const rows = [
+      ["J. Gibbs", "1", "RB", "DET", "27.1", "24.8", "0.0", "0.0", "94.7", "4.6", "40.9", "71.5%", "35.7%", "13.3%", "18.9%", "DET vs. ARI"],
+      ["J. Allen", "2", "QB", "BUF", "24.2", "24.2", "20.8", "245.7", "40.0", "0.0", "0.0", "51.7%", "16.6%", "3.8%", "10.0%", "BUF vs. LA"],
+      ["P. Nacua", "4", "WR", "LA", "Locked", "Locked", "Locked", "Locked", "Locked", "Locked", "Locked", "Locked"],
+    ];
+
+    const parsed = parseDimersProjectionTableRows(rows);
+    expect(parsed).toHaveLength(2);
+    expect(parsed[0]).toMatchObject({
+      player: "J. Gibbs",
+      position: "RB",
+      rushingYards: 94.7,
+      receptions: 4.6,
+      receivingYards: 40.9,
+    });
+    expect(parsed[0]?.totalTouchdowns).toBeCloseTo(-Math.log(1 - 0.715), 6);
+    expect(parsed[1]).toMatchObject({
+      player: "J. Allen",
+      position: "QB",
+      passingYards: 245.7,
+      rushingYards: 40,
+    });
   });
 });
