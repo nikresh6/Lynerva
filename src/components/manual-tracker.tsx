@@ -128,6 +128,7 @@ function trackerSideVariant(
     seasonGames: market.model.evidence.seasonGames,
     last10Hits: market.model.evidence.last10Hits,
     sampleSize: market.model.evidence.sampleSize,
+    roleAdjustedHitRateBps: market.model.components?.roleAdjustedHistoricalProbabilityBps ?? null,
     recommendedSide: side,
     liquidityCents: market.liquidityCents,
     volumeCents: market.volumeCents,
