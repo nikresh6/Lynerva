@@ -80,7 +80,7 @@ async function main() {
   }
 
   const apiElapsedMs = Date.now() - apiStarted;
-  const payload = (await marketsResponse.json()) as MarketsPayload;
+  let payload = (await marketsResponse.json()) as MarketsPayload;
   const livePayload = (await liveResponse.json()) as { games: LiveGame[] };
   const warmStarted = Date.now();
   const warmResponse = await fetch(`${baseUrl}/api/markets`, {
@@ -89,6 +89,14 @@ async function main() {
   const warmApiElapsedMs = Date.now() - warmStarted;
   if (!warmResponse.ok) {
     throw new Error(`Warm Markets API returned ${warmResponse.status}.`);
+  }
+
+  const warmPayload = (await warmResponse.json()) as MarketsPayload;
+  if (
+    warmPayload.opportunities.length > payload.opportunities.length ||
+    warmPayload.providers.length > payload.providers.length
+  ) {
+    payload = warmPayload;
   }
 
   const picks = payload.opportunities
@@ -246,7 +254,7 @@ async function main() {
             ]),
         ),
         projectionSourceCoverage: Object.fromEntries(
-          ["fantasypros", "numberfire", "espn", "cbs", "rotoballer", "sleeper"].map(
+          ACTIVE_PROJECTION_SOURCES.map(
             (source) => [
               source,
               playerPropMarkets.filter((market) =>
@@ -412,9 +420,13 @@ async function main() {
   if (!pregameBuild) {
     console.warn("Live smoke note: no qualified current-season pregame combination is available yet.");
   }
-  if (currentOpenGames.length > 0 && gameMarkets.length === 0) {
+  if (
+    payload.providers.length > 0 &&
+    currentOpenGames.length > 0 &&
+    gameMarkets.length === 0
+  ) {
     throw new Error(
-      `Live smoke failed: ESPN shows ${currentOpenGames.length} current NFL games but Lynerva exposed zero Kalshi moneylines.`,
+      `Live smoke failed: ESPN shows ${currentOpenGames.length} current NFL games but the populated market snapshot exposed zero Kalshi moneylines.`,
     );
   }
   if (unwantedGameMarkets.length > 0) {
@@ -449,9 +461,13 @@ async function main() {
   const populatedProviders = payload.providers.filter(
     (provider) => provider.count > 0,
   );
-  if (populatedProviders.length === 0) {
+  if (payload.providers.length === 0) {
+    console.warn(
+      "Live smoke note: the market API returned its intentional cold-start fallback while the first real provider refresh was still running.",
+    );
+  } else if (populatedProviders.length === 0) {
     throw new Error(
-      "Live smoke failed: every market provider returned zero accepted markets.",
+      "Live smoke failed: every reported market provider returned zero accepted markets.",
     );
   }
   for (const provider of payload.providers) {
