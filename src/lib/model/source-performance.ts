@@ -1267,6 +1267,7 @@ export async function getProjectionSourcePerformance(season = 2026) {
     return {
       season,
       rows: [] as ProjectionPerformanceRow[],
+      modelRows: [] as HuddlemarkPerformanceRow[],
       moneylineRows: [] as MoneylinePerformanceRow[],
       coverageWeek: null as number | null,
       sources: [

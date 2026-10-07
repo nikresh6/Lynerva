@@ -105,9 +105,10 @@ function expandOverUnderSides(market: MarketOpportunity) {
 
 export async function GET(request: Request) {
   const live = new URL(request.url).searchParams.get("live") === "1";
-  // Pregame pages can rely on the five-minute background model refresh. Live
-  // pages keep a much tighter refresh budget for score and pace context.
-  const payload = await getMarketOpportunities(live ? 30_000 : 5 * 60_000);
+  // Weekly projections and injury news can move quickly. Pregame pages use a
+  // two-minute model budget so source repricing reaches Huddlemark promptly,
+  // while live pages keep the tighter score-and-pace refresh.
+  const payload = await getMarketOpportunities(live ? 30_000 : 2 * 60_000);
   const etag = `W/"markets-${payload.fetchedAt}"`;
 
   if (request.headers.get("if-none-match") === etag) {

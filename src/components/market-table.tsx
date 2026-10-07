@@ -603,7 +603,12 @@ function InjuryRiskCard({ market }: { market: MarketOpportunity }) {
   const probabilityImpact =
     preInjury !== null && adjusted !== null ? adjusted - preInjury : null;
   const baseProjection = components?.consensusProjection ?? null;
-  const adjustedProjection = components?.injuryAdjustedProjection ?? null;
+  const activeProjection =
+    components?.injuryActiveProjection ??
+    components?.injuryAdjustedProjection ??
+    null;
+  const injuryUnpricedFraction =
+    components?.injuryUnpricedFractionBps ?? null;
   const sources = components?.injurySources ?? [];
   const riskTone =
     risk === "out" || risk === "high"
@@ -684,16 +689,16 @@ function InjuryRiskCard({ market }: { market: MarketOpportunity }) {
           </div>
         </div>
 
-        {baseProjection !== null && adjustedProjection !== null ? (
+        {baseProjection !== null && activeProjection !== null ? (
           <div className="mt-3 rounded-xl border bg-surface-raised/40 p-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-[8px] uppercase tracking-[0.08em] text-faint">
-                  Projection after availability risk
+                  Working projection if active
                 </p>
                 <p className="mt-1 text-sm font-semibold tabular">
-                  {baseProjection.toFixed(1)} full-role →{" "}
-                  {adjustedProjection.toFixed(1)} expected
+                  {baseProjection.toFixed(1)} current sources →{" "}
+                  {activeProjection.toFixed(1)} after residual injury risk
                 </p>
               </div>
               {probabilityImpact !== null ? (
@@ -717,13 +722,21 @@ function InjuryRiskCard({ market }: { market: MarketOpportunity }) {
                 </div>
               ) : null}
             </div>
+            {injuryUnpricedFraction !== null ? (
+              <p className="mt-2 text-[9px] leading-4 text-faint">
+                Huddlemark applied only {(injuryUnpricedFraction / 100).toFixed(0)}% of its generic
+                injury workload haircut. The rest is treated as already reflected
+                when projection sites moved after the injury news.
+              </p>
+            ) : null}
           </div>
         ) : null}
 
         <p className="mt-3 text-[10px] leading-5 text-muted">
-          Huddlemark first estimates whether the player appears at all, then the
-          chance of maintaining a near-normal role if active. If the player takes
-          a snap, early-exit and reduced-role risk affect the stat projection. A
+          Huddlemark treats the current projection sites as the primary signal of
+          the player's present role. Injury news only adds the residual workload
+          risk that does not appear to be priced into those projections already.
+          Play chance and early-exit risk remain separate availability signals. A
           true Kalshi DNP is not treated as an automatic loss because those
           markets can settle at an Exchange-determined fair value.
         </p>

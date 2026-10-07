@@ -269,6 +269,10 @@ export function SourceDashboard({
   const selectedCapableSourceCount = selectedRows.filter(
     (row) => row.supported,
   ).length;
+  const selectedWeightTotal = selectedRows.reduce(
+    (sum, row) => sum + (row.supported ? row.weight ?? 0 : 0),
+    0,
+  );
 
   const totalGrades =
     rows.reduce((sum, row) => sum + row.sampleSize, 0) +
@@ -684,7 +688,11 @@ export function SourceDashboard({
               const rowTrend = trend(row);
               const TrendIcon = rowTrend.Icon;
               const key = `${row.source}:${row.statistic}`;
-              const expanded = expandedKey === key;
+              const expanded = row.supported && expandedKey === key;
+              const displayedWeight =
+                row.supported && selectedWeightTotal > 0
+                  ? (row.weight ?? 0) / selectedWeightTotal
+                  : 0;
               const unit = errorUnit(row.statistic);
               const formula =
                 `0.50 × ${row.medianAbsoluteError.toFixed(1)} + 0.30 × ${row.recentMedianAbsoluteError.toFixed(1)} + 0.20 × ${row.p90AbsoluteError.toFixed(1)} = ${row.robustError.toFixed(1)} ${unit}`;
@@ -692,7 +700,10 @@ export function SourceDashboard({
                 <div key={key} className="border-b last:border-b-0">
                   <button
                     type="button"
-                    onClick={() => setExpandedKey(expanded ? null : key)}
+                    onClick={() =>
+                      row.supported &&
+                      setExpandedKey(expanded ? null : key)
+                    }
                     className="grid w-full gap-3 px-4 py-4 text-left transition-colors hover:bg-background/55 sm:grid-cols-[1.2fr_0.7fr_0.8fr_0.9fr] sm:items-center"
                     aria-expanded={expanded}
                   >
@@ -752,7 +763,7 @@ export function SourceDashboard({
                             ? "0.0%"
                             : row.weight === null
                               ? "Waiting"
-                              : `${(row.weight * 100).toFixed(1)}%`}
+                              : `${(displayedWeight * 100).toFixed(1)}%`}
                         </p>
                         <p className={cn("mt-0.5 inline-flex items-center gap-1 text-[9px]", rowTrend.tone)}>
                           <TrendIcon className="size-3" />
@@ -853,7 +864,7 @@ export function SourceDashboard({
                             </div>
                             <div className="flex items-center justify-between rounded-xl border border-accent/25 bg-accent-bg/40 px-3 py-2.5">
                               <span className="text-[10px] font-semibold">Current model influence</span>
-                              <span className="text-sm font-semibold tabular text-accent">{row.weight === null ? "Waiting" : `${(row.weight * 100).toFixed(1)}%`}</span>
+                              <span className="text-sm font-semibold tabular text-accent">{row.weight === null ? "Waiting" : `${(displayedWeight * 100).toFixed(1)}%`}</span>
                             </div>
                           </div>
 
