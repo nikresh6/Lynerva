@@ -65,6 +65,7 @@ export function lynervaScore(input: {
   seasonGames: number | null;
   last10Hits: number | null;
   sampleSize: number;
+  roleAdjustedHitRateBps?: number | null;
   recommendedSide: "yes" | "no" | null;
   liquidityCents: number | null;
   volumeCents: number | null;
@@ -112,7 +113,13 @@ export function lynervaScore(input: {
   const reliability = clamp(stableReliabilityBps / 100, 0, 100);
 
   let hitRate = probability;
-  if (input.seasonHits !== null && input.seasonGames && input.seasonGames >= 5) {
+  if (input.roleAdjustedHitRateBps !== null && input.roleAdjustedHitRateBps !== undefined) {
+    const facingBps =
+      input.recommendedSide === "no"
+        ? 10_000 - input.roleAdjustedHitRateBps
+        : input.roleAdjustedHitRateBps;
+    hitRate = clamp(facingBps / 100, 0, 100);
+  } else if (input.seasonHits !== null && input.seasonGames && input.seasonGames >= 5) {
     const hits =
       input.recommendedSide === "no"
         ? input.seasonGames - input.seasonHits
