@@ -80,7 +80,7 @@ async function main() {
   }
 
   const apiElapsedMs = Date.now() - apiStarted;
-  const payload = (await marketsResponse.json()) as MarketsPayload;
+  let payload = (await marketsResponse.json()) as MarketsPayload;
   const livePayload = (await liveResponse.json()) as { games: LiveGame[] };
   const warmStarted = Date.now();
   const warmResponse = await fetch(`${baseUrl}/api/markets`, {
@@ -89,6 +89,41 @@ async function main() {
   const warmApiElapsedMs = Date.now() - warmStarted;
   if (!warmResponse.ok) {
     throw new Error(`Warm Markets API returned ${warmResponse.status}.`);
+  }
+
+  const warmPayload = (await warmResponse.json()) as MarketsPayload;
+  if (
+    warmPayload.opportunities.length > payload.opportunities.length ||
+    warmPayload.providers.length > payload.providers.length
+  ) {
+    payload = warmPayload;
+  }
+
+  // On a brand-new CI process, the first model build can still be finishing
+  // after both API requests hit the endpoint's 2.5-second cold-start fallback.
+  // Production keeps that fallback so browsers stay responsive. Give the
+  // in-flight refresh one short grace period, then verify the actual warmed
+  // snapshot instead of failing CI on the intentional transient empty payload.
+  let settledApiElapsedMs = 0;
+  if (payload.opportunities.length === 0 && payload.providers.length === 0) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const settledStarted = Date.now();
+    const settledResponse = await fetch(`${baseUrl}/api/markets`, {
+      cache: "no-store",
+    });
+    settledApiElapsedMs = Date.now() - settledStarted;
+    if (!settledResponse.ok) {
+      throw new Error(
+        `Settled Markets API returned ${settledResponse.status}.`,
+      );
+    }
+    const settledPayload = (await settledResponse.json()) as MarketsPayload;
+    if (
+      settledPayload.opportunities.length > payload.opportunities.length ||
+      settledPayload.providers.length > payload.providers.length
+    ) {
+      payload = settledPayload;
+    }
   }
 
   const picks = payload.opportunities
@@ -219,6 +254,7 @@ async function main() {
         pages: pageChecks,
         apiElapsedMs,
         warmApiElapsedMs,
+        settledApiElapsedMs,
         providers: payload.providers.map((provider) => ({
           provider: provider.provider,
           acceptedMarkets: provider.count,
@@ -246,7 +282,7 @@ async function main() {
             ]),
         ),
         projectionSourceCoverage: Object.fromEntries(
-          ["fantasypros", "numberfire", "espn", "cbs", "rotoballer", "sleeper"].map(
+          ACTIVE_PROJECTION_SOURCES.map(
             (source) => [
               source,
               playerPropMarkets.filter((market) =>
