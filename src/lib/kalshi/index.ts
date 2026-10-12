@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 import type { ProviderMarket, ProviderResult } from "@/lib/markets/types";
 import { isNflText } from "@/lib/markets/normalize";
+import { shouldPreserveKalshiSnapshot, countRelevantCachedKalshiMarkets } from "./snapshot-guard";
 import {
   dollarsToBps,
   dollarsToCents,
@@ -214,15 +215,18 @@ export async function fetchKalshiNflMarkets(): Promise<ProviderResult> {
 
   kalshiRefreshPromise = refreshKalshiNflMarkets()
     .then((next) => {
-      // A partial/empty refresh caused by upstream throttling must never wipe
-      // a healthy snapshot. Keep serving the last complete board and retry on
-      // a later refresh.
+      // An NFL slate naturally shrinks as games finish. Protect against
+      // incomplete provider responses, but only compare against contracts
+      // whose scheduled game has not rolled off the active slate.
+      // Otherwise a healthy Monday feed appears smaller than Sunday's expired
+      // snapshot and the app shows zero priced opportunities.
       if (
         kalshiSnapshot &&
-        next.markets.length < Math.max(25, kalshiSnapshot.markets.length * 0.5)
+        shouldPreserveKalshiSnapshot(kalshiSnapshot.markets, next.markets)
       ) {
+        const relevant = countRelevantCachedKalshiMarkets(kalshiSnapshot.markets);
         console.warn(
-          `Kalshi refresh returned only ${next.markets.length} markets; keeping cached ${kalshiSnapshot.markets.length}-market snapshot.`,
+          `Kalshi refresh returned ${next.markets.length} markets vs ${relevant} current cached markets; keeping prior snapshot as possible partial response.`,
         );
         kalshiSnapshotAt = Date.now();
         return kalshiSnapshot;
