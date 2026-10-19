@@ -10,12 +10,12 @@ export function AccountMenu() {
     return (
       <a href="/sign-in" className="rounded-md border bg-surface px-3 py-1.5 text-xs font-medium transition-colors hover:border-border-strong">
         Sign in
-      </a
+      </a>
     );
   }
   return (
     <a href="/account" className="grid size-8 place-items-center rounded-full border bg-surface text-muted transition-colors hover:border-border-strong hover:text-foreground" aria-label="Account" title={data.user.email}>
       <UserRound size={15} strokeWidth={1.7} />
-    </a
+    </a>
   );
 }
