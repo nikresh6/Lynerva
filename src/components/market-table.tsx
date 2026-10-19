@@ -2,7 +2,6 @@
 
 import { ChevronDown, CloudSun, ExternalLink, FlaskConical, HeartPulse, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import type { MarketOpportunity } from "@/lib/markets/types";
 import { ACTIVE_PROJECTION_SOURCES } from "@/lib/model/source-weighting";
 import { cn, formatPercent, relativeTime, titleCase } from "@/lib/utils";
@@ -1115,7 +1114,6 @@ function ModelInputs({ market }: { market: MarketOpportunity }) {
 }
 
 export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose: () => void }) {
-  const router = useRouter();
   const title = displayMarketTitle(market);
   const subject = market.canonical?.subject ?? "";
   const visuals = usePlayerVisuals(subject ? [subject] : []);
@@ -1157,7 +1155,7 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
         }),
       );
     } catch {}
-    router.push("/tracker");
+    window.location.assign("/tracker");
   };
 
   return (
