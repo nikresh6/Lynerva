@@ -26,6 +26,8 @@ function normalizeOrigin(value: string | undefined) {
 const LYNERVA_PRODUCTION_ORIGINS = [
   "https://lynerva-production.up.railway.app",
   "https://lynerva.vercel.app",
+  "https://huddlemark-nik-s-projects-858335de.vercel.app",
+  "https://huddlemark.vercel.app",
   "https://nflbet.netlify.app",
 ] as const;
 
