@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 
@@ -21,7 +20,6 @@ function authErrorMessage(error: { message?: string | null; status?: number } | 
 }
 
 export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
-  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -55,8 +53,7 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
         return;
       }
 
-      router.push("/tracker");
-      router.refresh();
+      window.location.assign("/tracker");
     } catch (caught) {
       console.error("Authentication request failed", caught);
       setError("The account service could not be reached. Please try again.");

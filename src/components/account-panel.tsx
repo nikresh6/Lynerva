@@ -1,18 +1,15 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { LogOut, ShieldCheck, UserRound } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 
 export function AccountPanel({ name, email }: { name: string; email: string }) {
-  const router = useRouter();
   const [pending, setPending] = useState(false);
   async function logOut() {
     setPending(true);
     await authClient.signOut();
-    router.push("/");
-    router.refresh();
+    window.location.assign("/");
   }
 
   return (
