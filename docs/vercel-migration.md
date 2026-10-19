@@ -2,6 +2,16 @@
 
 Created 2026-10-19. This document covers the hybrid deployment. Do not remove or disable Railway until database continuity and background processing have been verified.
 
+## Current deployment: working hybrid (2026-10-19)
+
+Huddlemark's **Vercel site is configured to serve the public frontend**, and all /api routes plus database-backed pages (/account, /results, /sources, /tracker, /reset-password) are proxied to **the original Railway server** using `next.config.ts` only when VERCEL=1. Railway continues reading/writing its **persistent local SQLite** volume, running its live collection and learning jobs, and handling Better Auth requests. Vercel no longer needs direct access to /data/huddlemark.db for these routed requests.
+
+The proxy was tested via a Vercel preview and then merged as commit `43a530dc5d89386ee14b1d1d97886b2355d30dc7` (PR #62). The production Vercel deployment reached READY and the homepage, results, account, tracker, markets API, and unauthenticated session endpoint returned 200. This is **not a full backend or database migration**, and Railway should not be removed. An actual user sign-in, password reset and saved tracker edit were not exercised with credentials in the automated tests.
+
+Vercel SSO protection is set to preview-only. Railway's production BETTER_AUTH_URL was changed to the new Vercel alias and the Vercel host was added to trusted origins.
+
+**No user migration commands or Turso import are required for the current hybrid.** The full database export/import procedure below applies **only if later eliminating Railway**. Do not remove the Railway database override on Railway. Existing Vercel values `HUDDLEMARK_DATABASE_URL` and `RECOVER_WEEK_ON_START` are unnecessary to the proxy but are not exercised by the proxied endpoints.
+
 ## Accounts and services
 
 - **Vercel project:** [huddlemark](https://vercel.com/nik-s-projects-858335de/huddlemark)
@@ -36,7 +46,7 @@ If the active production database URL is a **remote** `HUDDLEMARK_DATABASE_URL` 
 
 Railway has a persistent 500 MB volume mounted at `/data`. Its service has *both* `HUDDLEMARK_DATABASE_URL` and `TURSO_DATABASE_URL` variable names configured. The Railway API connection exposes their names, not their values, so the active production database has not been established.
 
-The `HUDDLEMARK_DATABASE_URL` variable takes precedence. **Before considering Vercel production ready**, determine whether it is set to a local file or a remote database:
+The `HUDDLEMARK_DATABASE_URL` variable takes precedence. **Before a complete Railway retirement**, determine whether it is set to a local file or a remote database:
 
 1. Check Railway **Huddlemark > Variables > `HUDDLEMARK_DATABASE_URL`**, or open https://huddlemark-production.up.railway.app/api/health and inspect `databaseMode`. The endpoint reports `persistent-local` if that URL starts with `file:` and `remote` otherwise. Note that `remote` by itself does not prove the database is accessible.
 2. If it says `persistent-local`, the current tracker, learning, and history may reside on the Railway volume. Back up/export that database and migrate it into Turso before pointing Vercel at Turso. Ensure Railway's scheduler is switched to the same remote database only after validating data fidelity and a safe cutover.
