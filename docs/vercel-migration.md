@@ -45,6 +45,47 @@ The `HUDDLEMARK_DATABASE_URL` variable takes precedence. **Before considering Ve
 
 Vercel serverless functions do not share a durable `/data` volume. Recovery markers currently stored there stay on Railway. Vercel does not execute the app's `npm start` migration hook; the existing Railway startup handles migrations, or migrations must be run explicitly against the intended database before cutover.
 
+## Verified deployment audit (2026-10-19)
+
+- **Vercel's new production deployment compiled and reached READY**, but this is not equivalent to a functioning application.
+- **The production Vercel runtime has failed to open `/data/huddlemark.db`.** Both `/api/auth/get-session` and `/api/markets` logged `ConnectionFailed("Unable to open connection to local database /data/huddlemark.db: 14")`. Therefore the `HUDDLEMARK_DATABASE_URL` you entered in Vercel is the Railway-only local file URL and must be removed from Vercel **when the remote database has been prepared**.
+- Railway's active scheduler logs confirm `"local":true` for storage maintenance with database footprint **97,615,872 bytes** on October 19. This is a real local database with data to migrate, not a hypothetical volume.
+- Vercel's sensitive keys **exist** for `HUDDLEMARK_DATABASE_URL`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `BETTER_AUTH_SECRET`, `CRON_SECRET`, and `RECOVER_WEEK_ON_START`. Their values were redacted by the platform. `RESEND_API_KEY` and `EMAIL_FROM` **have not been added** to Vercel. They are needed only for password-reset emails.
+- `RECOVER_WEEK_ON_START` is a Railway-only recovery setting and should be removed from Vercel. No Vercel cron schedules should be enabled while Railway's scheduler is active.
+- Vercel Deployment Protection still requires Vercel authentication on the `.vercel.app` hostname.
+- The existing Railway deployment and volume were left intact.
+
+### Safe cutover procedure
+
+1. Keep the Railway service and background scheduler running, and do not delete its volume. Establish a maintenance window for the final snapshot and any writes during cutover.
+2. In the Railway service shell, make a **consistent SQLite backup** of `/data/huddlemark.db`. Do not directly copy a live WAL-mode database file without its WAL or a database backup operation. If the `sqlite3` CLI exists, its online backup command can produce a consistent snapshot without interrupting readers:
+
+   ```bash
+   sqlite3 /data/huddlemark.db ".backup '/data/huddlemark-export.db'"
+   sqlite3 /data/huddlemark-export.db "PRAGMA integrity_check;"
+   ```
+
+   The expected integrity result is `ok`. If the CLI is absent, install/use an appropriate SQLite backup tool in the service environment before continuing. Never delete the original.
+
+3. With Railway CLI authenticated to your account, download the **backup** from the volume:
+
+   ```bash
+   railway volume files --volume huddlemark-data download /huddlemark-export.db ./huddlemark-export.db
+   ```
+
+4. Import that file into a **new** Turso database. Do not overwrite an existing production Turso database or reuse its name without verifying what it contains:
+
+   ```bash
+   turso db import ./huddlemark-export.db
+   ```
+
+5. Validate table counts and representative account, tracker, prediction, result, and learning rows against the source backup. Record a cutover time; reconcile writes made on Railway after the backup or take a fresh final snapshot with writes paused.
+6. Set Vercel's `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` to the **imported** database. Delete `HUDDLEMARK_DATABASE_URL` from **Vercel only**, so the application actually uses Turso. Delete `RECOVER_WEEK_ON_START` from Vercel as well. Preserve the existing `BETTER_AUTH_SECRET` for accounts.
+7. Redeploy Vercel and verify authentication, existing tracker rows, history, scorecards, and fresh market API requests with no database connection failures. Vercel functions cannot access Railway's `/data` volume.
+8. After confirming Vercel works with the remote database and planning for zero data divergence, switch the Railway background worker to that same remote database at cutover, and confirm new scoring/learning writes are visible from Vercel. Railway should remain active for scheduling until a replacement has been verified.
+
+Official guides: [Railway volume file download](https://docs.railway.com/cli/volume) and [Turso SQLite import](https://turso.tech/blog/migrating-and-importing-sqlite-to-turso-just-got-easier).
+
 ## Verification and activation checklist
 
 - [ ] Enter required Vercel env variables under **Production**. Add preview-scoped credentials only when intentionally testing them.
