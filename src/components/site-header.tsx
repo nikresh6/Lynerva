@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Activity,
@@ -40,7 +39,7 @@ export function SiteHeader() {
       <header className="sticky top-0 z-40 border-b bg-[var(--header)] backdrop-blur-2xl">
         <div className="mx-auto max-w-[1480px] px-4 sm:px-6 lg:px-8">
           <div className="flex min-h-14 flex-wrap items-center gap-x-4">
-          <Link
+          <a
             href="/"
             className="group inline-flex items-center gap-2.5 text-[15px] font-semibold tracking-[0.14em]"
           >
@@ -49,7 +48,7 @@ export function SiteHeader() {
               <span className="size-1.5 rounded-full bg-accent shadow-[0_0_10px_var(--accent-glow)]" />
             </span>
             HUDDLEMARK
-          </Link>
+          </a
 
           <nav
             className="hidden shrink-0 items-center gap-1 sm:flex"
@@ -58,7 +57,7 @@ export function SiteHeader() {
             {desktopLinks.map(([label, href]) => {
               const active = pathname === href;
               return (
-                <Link
+                <a
                   key={href}
                   href={href}
                   aria-current={active ? "page" : undefined}
@@ -73,7 +72,7 @@ export function SiteHeader() {
                   {active ? (
                     <span className="absolute inset-x-3 -bottom-[9px] h-0.5 rounded-full bg-accent" />
                   ) : null}
-                </Link>
+                </a
               );
             })}
           </nav>
@@ -81,7 +80,7 @@ export function SiteHeader() {
           <ScoreTicker games={tickerGames} />
 
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
-            <Link
+            <a
               href="/sources"
               aria-label="Projection sources"
               className={cn(
@@ -90,7 +89,7 @@ export function SiteHeader() {
               )}
             >
               <Database className="size-4" />
-            </Link>
+            </a
             <ThemeToggle />
             <AccountMenu />
           </div>
@@ -105,7 +104,7 @@ export function SiteHeader() {
         {mobileLinks.map(([label, href, Icon]) => {
           const active = pathname === href;
           return (
-            <Link
+            <a
               key={href}
               href={href}
               aria-current={active ? "page" : undefined}
@@ -113,7 +112,7 @@ export function SiteHeader() {
             >
               <Icon className="size-[17px]" strokeWidth={active ? 2.3 : 1.8} />
               <span className="truncate">{label}</span>
-            </Link>
+            </a
           );
         })}
       </nav>
