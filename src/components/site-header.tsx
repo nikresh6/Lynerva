@@ -48,7 +48,7 @@ export function SiteHeader() {
               <span className="size-1.5 rounded-full bg-accent shadow-[0_0_10px_var(--accent-glow)]" />
             </span>
             HUDDLEMARK
-          </a
+          </a>
 
           <nav
             className="hidden shrink-0 items-center gap-1 sm:flex"
@@ -72,7 +72,7 @@ export function SiteHeader() {
                   {active ? (
                     <span className="absolute inset-x-3 -bottom-[9px] h-0.5 rounded-full bg-accent" />
                   ) : null}
-                </a
+                </a>
               );
             })}
           </nav>
@@ -89,7 +89,7 @@ export function SiteHeader() {
               )}
             >
               <Database className="size-4" />
-            </a
+            </a>
             <ThemeToggle />
             <AccountMenu />
           </div>
@@ -112,7 +112,7 @@ export function SiteHeader() {
             >
               <Icon className="size-[17px]" strokeWidth={active ? 2.3 : 1.8} />
               <span className="truncate">{label}</span>
-            </a
+            </a>
           );
         })}
       </nav>
