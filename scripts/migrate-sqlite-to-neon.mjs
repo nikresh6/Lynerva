@@ -129,9 +129,12 @@ async function main() {
           args: [batchSize, offset],
         });
         const inserts = rows.rows.map((row) =>
-          columns.map((column) => convert(
-            row[column.column_name], column.data_type, table, column.column_name
-          ))
+          Object.fromEntries(columns.map((column) => [
+            column.column_name,
+            column.data_type === "jsonb"
+              ? pg.json(convert(row[column.column_name], column.data_type, table, column.column_name))
+              : convert(row[column.column_name], column.data_type, table, column.column_name),
+          ]))
         );
         if (!inserts.length) throw new Error("Read fewer source rows than expected for " + table);
         const names = columns.map((c) => c.column_name);
