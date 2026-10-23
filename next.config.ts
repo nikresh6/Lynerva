@@ -16,7 +16,7 @@ const nextConfig: NextConfig = {
   // The Railway worker itself has no VERCEL environment variable, so it never
   // proxies back to itself.
   async rewrites() {
-    if (process.env.VERCEL !== "1") return [];
+    if (process.env.VERCEL !== "1" || process.env.HUDDLEMARK_NEON_ACTIVE === "1") return [];
 
     const origin = "https://huddlemark-production.up.railway.app";
     return {
