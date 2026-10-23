@@ -78,34 +78,13 @@ function parseSources(value: unknown) {
 
 export function ensureMoneylineLearningSchema() {
   if (schemaPromise) return schemaPromise;
-  schemaPromise = (async () => {
-    const db = getDb();
-    await db.run(sql.raw(`
-      CREATE TABLE IF NOT EXISTS moneyline_source_weight_history (
-        id text PRIMARY KEY NOT NULL,
-        season integer NOT NULL,
-        effective_week integer NOT NULL,
-        source text NOT NULL,
-        weight real NOT NULL,
-        prior_weight real NOT NULL,
-        sample_size integer NOT NULL,
-        brier_score real,
-        created_at integer DEFAULT (unixepoch()) NOT NULL,
-        updated_at integer DEFAULT (unixepoch()) NOT NULL
-      )
-    `));
-    await db.run(sql.raw(`
-      CREATE UNIQUE INDEX IF NOT EXISTS moneyline_source_weight_unique
-      ON moneyline_source_weight_history (season, effective_week, source)
-    `));
-    await db.run(sql.raw(`
-      CREATE INDEX IF NOT EXISTS moneyline_source_weight_lookup_idx
-      ON moneyline_source_weight_history (season, effective_week)
-    `));
-  })().catch((error) => {
-    schemaPromise = null;
-    throw error;
-  });
+  schemaPromise = getDb()
+    .execute(sql`SELECT 1 FROM moneyline_source_weight_history LIMIT 1`)
+    .then(() => undefined)
+    .catch((error) => {
+      schemaPromise = null;
+      throw error;
+    });
   return schemaPromise;
 }
 
