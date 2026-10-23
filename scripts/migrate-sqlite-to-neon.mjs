@@ -118,6 +118,17 @@ async function main() {
     }
     const from = await sqlite.execute("SELECT count(*) AS count FROM " + quoteSqlite(table));
     const sourceCount = Number(from.rows[0].count);
+    const primaryKeys = sqlColumnRows.rows
+      .filter((c) => Number(c.pk) > 0)
+      .sort((a, b) => Number(a.pk) - Number(b.pk))
+      .map((c) => String(c.name));
+    if (!primaryKeys.length) throw new Error("Missing source primary key for " + table);
+    const names = columns.map((c) => c.column_name);
+    const assignments = names
+      .filter((name) => !primaryKeys.includes(name))
+      .map((name) => quoteSqlite(name) + " = excluded." + quoteSqlite(name))
+      .join(", ");
+    const conflictColumns = primaryKeys.map(quoteSqlite).join(", ");
     if (!Number.isSafeInteger(sourceCount)) throw new Error("Invalid source count");
     sourceTotal += sourceCount;
     if (write) {
@@ -132,13 +143,20 @@ async function main() {
           Object.fromEntries(columns.map((column) => [
             column.column_name,
             column.data_type === "jsonb"
-              ? pg.json(convert(row[column.column_name], column.data_type, table, column.column_name))
+              ? row[column.column_name] == null
+                ? null
+                : pg.json(convert(row[column.column_name], column.data_type, table, column.column_name))
               : convert(row[column.column_name], column.data_type, table, column.column_name),
           ]))
         );
         if (!inserts.length) throw new Error("Read fewer source rows than expected for " + table);
-        const names = columns.map((c) => c.column_name);
-        await pg`INSERT INTO ${pg(table)} ${pg(inserts, ...names)} ON CONFLICT DO NOTHING`;
+        if (assignments) {
+          await pg`INSERT INTO ${pg(table)} ${pg(inserts, ...names)}
+            ON CONFLICT (${pg.unsafe(conflictColumns)})
+            DO UPDATE SET ${pg.unsafe(assignments)}`;
+        } else {
+          await pg`INSERT INTO ${pg(table)} ${pg(inserts, ...names)} ON CONFLICT DO NOTHING`;
+        }
       }
     }
     const dest = await pg`SELECT count(*)::bigint AS count FROM ${pg(table)}`;
