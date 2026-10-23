@@ -143,112 +143,13 @@ function errorChainText(error: unknown) {
 
 export function ensureSourceLearningSchema() {
   if (schemaPromise) return schemaPromise;
-
-  schemaPromise = (async () => {
-    const db = getDb();
-    try {
-      await db.run(
-        sql.raw(
-          "ALTER TABLE player_game_stats ADD COLUMN passing_interceptions real",
-        ),
-      );
-    } catch (error) {
-      // Drizzle wraps libSQL errors, so the useful SQLite message can live in
-      // error.cause rather than the top-level Error.message.
-      if (!/duplicate column name/i.test(errorChainText(error))) {
-        throw error;
-      }
-    }
-
-    await db.run(sql.raw(`
-      CREATE TABLE IF NOT EXISTS source_projections (
-        id text PRIMARY KEY NOT NULL,
-        season integer NOT NULL,
-        week integer NOT NULL,
-        player_name text NOT NULL,
-        player_key text NOT NULL,
-        statistic text NOT NULL,
-        source text NOT NULL,
-        projected_value real NOT NULL,
-        captured_at integer NOT NULL,
-        latest_projected_value real,
-        latest_captured_at integer,
-        observation_count integer DEFAULT 1 NOT NULL,
-        created_at integer DEFAULT (unixepoch()) NOT NULL,
-        updated_at integer DEFAULT (unixepoch()) NOT NULL
-      )
-    `));
-    const addProjectionColumn = async (statement: string) => {
-      try {
-        await db.run(sql.raw(statement));
-      } catch (error) {
-        if (!/duplicate column name/i.test(errorChainText(error))) throw error;
-      }
-    };
-    await addProjectionColumn(
-      "ALTER TABLE source_projections ADD COLUMN latest_projected_value real",
-    );
-    await addProjectionColumn(
-      "ALTER TABLE source_projections ADD COLUMN latest_captured_at integer",
-    );
-    await addProjectionColumn(
-      "ALTER TABLE source_projections ADD COLUMN observation_count integer DEFAULT 1 NOT NULL",
-    );
-    // Do not run data backfills from application startup. The previous
-    // startup UPDATE scanned/touched the whole projection table on every cold
-    // process and could consume a large share of the hosted database quota.
-    await db.run(sql.raw(`
-      CREATE UNIQUE INDEX IF NOT EXISTS source_projection_unique
-      ON source_projections (season, week, player_key, statistic, source)
-    `));
-    await db.run(sql.raw(`
-      CREATE INDEX IF NOT EXISTS source_projection_stat_week_idx
-      ON source_projections (season, week, statistic)
-    `));
-    await db.run(sql.raw(`
-      CREATE TABLE IF NOT EXISTS source_projection_grades (
-        projection_id text PRIMARY KEY NOT NULL,
-        actual_value real NOT NULL,
-        absolute_error real NOT NULL,
-        squared_error real NOT NULL,
-        graded_at integer NOT NULL,
-        created_at integer DEFAULT (unixepoch()) NOT NULL,
-        FOREIGN KEY (projection_id) REFERENCES source_projections(id)
-          ON UPDATE no action ON DELETE cascade
-      )
-    `));
-    await db.run(sql.raw(`
-      CREATE INDEX IF NOT EXISTS source_projection_grades_time_idx
-      ON source_projection_grades (graded_at)
-    `));
-    await db.run(sql.raw(`
-      CREATE TABLE IF NOT EXISTS source_weight_history (
-        id text PRIMARY KEY NOT NULL,
-        season integer NOT NULL,
-        effective_week integer NOT NULL,
-        statistic text NOT NULL,
-        source text NOT NULL,
-        weight real NOT NULL,
-        sample_size integer NOT NULL,
-        mae real,
-        recent_mae real,
-        created_at integer DEFAULT (unixepoch()) NOT NULL,
-        updated_at integer DEFAULT (unixepoch()) NOT NULL
-      )
-    `));
-    await db.run(sql.raw(`
-      CREATE UNIQUE INDEX IF NOT EXISTS source_weight_unique
-      ON source_weight_history (season, effective_week, statistic, source)
-    `));
-    await db.run(sql.raw(`
-      CREATE INDEX IF NOT EXISTS source_weight_lookup_idx
-      ON source_weight_history (season, statistic, effective_week)
-    `));
-  })().catch((error) => {
-    schemaPromise = null;
-    throw error;
-  });
-
+  schemaPromise = getDb()
+    .execute(sql`SELECT 1 FROM source_projection_grades LIMIT 1`)
+    .then(() => undefined)
+    .catch((error) => {
+      schemaPromise = null;
+      throw error;
+    });
   return schemaPromise;
 }
 
