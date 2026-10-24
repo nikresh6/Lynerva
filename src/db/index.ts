@@ -1,41 +1,28 @@
 import "server-only";
 
-import { createClient, type Client } from "@libsql/client";
-import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
+import postgres, { type Sql } from "postgres";
+import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "./schema";
 
-let client: Client | undefined;
-let database: LibSQLDatabase<typeof schema> | undefined;
+let client: Sql | undefined;
+let database: PostgresJsDatabase<typeof schema> | undefined;
 
 export function activeDatabaseUrl() {
-  const url =
-    process.env.HUDDLEMARK_DATABASE_URL ??
-    process.env.TURSO_DATABASE_URL;
-  if (!url) {
-    throw new Error(
-      "HUDDLEMARK_DATABASE_URL or TURSO_DATABASE_URL is required",
-    );
+  const url = process.env.NEON_DATABASE_URL ?? process.env.DATABASE_URL;
+  if (!url?.startsWith("postgres")) {
+    throw new Error("NEON_DATABASE_URL (PostgreSQL) is required for Huddlemark.");
   }
   return url;
 }
 
-function databaseClientConfig() {
-  const url = activeDatabaseUrl();
-  return {
-    url,
-    ...(url.startsWith("file:")
-      ? {}
-      : { authToken: process.env.TURSO_AUTH_TOKEN }),
-  };
-}
-
 export function getDb() {
   if (!client) {
-    const config = databaseClientConfig();
-    if (config.url.startsWith("file:")) {
-      console.info("[database] persistent local libSQL active");
-    }
-    client = createClient(config);
+    client = postgres(activeDatabaseUrl(), {
+      max: 3,
+      prepare: false,
+      idle_timeout: 20,
+      connect_timeout: 12,
+    });
   }
   if (!database) {
     database = drizzle(client, { schema });
