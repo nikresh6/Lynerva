@@ -1058,6 +1058,10 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
           misses: picks.filter((pick) => pick.result === "miss").length,
           profitOnTen,
           roi: settled ? profitOnTen / (settled * 10) : 0,
+          expectedPicks:
+            first.season > 2026 || (first.season === 2026 && first.week >= 8)
+              ? FUTURE_CARD_TARGET
+              : 10,
         };
       });
 
