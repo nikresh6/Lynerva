@@ -24,6 +24,7 @@ interface MarketClientPayload {
   ratedCount: number;
   displayedCount: number;
   fetchedAt: string;
+  stale?: boolean;
 }
 
 interface MarketDataContextValue extends MarketClientPayload {
@@ -280,7 +281,29 @@ export function MarketDataProvider({
   const inflight = useRef<Promise<void> | null>(null);
   const lastSuccessfulRefreshAt = useRef(0);
   const lastEtagRef = useRef<string | null>(null);
-  const warmRetryCount = useRef(0);
+  const retryAttempts = useRef(0);
+  const retryTimer = useRef<number | null>(null);
+
+  const resetRetries = () => {
+    retryAttempts.current = 0;
+    if (retryTimer.current !== null) {
+      window.clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
+  };
+
+  // A sleeping Railway worker can return an empty warm-up response for longer
+  // than the old 20-retry cap. Retry with bounded backoff until a genuine
+  // market payload arrives, without spawning overlapping polling loops.
+  const scheduleRetry = () => {
+    if (retryTimer.current !== null) return;
+    const delayMs = Math.min(15_000, 2_000 * 2 ** Math.min(3, retryAttempts.current));
+    retryAttempts.current += 1;
+    retryTimer.current = window.setTimeout(() => {
+      retryTimer.current = null;
+      if (document.visibilityState === "visible") void refresh();
+    }, delayMs);
+  };
 
   const refresh = async () => {
     if (inflight.current) return inflight.current;
@@ -309,8 +332,14 @@ export function MarketDataProvider({
         }
 
         if (response.status === 304) {
-          lastSuccessfulRefreshAt.current = Date.now();
-          setError(null);
+          if (latestDataRef.current.opportunities.length === 0) {
+            setError("Market feed is still warming. Retrying.");
+            scheduleRetry();
+          } else {
+            lastSuccessfulRefreshAt.current = Date.now();
+            setError(null);
+            resetRetries();
+          }
           return;
         }
         if (!response.ok) {
@@ -327,16 +356,11 @@ export function MarketDataProvider({
           payload.providers.length === 0
         ) {
           setError("Market model is warming. Retrying automatically.");
-          if (warmRetryCount.current < 20) {
-            warmRetryCount.current += 1;
-            window.setTimeout(() => {
-              void refresh();
-            }, 2_000);
-          }
+          scheduleRetry();
           return;
         }
 
-        warmRetryCount.current = 0;
+        resetRetries();
         const annotated = annotateMovements(latestDataRef.current, payload);
         latestDataRef.current = annotated;
         setData(annotated);
@@ -357,6 +381,7 @@ export function MarketDataProvider({
               ? caught.message
               : "Market feed unavailable",
         );
+        scheduleRetry();
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -412,6 +437,10 @@ export function MarketDataProvider({
     return () => {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisibility);
+      if (retryTimer.current !== null) {
+        window.clearTimeout(retryTimer.current);
+        retryTimer.current = null;
+      }
     };
   }, [pathname]);
 

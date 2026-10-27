@@ -150,6 +150,7 @@ export async function GET(request: Request) {
       ratedCount: rated.length,
       displayedCount: Math.min(30, new Set(opportunities.map(groupKey)).size),
       fetchedAt: payload.fetchedAt,
+      stale: payload.stale ?? false,
     },
     {
       headers: {

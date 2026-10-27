@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readFile, rename, writeFile } from "node:fs/promises";
+
 import { fetchKalshiNflMarkets } from "@/lib/kalshi";
 import { estimateMarket } from "@/lib/model";
 import { blendConditionalWithDnpFairValueBps } from "@/lib/model/injury-availability";
@@ -37,6 +39,8 @@ export interface MarketsPayload {
   providers: ProviderResult[];
   fetchedAt: string;
   fixtureMode: boolean;
+  /** True when displaying the latest saved feed while refreshing live quotes. */
+  stale?: boolean;
 }
 
 interface NormalizedItem {
@@ -48,6 +52,81 @@ interface NormalizedItem {
 
 let warmSnapshot: { payload: MarketsPayload; storedAt: number } | null = null;
 let refreshPromise: Promise<MarketsPayload> | null = null;
+
+// The Railway background scheduler and Next.js API route do not necessarily
+// share one module cache. Share the latest complete, *non-empty* model snapshot
+// through the existing persistent Railway volume so cold API workers can
+// render actual picks immediately after a restart.
+const SHARED_MARKET_SNAPSHOT_PATH =
+  process.env.HUDDLEMARK_DATABASE_URL?.startsWith("file:/data/")
+    ? "/data/huddlemark-market-feed.json"
+    : null;
+const SHARED_SNAPSHOT_MAX_AGE_MS = 35 * 60_000; // background refresh: 30 minutes
+const SHARED_SNAPSHOT_READ_INTERVAL_MS = 5_000;
+let lastSharedSnapshotReadAt = 0;
+let sharedSnapshotRead: Promise<void> | null = null;
+let sharedSnapshotWrite: Promise<void> | null = null;
+
+async function restoreSharedMarketSnapshot(): Promise<void> {
+  if (!SHARED_MARKET_SNAPSHOT_PATH) return;
+  if (sharedSnapshotRead) return sharedSnapshotRead;
+  if (Date.now() - lastSharedSnapshotReadAt < SHARED_SNAPSHOT_READ_INTERVAL_MS) return;
+  lastSharedSnapshotReadAt = Date.now();
+  sharedSnapshotRead = (async () => {
+    try {
+      const parsed = JSON.parse(
+        await readFile(SHARED_MARKET_SNAPSHOT_PATH, "utf8"),
+      ) as { storedAt?: number; payload?: MarketsPayload };
+      const storedAt = parsed.storedAt ?? 0;
+      if (
+        !parsed.payload ||
+        !Array.isArray(parsed.payload.opportunities) ||
+        parsed.payload.opportunities.length === 0 ||
+        Date.now() - storedAt > SHARED_SNAPSHOT_MAX_AGE_MS ||
+        storedAt > Date.now() + 60_000
+      ) return;
+      if (warmSnapshot && warmSnapshot.storedAt >= storedAt) return;
+      warmSnapshot = { payload: parsed.payload, storedAt };
+      console.info("[markets-cache] restored", JSON.stringify({
+        markets: parsed.payload.opportunities.length,
+        ageSeconds: Math.round((Date.now() - storedAt) / 1_000),
+      }));
+    } catch (error) {
+      // No persisted feed on first boot is normal; background will produce one.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        console.warn("[markets-cache] read failed", error);
+      }
+    }
+  })().finally(() => {
+    sharedSnapshotRead = null;
+  });
+  return sharedSnapshotRead;
+}
+
+function persistSharedMarketSnapshot(payload: MarketsPayload): void {
+  if (
+    !SHARED_MARKET_SNAPSHOT_PATH ||
+    payload.opportunities.length === 0 ||
+    sharedSnapshotWrite
+  ) return;
+  // The write is atomic; a concurrent worker never sees a partial JSON file.
+  const temporaryPath = `${SHARED_MARKET_SNAPSHOT_PATH}.${process.pid}.${Date.now()}.tmp`;
+  sharedSnapshotWrite = (async () => {
+    try {
+      await writeFile(
+        temporaryPath,
+        JSON.stringify({ storedAt: Date.now(), payload }),
+        { mode: 0o600 },
+      );
+      await rename(temporaryPath, SHARED_MARKET_SNAPSHOT_PATH);
+    } catch (error) {
+      console.warn("[markets-cache] write failed", error);
+    }
+  })().finally(() => {
+    sharedSnapshotWrite = null;
+  });
+}
+
 const matchupSnapshots = new Map<
   string,
   { payload: MarketsPayload; storedAt: number }
@@ -774,7 +853,12 @@ async function refreshSnapshot() {
   if (!refreshPromise) {
     refreshPromise = computeMarketOpportunities()
       .then((payload) => {
-        warmSnapshot = { payload, storedAt: Date.now() };
+        // Never replace a verified, non-empty feed with a transient empty
+        // provider response; keep the last known markets visible as stale.
+        if (payload.opportunities.length > 0) {
+          warmSnapshot = { payload, storedAt: Date.now() };
+          persistSharedMarketSnapshot(payload);
+        }
         return payload;
       })
       .finally(() => {
@@ -787,14 +871,28 @@ async function refreshSnapshot() {
 export async function getMarketOpportunities(
   maxAgeMs = 45_000,
 ): Promise<MarketsPayload> {
-  const now = Date.now();
+  // A server restart must not erase the last successfully computed odds
+  // slate. Railway's scheduler writes this file independently of API workers.
+  // Also reload when a different worker updates the disk after this route's
+  // in-memory copy has aged out.
+  let now = Date.now();
+  if (warmSnapshot && now - warmSnapshot.storedAt < maxAgeMs) {
+    return warmSnapshot.payload;
+  }
+  await restoreSharedMarketSnapshot();
+  now = Date.now();
   if (warmSnapshot && now - warmSnapshot.storedAt < maxAgeMs) {
     return warmSnapshot.payload;
   }
 
   if (warmSnapshot) {
-    void refreshSnapshot();
-    return warmSnapshot.payload;
+    void refreshSnapshot().catch((error) => {
+      console.warn("[markets-cache] refresh failed", error);
+    });
+    return {
+      ...warmSnapshot.payload,
+      stale: true,
+    };
   }
 
   // A cold model build can take several seconds because it may need external
