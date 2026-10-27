@@ -45,8 +45,8 @@ const LEGACY_BUCKET_RULES: ScorecardBucketRule[] = [
 ];
 const FIFTEEN_BUCKET_RULES: ScorecardBucketRule[] = [
   { id: "tnf", count: 2, rankStart: 1, label: "TNF" },
-  { id: "sunday_noon", count: 7, rankStart: 3, label: "Sunday noon" },
-  { id: "sunday_late", count: 4, rankStart: 10, label: "Sunday late" },
+  { id: "sunday_noon", count: 8, rankStart: 3, label: "Sunday noon" },
+  { id: "sunday_late", count: 3, rankStart: 11, label: "Sunday late" },
   { id: "snf", count: 1, rankStart: 14, label: "SNF" },
   { id: "mnf", count: 1, rankStart: 15, label: "MNF" },
 ];

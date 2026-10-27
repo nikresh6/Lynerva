@@ -161,7 +161,7 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-6 text-muted sm:text-base">
               {modernCard
-                ? "The 15-pick weekly card allocates 2 TNF, 7 Sunday noon, 4 Sunday late, 1 SNF, and 1 MNF. Each slate freezes five minutes before its kickoff window."
+                ? "The 15-pick weekly card allocates 2 TNF, 8 Sunday noon, 3 Sunday late, 1 SNF, and 1 MNF. Each slate freezes five minutes before its kickoff window."
                 : "Historical 10-pick cards remain unchanged: 1 TNF, 4 Sunday noon, 3 Sunday late, 1 SNF, and 1 MNF."}
             </p>
             <p className="mt-2 text-[10px] text-faint">
@@ -277,7 +277,7 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
             <div className="rounded-xl bg-background p-4">
               <p className="text-[9px] uppercase tracking-[0.08em] text-faint">Selection rule</p>
               <p className="mt-2 text-xs leading-5">{modernCard
-                ? "2 TNF, 7 Sunday noon, 4 Sunday late, 1 SNF, and 1 MNF. Once locked, every pick is permanently retained."
+                ? "2 TNF, 8 Sunday noon, 3 Sunday late, 1 SNF, and 1 MNF. Once locked, every pick is permanently retained."
                 : "1 TNF, 4 Sunday noon, 3 Sunday late, 1 SNF, and 1 MNF. Locked historical picks never change."}</p>
             </div>
           </div>
