@@ -847,6 +847,9 @@ export async function getUpcomingScorecard(): Promise<WeeklyScorecard | null> {
       direction: normalizedMarkets.direction,
       threshold: normalizedMarkets.threshold,
       outcomeLabel: normalizedMarkets.outcomeLabel,
+      platform: marketListings.platform,
+      platformMarketId: marketListings.platformMarketId,
+      platformOutcomeId: marketListings.platformOutcomeId,
     })
     .from(predictions)
     .innerJoin(marketListings, eq(marketListings.id, predictions.listingId))
