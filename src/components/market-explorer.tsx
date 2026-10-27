@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { Search, SlidersHorizontal, Star, X } from "lucide-react";
 import { getNflTeam } from "@/lib/nfl/teams";
 import { isPricedOpportunity } from "@/lib/markets/eligibility";
+import { resultsPickKey } from "@/lib/model/results-pick-key";
 import { filterAndSortMarkets } from "@/lib/markets/filters";
 import {
   marketFamilyLabel,
@@ -183,6 +184,7 @@ export function MarketExplorer({
     status: forceStatus ?? "all",
   });
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [resultsOnly, setResultsOnly] = useState(false);
   const [resultsStarKeys, setResultsStarKeys] = useState<Set<string>>(
     () => new Set(),
   );
@@ -314,9 +316,16 @@ export function MarketExplorer({
     let eligible = opportunities.filter(
       (market) =>
         isPricedOpportunity(market) &&
-        (browseAllMoneylines ||
-          browseExplicitSearch ||
-          (market.edgeBps ?? 0) > 0),
+        (resultsOnly
+          ? resultsStarKeys.has(resultsPickKey({
+              platform: market.platform,
+              platformMarketId: market.platformMarketId,
+              platformOutcomeId: market.platformOutcomeId,
+              side: market.recommendedSide,
+            }))
+          : browseAllMoneylines ||
+            browseExplicitSearch ||
+            (market.edgeBps ?? 0) > 0),
     );
 
     if (activeGame) {
@@ -338,6 +347,8 @@ export function MarketExplorer({
     filters,
     forceStatus,
     opportunities,
+    resultsOnly,
+    resultsStarKeys,
     searchIntent,
     searchMoneylineOnly,
     activeRosterNames,
@@ -541,11 +552,32 @@ export function MarketExplorer({
 
       <FeedStatus />
       {!forceStatus && resultsStarKeys.size > 0 ? (
-        <p className="mb-3 inline-flex items-center gap-1.5 text-[11px] text-muted">
-          <Star className="size-3.5 fill-amber-500 text-amber-500" aria-hidden="true" />
-          Starred bets are currently projected to appear on the 15-pick Results scorecard.
-          Picks can change until their game window locks.
-        </p>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="max-w-[620px] text-[11px] leading-5 text-muted">
+            <Star className="mr-1 inline size-3.5 fill-amber-500 text-amber-500" aria-hidden="true" />
+            Stars show picks currently projected for the 15-pick Results scorecard.
+            They can change until their kickoff-window cutoff.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setResultsOnly((current) => !current);
+              setFilters({ ...DEFAULT_FILTERS, status: "all" });
+              setUrlGame(null);
+              setAdvancedOpen(false);
+              window.history.replaceState({}, "", window.location.pathname);
+            }}
+            aria-pressed={resultsOnly}
+            className={
+              resultsOnly
+                ? "inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 text-xs font-semibold text-foreground"
+                : "inline-flex h-9 items-center gap-1.5 rounded-lg border bg-surface px-3 text-xs font-semibold hover:border-border-strong"
+            }
+          >
+            <Star className="size-3.5 fill-amber-500 text-amber-500" aria-hidden="true" />
+            {resultsOnly ? "Show all ranked picks" : `View ${resultsStarKeys.size} Results candidates`}
+          </button>
+        </div>
       ) : null}
 
       {(loading && opportunities.length === 0) || activeRosterLoading ? (
@@ -554,6 +586,7 @@ export function MarketExplorer({
         <MarketTable
           markets={visible}
           resultsStarKeys={resultsStarKeys}
+          resultsOnly={resultsOnly}
           emptyMessage={
             filters.query.trim()
               ? `No markets match “${filters.query.trim()}”. Try a team, player, stat, or simpler shorthand.`
