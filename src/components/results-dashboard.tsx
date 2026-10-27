@@ -107,6 +107,7 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
   );
   const week = weeks[selectedIndex];
   const record = week ? `${week.hits}–${week.misses}` : "—";
+  const modernCard = (week?.expectedPicks ?? 10) === 15;
   const settledRate = week?.settled
     ? week.hits / week.settled
     : 0;
@@ -159,7 +160,9 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
               How did the model actually do?
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-6 text-muted sm:text-base">
-              Every week locks a balanced pregame card: 1 TNF, 4 Sunday noon, 3 Sunday late, 1 SNF, and 1 MNF. Each slate freezes five minutes before its kickoff window.
+              {modernCard
+                ? "The 15-pick weekly card allocates 2 TNF, 7 Sunday noon, 4 Sunday late, 1 SNF, and 1 MNF. Each slate freezes five minutes before its kickoff window."
+                : "Historical 10-pick cards remain unchanged: 1 TNF, 4 Sunday noon, 3 Sunday late, 1 SNF, and 1 MNF."}
             </p>
             <p className="mt-2 text-[10px] text-faint">
               Stored results load immediately. Settlement refreshes run in the background every 30 minutes.
@@ -273,7 +276,9 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
             </div>
             <div className="rounded-xl bg-background p-4">
               <p className="text-[9px] uppercase tracking-[0.08em] text-faint">Selection rule</p>
-              <p className="mt-2 text-xs leading-5">1 TNF, 4 Sunday noon, 3 Sunday late, 1 SNF, and 1 MNF. Each slate locks five minutes before its first kickoff, then never changes.</p>
+              <p className="mt-2 text-xs leading-5">{modernCard
+                ? "2 TNF, 7 Sunday noon, 4 Sunday late, 1 SNF, and 1 MNF. Once locked, every pick is permanently retained."
+                : "1 TNF, 4 Sunday noon, 3 Sunday late, 1 SNF, and 1 MNF. Locked historical picks never change."}</p>
             </div>
           </div>
         </div>

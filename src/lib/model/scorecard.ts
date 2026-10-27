@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   marketListings,
@@ -26,18 +26,37 @@ type ScorecardBucket =
   | "snf"
   | "mnf";
 
-const BUCKET_RULES: Array<{
+type ScorecardBucketRule = {
   id: ScorecardBucket;
   count: number;
   rankStart: number;
   label: string;
-}> = [
+};
+
+// Historical ten-pick cards remain unchanged. From the next slate onward,
+// the Results card commits to fifteen selections with no retroactive edits.
+const FIFTEEN_PICK_START_AT = new Date("2026-10-27T17:00:00.000Z");
+const LEGACY_BUCKET_RULES: ScorecardBucketRule[] = [
   { id: "tnf", count: 1, rankStart: 1, label: "TNF" },
   { id: "sunday_noon", count: 4, rankStart: 2, label: "Sunday noon" },
   { id: "sunday_late", count: 3, rankStart: 6, label: "Sunday late" },
   { id: "snf", count: 1, rankStart: 9, label: "SNF" },
   { id: "mnf", count: 1, rankStart: 10, label: "MNF" },
 ];
+const FIFTEEN_BUCKET_RULES: ScorecardBucketRule[] = [
+  { id: "tnf", count: 2, rankStart: 1, label: "TNF" },
+  { id: "sunday_noon", count: 7, rankStart: 3, label: "Sunday noon" },
+  { id: "sunday_late", count: 4, rankStart: 10, label: "Sunday late" },
+  { id: "snf", count: 1, rankStart: 14, label: "SNF" },
+  { id: "mnf", count: 1, rankStart: 15, label: "MNF" },
+];
+function bucketRulesForKickoff(firstKickoff: Date): ScorecardBucketRule[] {
+  return firstKickoff >= FIFTEEN_PICK_START_AT
+    ? FIFTEEN_BUCKET_RULES
+    : LEGACY_BUCKET_RULES;
+}
+
+export const FUTURE_CARD_TARGET = 15;
 
 export type ScorecardPick = {
   id: string;
@@ -56,6 +75,12 @@ export type ScorecardPick = {
   profitOnTen: number | null;
   reconstructed?: boolean;
   recoverySource?: string;
+  // A preview is not frozen and never implies a placed bet.
+  trackingStatus?: "candidate" | "slated" | "locked" | "reconstructed";
+  lockAt?: string;
+  platform?: string;
+  platformMarketId?: string;
+  platformOutcomeId?: string | null;
 };
 
 export type ScorecardOutageSlot = {
@@ -418,6 +443,7 @@ async function recoveredWeek3Picks(): Promise<ScorecardPick[]> {
           : recoveredProfit(definition.executablePriceBps, outcome),
       reconstructed: true,
       recoverySource: definition.recoverySource,
+      trackingStatus: "reconstructed",
     };
   });
 }
@@ -530,7 +556,72 @@ function scorecardBucketForKickoff(kickoff: Date): ScorecardBucket | null {
 }
 
 function bucketLabel(bucket: string | null) {
-  return BUCKET_RULES.find((rule) => rule.id === bucket)?.label ?? "Pregame";
+  return FIFTEEN_BUCKET_RULES.find((rule) => rule.id === bucket)?.label ?? "Pregame";
+}
+
+type ScorecardCandidateForSelection = {
+  id: string;
+  normalizedMarketId: string;
+  predictedAt: Date;
+  features: Record<string, number | string | boolean | null>;
+  eventTitle: string;
+  family: string;
+  predictedProbabilityBps: number;
+  executablePriceBps: number;
+  edgeBps: number;
+};
+
+export function selectScorecardBucketLeaders<T extends ScorecardCandidateForSelection>(
+  candidates: T[],
+  gameByMatchup: Map<string, { kickoffAt: Date; bucket: ScorecardBucket | null }>,
+  rule: ScorecardBucketRule,
+  cutoff: Date,
+): T[] {
+  const latestByMarket = new Map<string, T>();
+  for (const candidate of candidates) {
+    // Never schedule a negative-edge contract in the 15-pick scorecard.
+    if (candidate.edgeBps <= 0) continue;
+    if (
+      candidate.predictedAt.getTime() > cutoff.getTime() ||
+      candidate.predictedAt.getTime() < SCORECARD_BUCKET_LAUNCH_AT.getTime()
+    ) continue;
+
+    const matchup =
+      typeof candidate.features.matchup === "string"
+        ? matchupKey(candidate.features.matchup)
+        : "";
+    const game = gameByMatchup.get(matchup);
+    if (!game || game.bucket !== rule.id) continue;
+    if (candidate.predictedAt.getTime() >= game.kickoffAt.getTime()) continue;
+
+    // Candidates are newest-first. Keep the newest eligible prediction
+    // for each real normalized market, then rank exactly as the lock does.
+    if (!latestByMarket.has(candidate.normalizedMarketId)) {
+      latestByMarket.set(candidate.normalizedMarketId, candidate);
+    }
+  }
+  const distinct = new Map<string, T>();
+  for (const candidate of [...latestByMarket.values()].toSorted((a, b) => {
+    const scoreDiff =
+      (publicScore(b.features) ?? -Infinity) -
+      (publicScore(a.features) ?? -Infinity);
+    return scoreDiff || b.edgeBps - a.edgeBps;
+  })) {
+    const subject =
+      typeof candidate.features.subject === "string"
+        ? candidate.features.subject
+        : "";
+    const matchup =
+      typeof candidate.features.matchup === "string"
+        ? matchupKey(candidate.features.matchup)
+        : candidate.eventTitle;
+    const perspective = recommendedPredictionPerspective(candidate);
+    const distinctKey = [
+      matchup, candidate.family, subject, perspective.side,
+    ].join(":");
+    if (!distinct.has(distinctKey)) distinct.set(distinctKey, candidate);
+  }
+  return [...distinct.values()].slice(0, rule.count);
 }
 
 export async function lockEligibleScorecards() {
@@ -574,6 +665,9 @@ export async function lockEligibleScorecards() {
       direction: normalizedMarkets.direction,
       threshold: normalizedMarkets.threshold,
       outcomeLabel: normalizedMarkets.outcomeLabel,
+      platform: marketListings.platform,
+      platformMarketId: marketListings.platformMarketId,
+      platformOutcomeId: marketListings.platformOutcomeId,
     })
     .from(predictions)
     .innerJoin(
@@ -642,18 +736,20 @@ export async function lockEligibleScorecards() {
       ]),
     );
 
-    for (const rule of BUCKET_RULES) {
-      const lockKey = `${season}:${week}:${rule.id}`;
-      if (lockedBuckets.has(lockKey)) continue;
-
+    for (const currentRule of FIFTEEN_BUCKET_RULES) {
       const bucketGames = games.filter(
-        (game) => scorecardBucketForKickoff(game.kickoffAt) === rule.id,
+        (game) => scorecardBucketForKickoff(game.kickoffAt) === currentRule.id,
       );
       if (!bucketGames.length) continue;
 
       const firstKickoffMs = Math.min(
         ...bucketGames.map((game) => game.kickoffAt.getTime()),
       );
+      const rule = bucketRulesForKickoff(new Date(firstKickoffMs))
+        .find((entry) => entry.id === currentRule.id)!;
+      const lockKey = `${season}:${week}:${rule.id}`;
+      if (lockedBuckets.has(lockKey)) continue;
+
       const lockAt = new Date(firstKickoffMs - LOCK_LEAD_MS);
 
       // The bucket system starts now. It never reconstructs older slates with
@@ -662,60 +758,7 @@ export async function lockEligibleScorecards() {
       if (lockAt.getTime() < SCORECARD_BUCKET_LAUNCH_AT.getTime()) continue;
       if (now.getTime() < lockAt.getTime()) continue;
 
-      const latestByMarket = new Map<string, (typeof candidates)[number]>();
-
-      for (const candidate of candidates) {
-        if (candidate.predictedAt.getTime() > lockAt.getTime()) continue;
-        if (
-          candidate.predictedAt.getTime() <
-          SCORECARD_BUCKET_LAUNCH_AT.getTime()
-        ) {
-          continue;
-        }
-
-        const matchup =
-          typeof candidate.features.matchup === "string"
-            ? matchupKey(candidate.features.matchup)
-            : "";
-        const game = gameByMatchup.get(matchup);
-        if (!game || game.bucket !== rule.id) continue;
-        if (candidate.predictedAt.getTime() >= game.kickoffAt.getTime()) {
-          continue;
-        }
-
-        if (!latestByMarket.has(candidate.normalizedMarketId)) {
-          latestByMarket.set(candidate.normalizedMarketId, candidate);
-        }
-      }
-
-      const distinct = new Map<string, (typeof candidates)[number]>();
-      for (const candidate of [...latestByMarket.values()].toSorted((a, b) => {
-        const scoreDiff =
-          (publicScore(b.features) ?? -Infinity) -
-          (publicScore(a.features) ?? -Infinity);
-        return scoreDiff || b.edgeBps - a.edgeBps;
-      })) {
-        const subject =
-          typeof candidate.features.subject === "string"
-            ? candidate.features.subject
-            : "";
-        const matchup =
-          typeof candidate.features.matchup === "string"
-            ? matchupKey(candidate.features.matchup)
-            : candidate.eventTitle;
-        const perspective = recommendedPredictionPerspective(candidate);
-        const distinctKey = [
-          matchup,
-          candidate.family,
-          subject,
-          perspective.side,
-        ].join(":");
-        if (!distinct.has(distinctKey)) {
-          distinct.set(distinctKey, candidate);
-        }
-      }
-
-      const top = [...distinct.values()].slice(0, rule.count);
+      const top = selectScorecardBucketLeaders(candidates, gameByMatchup, rule, lockAt);
       if (top.length < rule.count) continue;
 
       await db
@@ -737,6 +780,163 @@ export async function lockEligibleScorecards() {
       lockedBuckets.add(lockKey);
     }
   }
+}
+
+
+const PREVIEW_LOOKBACK_MS = 4 * 24 * 60 * 60_000;
+
+/**
+ * Shows an honest, mutable projection of a future scorecard using precisely
+ * the same ranked candidate selection as the authoritative freeze.
+ *
+ * Stars appear on the main Picks board for predicted selections slated to
+ * appear in the Results scorecard. No preview writes a frozen record.
+ */
+export async function getUpcomingScorecard(): Promise<WeeklyScorecard | null> {
+  const db = getDb();
+  const now = new Date();
+  const schedule = await db
+    .select({
+      season: nflGames.season,
+      week: nflGames.week,
+      homeTeam: nflGames.homeTeam,
+      awayTeam: nflGames.awayTeam,
+      kickoffAt: nflGames.kickoffAt,
+    })
+    .from(nflGames)
+    .where(
+      and(
+        eq(nflGames.seasonType, "REG"),
+        gte(nflGames.kickoffAt, now),
+        lte(nflGames.kickoffAt, new Date(now.getTime() + 10 * 24 * 60 * 60_000)),
+      ),
+    )
+    .orderBy(asc(nflGames.kickoffAt))
+    .limit(40);
+
+  const openingGame = schedule.find((game) => game.week !== null);
+  if (!openingGame || openingGame.week === null) return null;
+  const season = openingGame.season;
+  const week = openingGame.week;
+  const games = schedule.filter(
+    (game) => game.season === season && game.week === week,
+  );
+  const rules = bucketRulesForKickoff(openingGame.kickoffAt);
+  const gameByMatchup = new Map(
+    games.map((game) => [
+      matchupKey(`${game.homeTeam}-${game.awayTeam}`),
+      {
+        kickoffAt: game.kickoffAt,
+        bucket: scorecardBucketForKickoff(game.kickoffAt),
+      },
+    ]),
+  );
+
+  const candidates = await db
+    .select({
+      id: predictions.id,
+      normalizedMarketId: predictions.normalizedMarketId,
+      predictedProbabilityBps: predictions.predictedProbabilityBps,
+      executablePriceBps: predictions.executablePriceBps,
+      edgeBps: predictions.edgeBps,
+      opportunityScore: predictions.opportunityScore,
+      features: predictions.features,
+      predictedAt: predictions.predictedAt,
+      eventTitle: marketListings.eventTitle,
+      marketTitle: marketListings.marketTitle,
+      family: normalizedMarkets.family,
+      direction: normalizedMarkets.direction,
+      threshold: normalizedMarkets.threshold,
+      outcomeLabel: normalizedMarkets.outcomeLabel,
+      platform: marketListings.platform,
+      platformMarketId: marketListings.platformMarketId,
+      platformOutcomeId: marketListings.platformOutcomeId,
+    })
+    .from(predictions)
+    .innerJoin(marketListings, eq(marketListings.id, predictions.listingId))
+    .innerJoin(normalizedMarkets, eq(normalizedMarkets.id, predictions.normalizedMarketId))
+    .where(
+      gte(predictions.predictedAt, new Date(now.getTime() - PREVIEW_LOOKBACK_MS)),
+    )
+    .orderBy(desc(predictions.predictedAt))
+    .limit(8_000);
+
+  const scoped = candidates.filter(
+    (candidate) =>
+      candidate.features.live !== true &&
+      candidate.features.projectionSeason === season &&
+      candidate.features.projectionWeek === week &&
+      publicScore(candidate.features) !== null,
+  );
+
+  const picks: ScorecardPick[] = [];
+  for (const rule of rules) {
+    const bucketGames = games.filter(
+      (game) => scorecardBucketForKickoff(game.kickoffAt) === rule.id,
+    );
+    if (!bucketGames.length) continue;
+
+    const lockAt = new Date(
+      Math.min(...bucketGames.map((game) => game.kickoffAt.getTime())) -
+        LOCK_LEAD_MS,
+    );
+    if (now >= lockAt) continue; // Frozen buckets come from persisted locks.
+
+    const top = selectScorecardBucketLeaders(scoped, gameByMatchup, rule, now);
+    const hasFullCard = top.length === rule.count;
+    for (let index = 0; index < top.length; index += 1) {
+      const candidate = top[index]!;
+      const perspective = recommendedPredictionPerspective(candidate);
+      const subject =
+        typeof candidate.features.subject === "string"
+          ? candidate.features.subject
+          : null;
+      picks.push({
+        id: `preview-${candidate.id}`,
+        rank: rule.rankStart + index,
+        slot: rule.label,
+        title: pickTitle({
+          family: candidate.family,
+          direction: candidate.direction,
+          threshold: candidate.threshold,
+          outcomeLabel: candidate.outcomeLabel,
+          marketTitle: candidate.marketTitle,
+          subject,
+          side: perspective.side,
+        }),
+        context: candidate.eventTitle,
+        side: perspective.side,
+        probabilityBps: perspective.probabilityBps,
+        executablePriceBps: candidate.executablePriceBps,
+        edgeBps: candidate.edgeBps,
+        score: publicScore(candidate.features) ?? candidate.opportunityScore,
+        frozenAt: candidate.predictedAt.toISOString(),
+        settledAt: null,
+        result: "pending",
+        profitOnTen: null,
+        trackingStatus: hasFullCard ? "slated" : "candidate",
+        lockAt: lockAt.toISOString(),
+        platform: candidate.platform,
+        platformMarketId: candidate.platformMarketId,
+        platformOutcomeId: candidate.platformOutcomeId,
+      });
+    }
+  }
+
+  if (!picks.length) return null;
+  return {
+    key: `${season}-week-${week}`,
+    label: `NFL Week ${week}`,
+    season,
+    week,
+    picks: picks.toSorted((a, b) => a.rank - b.rank),
+    settled: 0,
+    hits: 0,
+    misses: 0,
+    profitOnTen: 0,
+    roi: 0,
+    expectedPicks: rules.reduce((sum, rule) => sum + rule.count, 0),
+  };
 }
 
 export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
@@ -844,6 +1044,7 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
             settledAt: row.settledAt?.toISOString() ?? null,
             result,
             profitOnTen,
+            trackingStatus: "locked",
           };
         });
 
@@ -866,6 +1067,10 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
           misses: picks.filter((pick) => pick.result === "miss").length,
           profitOnTen,
           roi: settled ? profitOnTen / (settled * 10) : 0,
+          expectedPicks:
+            first.season > 2026 || (first.season === 2026 && first.week >= 8)
+              ? FUTURE_CARD_TARGET
+              : 10,
         };
       });
 

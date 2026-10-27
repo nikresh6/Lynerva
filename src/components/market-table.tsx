@@ -1,8 +1,9 @@
 "use client";
 
-import { ChevronDown, CloudSun, ExternalLink, FlaskConical, HeartPulse, X } from "lucide-react";
+import { ChevronDown, CloudSun, ExternalLink, FlaskConical, HeartPulse, Star, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { MarketOpportunity } from "@/lib/markets/types";
+import { resultsPickKey } from "@/lib/model/results-pick-key";
 import { ACTIVE_PROJECTION_SOURCES } from "@/lib/model/source-weighting";
 import { cn, formatPercent, relativeTime, titleCase } from "@/lib/utils";
 import { PlatformMark } from "./platform-mark";
@@ -1321,9 +1322,13 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
 export function MarketTable({
   markets,
   emptyMessage = "No NFL markets match these filters.",
+  resultsStarKeys = new Set<string>(),
+  resultsOnly = false,
 }: {
   markets: MarketOpportunity[];
   emptyMessage?: string;
+  resultsStarKeys?: ReadonlySet<string>;
+  resultsOnly?: boolean;
 }) {
   const [selected, setSelected] = useState<MarketOpportunity | null>(null);
   const [alternateGroup, setAlternateGroup] = useState<{ key: string; lines: MarketOpportunity[] } | null>(null);
@@ -1331,6 +1336,20 @@ export function MarketTable({
 
   const groups = useMemo(() => {
     const sorted = markets.toSorted((a, b) => (b.lynervaScore ?? -1) - (a.lynervaScore ?? -1));
+    if (resultsOnly) {
+      // Every starred market is individually visible; don't group a Results
+      // selection as a hidden alternate or truncate it to top-30 score rank.
+      return sorted.map((market) => ({
+        key: resultsPickKey({
+          platform: market.platform,
+          platformMarketId: market.platformMarketId,
+          platformOutcomeId: market.platformOutcomeId,
+          side: market.recommendedSide,
+        }),
+        lines: [market],
+        best: market,
+      }));
+    }
     const map = new Map<string, MarketOpportunity[]>();
     for (const market of sorted) {
       const canonical = market.canonical;
@@ -1350,18 +1369,18 @@ export function MarketTable({
     // The board is a pure score ranking. Stat-family differences belong in
     // probability calibration, never in forced leaderboard slots.
     return allGroups.slice(0, 30);
-  }, [markets]);
+  }, [markets, resultsOnly]);
 
   const playerNames = useMemo(
     () =>
       groups
-        .slice(0, visibleCount)
+        .slice(0, resultsOnly ? 30 : visibleCount)
         .map(({ best }) => best.canonical?.subject ?? "")
         .filter(Boolean),
-    [groups, visibleCount],
+    [groups, visibleCount, resultsOnly],
   );
   const visuals = usePlayerVisuals(playerNames);
-  const visibleGroups = groups.slice(0, visibleCount);
+  const visibleGroups = groups.slice(0, resultsOnly ? 30 : visibleCount);
 
   if (!groups.length) {
     return (
@@ -1431,6 +1450,20 @@ export function MarketTable({
                       ) : null}
                     </div>
                     <div className="mt-2 line-clamp-2 text-[15px] font-semibold leading-6">
+                      {resultsStarKeys.has(resultsPickKey({
+                        platform: market.platform,
+                        platformMarketId: market.platformMarketId,
+                        platformOutcomeId: market.platformOutcomeId,
+                        side: market.recommendedSide,
+                      })) ? (
+                        <span
+                          className="mr-1.5 inline-flex align-middle text-amber-500"
+                          title="Currently projected for the Results page's frozen weekly 15-pick scorecard. Can change before kickoff."
+                          aria-label="Projected Results scorecard pick"
+                        >
+                          <Star className="size-4 fill-current" aria-hidden="true" />
+                        </span>
+                      ) : null}
                       <span className="mr-1.5 text-positive">{displayPickSide(market)}</span>
                       {displayMarketTitle(market)}
                     </div>
