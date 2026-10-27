@@ -579,6 +579,8 @@ export function selectScorecardBucketLeaders<T extends ScorecardCandidateForSele
 ): T[] {
   const latestByMarket = new Map<string, T>();
   for (const candidate of candidates) {
+    // Never schedule a negative-edge contract in the 15-pick scorecard.
+    if (candidate.edgeBps <= 0) continue;
     if (
       candidate.predictedAt.getTime() > cutoff.getTime() ||
       candidate.predictedAt.getTime() < SCORECARD_BUCKET_LAUNCH_AT.getTime()
