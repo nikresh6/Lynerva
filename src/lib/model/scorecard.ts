@@ -557,6 +557,69 @@ function bucketLabel(bucket: string | null) {
   return FIFTEEN_BUCKET_RULES.find((rule) => rule.id === bucket)?.label ?? "Pregame";
 }
 
+type ScorecardCandidateForSelection = {
+  id: string;
+  normalizedMarketId: string;
+  predictedAt: Date;
+  features: Record<string, number | string | boolean | null>;
+  eventTitle: string;
+  family: string;
+  predictedProbabilityBps: number;
+  executablePriceBps: number;
+  edgeBps: number;
+};
+
+export function selectScorecardBucketLeaders<T extends ScorecardCandidateForSelection>(
+  candidates: T[],
+  gameByMatchup: Map<string, { kickoffAt: Date; bucket: ScorecardBucket | null }>,
+  rule: ScorecardBucketRule,
+  cutoff: Date,
+): T[] {
+  const latestByMarket = new Map<string, T>();
+  for (const candidate of candidates) {
+    if (
+      candidate.predictedAt.getTime() > cutoff.getTime() ||
+      candidate.predictedAt.getTime() < SCORECARD_BUCKET_LAUNCH_AT.getTime()
+    ) continue;
+
+    const matchup =
+      typeof candidate.features.matchup === "string"
+        ? matchupKey(candidate.features.matchup)
+        : "";
+    const game = gameByMatchup.get(matchup);
+    if (!game || game.bucket !== rule.id) continue;
+    if (candidate.predictedAt.getTime() >= game.kickoffAt.getTime()) continue;
+
+    // Candidates are newest-first. Keep the newest eligible prediction
+    // for each real normalized market, then rank exactly as the lock does.
+    if (!latestByMarket.has(candidate.normalizedMarketId)) {
+      latestByMarket.set(candidate.normalizedMarketId, candidate);
+    }
+  }
+  const distinct = new Map<string, T>();
+  for (const candidate of [...latestByMarket.values()].toSorted((a, b) => {
+    const scoreDiff =
+      (publicScore(b.features) ?? -Infinity) -
+      (publicScore(a.features) ?? -Infinity);
+    return scoreDiff || b.edgeBps - a.edgeBps;
+  })) {
+    const subject =
+      typeof candidate.features.subject === "string"
+        ? candidate.features.subject
+        : "";
+    const matchup =
+      typeof candidate.features.matchup === "string"
+        ? matchupKey(candidate.features.matchup)
+        : candidate.eventTitle;
+    const perspective = recommendedPredictionPerspective(candidate);
+    const distinctKey = [
+      matchup, candidate.family, subject, perspective.side,
+    ].join(":");
+    if (!distinct.has(distinctKey)) distinct.set(distinctKey, candidate);
+  }
+  return [...distinct.values()].slice(0, rule.count);
+}
+
 export async function lockEligibleScorecards() {
   const db = getDb();
   const now = new Date();
@@ -688,60 +751,7 @@ export async function lockEligibleScorecards() {
       if (lockAt.getTime() < SCORECARD_BUCKET_LAUNCH_AT.getTime()) continue;
       if (now.getTime() < lockAt.getTime()) continue;
 
-      const latestByMarket = new Map<string, (typeof candidates)[number]>();
-
-      for (const candidate of candidates) {
-        if (candidate.predictedAt.getTime() > lockAt.getTime()) continue;
-        if (
-          candidate.predictedAt.getTime() <
-          SCORECARD_BUCKET_LAUNCH_AT.getTime()
-        ) {
-          continue;
-        }
-
-        const matchup =
-          typeof candidate.features.matchup === "string"
-            ? matchupKey(candidate.features.matchup)
-            : "";
-        const game = gameByMatchup.get(matchup);
-        if (!game || game.bucket !== rule.id) continue;
-        if (candidate.predictedAt.getTime() >= game.kickoffAt.getTime()) {
-          continue;
-        }
-
-        if (!latestByMarket.has(candidate.normalizedMarketId)) {
-          latestByMarket.set(candidate.normalizedMarketId, candidate);
-        }
-      }
-
-      const distinct = new Map<string, (typeof candidates)[number]>();
-      for (const candidate of [...latestByMarket.values()].toSorted((a, b) => {
-        const scoreDiff =
-          (publicScore(b.features) ?? -Infinity) -
-          (publicScore(a.features) ?? -Infinity);
-        return scoreDiff || b.edgeBps - a.edgeBps;
-      })) {
-        const subject =
-          typeof candidate.features.subject === "string"
-            ? candidate.features.subject
-            : "";
-        const matchup =
-          typeof candidate.features.matchup === "string"
-            ? matchupKey(candidate.features.matchup)
-            : candidate.eventTitle;
-        const perspective = recommendedPredictionPerspective(candidate);
-        const distinctKey = [
-          matchup,
-          candidate.family,
-          subject,
-          perspective.side,
-        ].join(":");
-        if (!distinct.has(distinctKey)) {
-          distinct.set(distinctKey, candidate);
-        }
-      }
-
-      const top = [...distinct.values()].slice(0, rule.count);
+      const top = selectScorecardBucketLeaders(candidates, gameByMatchup, rule, lockAt);
       if (top.length < rule.count) continue;
 
       await db
