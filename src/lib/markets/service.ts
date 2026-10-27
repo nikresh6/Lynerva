@@ -68,7 +68,7 @@ let sharedSnapshotRead: Promise<void> | null = null;
 let sharedSnapshotWrite: Promise<void> | null = null;
 
 async function restoreSharedMarketSnapshot(): Promise<void> {
-  if (!SHARED_MARKET_SNAPSHOT_PATH || warmSnapshot) return;
+  if (!SHARED_MARKET_SNAPSHOT_PATH) return;
   if (sharedSnapshotRead) return sharedSnapshotRead;
   if (Date.now() - lastSharedSnapshotReadAt < SHARED_SNAPSHOT_READ_INTERVAL_MS) return;
   lastSharedSnapshotReadAt = Date.now();
@@ -85,6 +85,7 @@ async function restoreSharedMarketSnapshot(): Promise<void> {
         Date.now() - storedAt > SHARED_SNAPSHOT_MAX_AGE_MS ||
         storedAt > Date.now() + 60_000
       ) return;
+      if (warmSnapshot && warmSnapshot.storedAt >= storedAt) return;
       warmSnapshot = { payload: parsed.payload, storedAt };
       console.info("[markets-cache] restored", JSON.stringify({
         markets: parsed.payload.opportunities.length,
@@ -872,8 +873,14 @@ export async function getMarketOpportunities(
 ): Promise<MarketsPayload> {
   // A server restart must not erase the last successfully computed odds
   // slate. Railway's scheduler writes this file independently of API workers.
+  // Also reload when a different worker updates the disk after this route's
+  // in-memory copy has aged out.
+  let now = Date.now();
+  if (warmSnapshot && now - warmSnapshot.storedAt < maxAgeMs) {
+    return warmSnapshot.payload;
+  }
   await restoreSharedMarketSnapshot();
-  const now = Date.now();
+  now = Date.now();
   if (warmSnapshot && now - warmSnapshot.storedAt < maxAgeMs) {
     return warmSnapshot.payload;
   }
