@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   marketListings,
@@ -775,6 +775,161 @@ export async function lockEligibleScorecards() {
   }
 }
 
+
+const PREVIEW_LOOKBACK_MS = 4 * 24 * 60 * 60_000;
+const STAR_FRESHNESS_MS = 3 * 60 * 60_000;
+
+/**
+ * Shows an honest, mutable projection of a future scorecard using precisely
+ * the same ranked candidate selection as the authoritative freeze.
+ *
+ * A star is earned only if the entire bucket has enough recent candidates.
+ * Neither this list nor a star writes to weekly_scorecard_picks or the
+ * user's manually maintained personal Tracker.
+ */
+async function getUpcomingScorecard(): Promise<WeeklyScorecard | null> {
+  const db = getDb();
+  const now = new Date();
+  const schedule = await db
+    .select({
+      season: nflGames.season,
+      week: nflGames.week,
+      homeTeam: nflGames.homeTeam,
+      awayTeam: nflGames.awayTeam,
+      kickoffAt: nflGames.kickoffAt,
+    })
+    .from(nflGames)
+    .where(
+      and(
+        eq(nflGames.seasonType, "REG"),
+        gte(nflGames.kickoffAt, now),
+        lte(nflGames.kickoffAt, new Date(now.getTime() + 10 * 24 * 60 * 60_000)),
+      ),
+    )
+    .orderBy(asc(nflGames.kickoffAt))
+    .limit(40);
+
+  const openingGame = schedule.find((game) => game.week !== null);
+  if (!openingGame || openingGame.week === null) return null;
+  const season = openingGame.season;
+  const week = openingGame.week;
+  const games = schedule.filter(
+    (game) => game.season === season && game.week === week,
+  );
+  const rules = bucketRulesForKickoff(openingGame.kickoffAt);
+  const gameByMatchup = new Map(
+    games.map((game) => [
+      matchupKey(`${game.homeTeam}-${game.awayTeam}`),
+      {
+        kickoffAt: game.kickoffAt,
+        bucket: scorecardBucketForKickoff(game.kickoffAt),
+      },
+    ]),
+  );
+
+  const candidates = await db
+    .select({
+      id: predictions.id,
+      normalizedMarketId: predictions.normalizedMarketId,
+      predictedProbabilityBps: predictions.predictedProbabilityBps,
+      executablePriceBps: predictions.executablePriceBps,
+      edgeBps: predictions.edgeBps,
+      opportunityScore: predictions.opportunityScore,
+      features: predictions.features,
+      predictedAt: predictions.predictedAt,
+      eventTitle: marketListings.eventTitle,
+      marketTitle: marketListings.marketTitle,
+      family: normalizedMarkets.family,
+      direction: normalizedMarkets.direction,
+      threshold: normalizedMarkets.threshold,
+      outcomeLabel: normalizedMarkets.outcomeLabel,
+    })
+    .from(predictions)
+    .innerJoin(marketListings, eq(marketListings.id, predictions.listingId))
+    .innerJoin(normalizedMarkets, eq(normalizedMarkets.id, predictions.normalizedMarketId))
+    .where(
+      gte(predictions.predictedAt, new Date(now.getTime() - PREVIEW_LOOKBACK_MS)),
+    )
+    .orderBy(desc(predictions.predictedAt))
+    .limit(8_000);
+
+  const scoped = candidates.filter(
+    (candidate) =>
+      candidate.features.live !== true &&
+      candidate.features.projectionSeason === season &&
+      candidate.features.projectionWeek === week &&
+      publicScore(candidate.features) !== null,
+  );
+
+  const picks: ScorecardPick[] = [];
+  for (const rule of rules) {
+    const bucketGames = games.filter(
+      (game) => scorecardBucketForKickoff(game.kickoffAt) === rule.id,
+    );
+    if (!bucketGames.length) continue;
+
+    const lockAt = new Date(
+      Math.min(...bucketGames.map((game) => game.kickoffAt.getTime())) -
+        LOCK_LEAD_MS,
+    );
+    if (now >= lockAt) continue; // Frozen buckets come from persisted locks.
+
+    const top = selectScorecardBucketLeaders(scoped, gameByMatchup, rule, now);
+    const hasFullCard = top.length === rule.count;
+    for (let index = 0; index < top.length; index += 1) {
+      const candidate = top[index]!;
+      const perspective = recommendedPredictionPerspective(candidate);
+      const subject =
+        typeof candidate.features.subject === "string"
+          ? candidate.features.subject
+          : null;
+      const isFresh =
+        now.getTime() - candidate.predictedAt.getTime() <= STAR_FRESHNESS_MS;
+      picks.push({
+        id: `preview-${candidate.id}`,
+        rank: rule.rankStart + index,
+        slot: rule.label,
+        title: pickTitle({
+          family: candidate.family,
+          direction: candidate.direction,
+          threshold: candidate.threshold,
+          outcomeLabel: candidate.outcomeLabel,
+          marketTitle: candidate.marketTitle,
+          subject,
+          side: perspective.side,
+        }),
+        context: candidate.eventTitle,
+        side: perspective.side,
+        probabilityBps: perspective.probabilityBps,
+        executablePriceBps: candidate.executablePriceBps,
+        edgeBps: candidate.edgeBps,
+        score: publicScore(candidate.features) ?? candidate.opportunityScore,
+        frozenAt: candidate.predictedAt.toISOString(),
+        settledAt: null,
+        result: "pending",
+        profitOnTen: null,
+        trackingStatus: hasFullCard && isFresh ? "slated" : "candidate",
+        lockAt: lockAt.toISOString(),
+      });
+    }
+  }
+
+  if (!picks.length) return null;
+  return {
+    key: `${season}-week-${week}`,
+    label: `NFL Week ${week}`,
+    season,
+    week,
+    picks: picks.toSorted((a, b) => a.rank - b.rank),
+    settled: 0,
+    hits: 0,
+    misses: 0,
+    profitOnTen: 0,
+    roi: 0,
+    expectedPicks: rules.reduce((sum, rule) => sum + rule.count, 0),
+  };
+}
+
 export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
   try {
     const db = getDb();
@@ -959,6 +1114,23 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
         recoveryNote:
           "Ranks 1-9 were reconstructed from pregame Week 3 model/source signals after the database outage. Reconstructed rows are audit-only and never enter model learning.",
       });
+    }
+
+    // Preview the future slate without altering locked historical records.
+    // Existing locks win if the bucket has already frozen.
+    const upcoming = await getUpcomingScorecard();
+    if (upcoming) {
+      const existing = cards.find((card) => card.key === upcoming.key);
+      if (existing) {
+        const frozenRanks = new Set(existing.picks.map((pick) => pick.rank));
+        existing.picks = [
+          ...existing.picks,
+          ...upcoming.picks.filter((pick) => !frozenRanks.has(pick.rank)),
+        ].toSorted((a, b) => a.rank - b.rank);
+        existing.expectedPicks = upcoming.expectedPicks;
+      } else {
+        cards.push(upcoming);
+      }
     }
 
     return cards
