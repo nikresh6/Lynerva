@@ -282,7 +282,7 @@ export function MarketDataProvider({
   const lastSuccessfulRefreshAt = useRef(0);
   const lastEtagRef = useRef<string | null>(null);
   const retryAttempts = useRef(0);
-  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryTimer = useRef<number | null>(null);
 
   const resetRetries = () => {
     retryAttempts.current = 0;
