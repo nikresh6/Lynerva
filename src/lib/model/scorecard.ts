@@ -26,18 +26,37 @@ type ScorecardBucket =
   | "snf"
   | "mnf";
 
-const BUCKET_RULES: Array<{
+type ScorecardBucketRule = {
   id: ScorecardBucket;
   count: number;
   rankStart: number;
   label: string;
-}> = [
+};
+
+// Historical ten-pick cards remain unchanged. From the next slate onward,
+// the Results card commits to fifteen selections with no retroactive edits.
+const FIFTEEN_PICK_START_AT = new Date("2026-10-27T17:00:00.000Z");
+const LEGACY_BUCKET_RULES: ScorecardBucketRule[] = [
   { id: "tnf", count: 1, rankStart: 1, label: "TNF" },
   { id: "sunday_noon", count: 4, rankStart: 2, label: "Sunday noon" },
   { id: "sunday_late", count: 3, rankStart: 6, label: "Sunday late" },
   { id: "snf", count: 1, rankStart: 9, label: "SNF" },
   { id: "mnf", count: 1, rankStart: 10, label: "MNF" },
 ];
+const FIFTEEN_BUCKET_RULES: ScorecardBucketRule[] = [
+  { id: "tnf", count: 2, rankStart: 1, label: "TNF" },
+  { id: "sunday_noon", count: 6, rankStart: 3, label: "Sunday noon" },
+  { id: "sunday_late", count: 4, rankStart: 9, label: "Sunday late" },
+  { id: "snf", count: 2, rankStart: 13, label: "SNF" },
+  { id: "mnf", count: 1, rankStart: 15, label: "MNF" },
+];
+function bucketRulesForKickoff(firstKickoff: Date): ScorecardBucketRule[] {
+  return firstKickoff >= FIFTEEN_PICK_START_AT
+    ? FIFTEEN_BUCKET_RULES
+    : LEGACY_BUCKET_RULES;
+}
+
+export const FUTURE_CARD_TARGET = 15;
 
 export type ScorecardPick = {
   id: string;
@@ -56,6 +75,10 @@ export type ScorecardPick = {
   profitOnTen: number | null;
   reconstructed?: boolean;
   recoverySource?: string;
+  // Model scorecard only. These do not represent personal Tracker positions
+  // or real-money trades.
+  trackingStatus?: "candidate" | "slated" | "locked" | "reconstructed";
+  lockAt?: string;
 };
 
 export type ScorecardOutageSlot = {
@@ -418,6 +441,7 @@ async function recoveredWeek3Picks(): Promise<ScorecardPick[]> {
           : recoveredProfit(definition.executablePriceBps, outcome),
       reconstructed: true,
       recoverySource: definition.recoverySource,
+      trackingStatus: "reconstructed",
     };
   });
 }
@@ -530,7 +554,7 @@ function scorecardBucketForKickoff(kickoff: Date): ScorecardBucket | null {
 }
 
 function bucketLabel(bucket: string | null) {
-  return BUCKET_RULES.find((rule) => rule.id === bucket)?.label ?? "Pregame";
+  return FIFTEEN_BUCKET_RULES.find((rule) => rule.id === bucket)?.label ?? "Pregame";
 }
 
 export async function lockEligibleScorecards() {
@@ -642,18 +666,20 @@ export async function lockEligibleScorecards() {
       ]),
     );
 
-    for (const rule of BUCKET_RULES) {
-      const lockKey = `${season}:${week}:${rule.id}`;
-      if (lockedBuckets.has(lockKey)) continue;
-
+    for (const currentRule of FIFTEEN_BUCKET_RULES) {
       const bucketGames = games.filter(
-        (game) => scorecardBucketForKickoff(game.kickoffAt) === rule.id,
+        (game) => scorecardBucketForKickoff(game.kickoffAt) === currentRule.id,
       );
       if (!bucketGames.length) continue;
 
       const firstKickoffMs = Math.min(
         ...bucketGames.map((game) => game.kickoffAt.getTime()),
       );
+      const rule = bucketRulesForKickoff(new Date(firstKickoffMs))
+        .find((entry) => entry.id === currentRule.id)!;
+      const lockKey = `${season}:${week}:${rule.id}`;
+      if (lockedBuckets.has(lockKey)) continue;
+
       const lockAt = new Date(firstKickoffMs - LOCK_LEAD_MS);
 
       // The bucket system starts now. It never reconstructs older slates with
@@ -844,6 +870,7 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
             settledAt: row.settledAt?.toISOString() ?? null,
             result,
             profitOnTen,
+            trackingStatus: "locked",
           };
         });
 
