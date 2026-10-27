@@ -8,6 +8,7 @@ import {
   Clock3,
   ReceiptText,
   ShieldCheck,
+  Star,
   X,
 } from "lucide-react";
 import type { WeeklyScorecard } from "@/lib/model/scorecard";
@@ -107,6 +108,10 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
   );
   const week = weeks[selectedIndex];
   const record = week ? `${week.hits}–${week.misses}` : "—";
+  const hasLivePreview = week?.picks.some(
+    (pick) => pick.trackingStatus === "slated" || pick.trackingStatus === "candidate",
+  ) ?? false;
+  const modernCard = (week?.expectedPicks ?? 10) === 15;
   const settledRate = week?.settled
     ? week.hits / week.settled
     : 0;
@@ -153,16 +158,20 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
               <ShieldCheck className="size-3.5 text-positive" />
-              Frozen before the result
+              {hasLivePreview ? "Live pregame watchlist" : "Frozen before the result"}
             </div>
             <h1 className="mt-5 max-w-3xl text-4xl font-semibold tracking-[-0.045em] sm:text-6xl">
-              How did the model actually do?
+              {hasLivePreview ? "Your next model scorecard." : "How did the model actually do?"}
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-6 text-muted sm:text-base">
-              Every week locks a balanced pregame card: 1 TNF, 4 Sunday noon, 3 Sunday late, 1 SNF, and 1 MNF. Each slate freezes five minutes before its kickoff window.
+              {modernCard
+                ? "The 15-pick weekly card allocates 2 TNF, 6 Sunday noon, 4 Sunday late, 2 SNF, and 1 MNF. Each game window freezes five minutes before its first kickoff."
+                : "Historical ten-pick cards remain unchanged: 1 TNF, 4 Sunday noon, 3 Sunday late, 1 SNF, and 1 MNF."}
             </p>
             <p className="mt-2 text-[10px] text-faint">
-              Stored results load immediately. Settlement refreshes run in the background every 30 minutes.
+              {hasLivePreview
+                ? "Stars mark fresh picks currently slated for Huddlemark's model watchlist. They can change before the lock. This does not place a bet or add a personal Tracker position."
+                : "Stored results load immediately. Final settlement updates depend on the background scheduler."}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -273,7 +282,9 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
             </div>
             <div className="rounded-xl bg-background p-4">
               <p className="text-[9px] uppercase tracking-[0.08em] text-faint">Selection rule</p>
-              <p className="mt-2 text-xs leading-5">1 TNF, 4 Sunday noon, 3 Sunday late, 1 SNF, and 1 MNF. Each slate locks five minutes before its first kickoff, then never changes.</p>
+              <p className="mt-2 text-xs leading-5">{modernCard
+                ? "2 TNF, 6 Sunday noon, 4 Sunday late, 2 SNF, and 1 MNF. Stars identify the model watchlist before cutoff; frozen picks never change."
+                : "Historical allocation: 1 TNF, 4 Sunday noon, 3 Sunday late, 1 SNF, and 1 MNF. Locked picks do not change."}</p>
             </div>
           </div>
         </div>
@@ -311,13 +322,39 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
                           : "bg-background text-muted",
                     )}>
                       {pick.result === "hit" ? <Check className="size-3" /> : pick.result === "miss" ? <X className="size-3" /> : <Clock3 className="size-3" />}
-                      {pick.result}
+                      {pick.trackingStatus === "candidate" || pick.trackingStatus === "slated"
+                        ? "Preview"
+                        : pick.result}
                     </span>
                     <span className="text-[9px] text-faint">
-                      {pick.reconstructed ? "Recovered cutoff" : "Frozen"} {shortTime(pick.frozenAt)}
+                      {pick.reconstructed
+                        ? "Recovered cutoff"
+                        : pick.trackingStatus === "slated" || pick.trackingStatus === "candidate"
+                          ? "Last modeled"
+                          : "Frozen"} {shortTime(pick.frozenAt)}
                     </span>
                   </div>
-                  <h3 className="mt-2 text-sm font-semibold leading-5">{pick.title}</h3>
+                  <h3 className="mt-2 flex items-start gap-1.5 text-sm font-semibold leading-5">
+                    {(pick.trackingStatus === "slated" || pick.trackingStatus === "locked") ? (
+                      <span
+                        className="inline-flex shrink-0 items-center text-amber-500"
+                        title={pick.trackingStatus === "locked"
+                          ? "Frozen in the weekly model tracker"
+                          : "Currently slated for the weekly model tracker; may change before cutoff"}
+                        aria-label={pick.trackingStatus === "locked"
+                          ? "Frozen model tracker pick"
+                          : "Slated model tracker pick"}
+                      >
+                        <Star className="mt-0.5 size-3.5 fill-current" aria-hidden="true" />
+                      </span>
+                    ) : null}
+                    <span>{pick.title}</span>
+                  </h3>
+                  {pick.lockAt ? (
+                    <p className="mt-1 text-[10px] text-muted">
+                      {pick.trackingStatus === "slated" ? "Slated to lock" : "Watchlist candidate, not yet slated"} · {shortTime(pick.lockAt)}
+                    </p>
+                  ) : null}
                   <p className="mt-1 truncate text-[10px] text-faint">{pick.context}</p>
                 </div>
                 <div className="text-right">
@@ -351,7 +388,8 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
       </section>
 
       <p className="rounded-2xl border bg-surface p-4 text-[11px] leading-5 text-muted">
-        Hypothetical returns exclude taxes and assume the frozen ask was fillable for $10. This is a model audit, not a promise of profit or a recommendation to wager.
+        <Star className="mr-1 inline size-3 fill-amber-500 text-amber-500" aria-hidden="true" />
+        Stars mean a pick is currently slated for or frozen in the model tracker. Preview stars are conditional and may change. They are not personal bets, guaranteed fills, or recommendations. Hypothetical returns exclude taxes and assume the frozen ask was fillable for $10.
       </p>
     </div>
   );
