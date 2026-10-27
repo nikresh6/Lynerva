@@ -3,7 +3,7 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import { Search, SlidersHorizontal, X } from "lucide-react";
+import { Search, SlidersHorizontal, Star, X } from "lucide-react";
 import { getNflTeam } from "@/lib/nfl/teams";
 import { isPricedOpportunity } from "@/lib/markets/eligibility";
 import { filterAndSortMarkets } from "@/lib/markets/filters";
@@ -183,6 +183,48 @@ export function MarketExplorer({
     status: forceStatus ?? "all",
   });
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [resultsStarKeys, setResultsStarKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
+  // Stars forecast the Results scorecard, not personal Tracker positions.
+  useEffect(() => {
+    if (forceStatus) return;
+    let active = true;
+    let controller: AbortController | null = null;
+    const refreshForecast = async () => {
+      controller?.abort();
+      const request = new AbortController();
+      controller = request;
+      const timeout = window.setTimeout(() => request.abort(), 10_000);
+      try {
+        const response = await fetch("/api/results/slated", {
+          cache: "no-store",
+          signal: request.signal,
+        });
+        if (!response.ok) throw new Error("Forecast unavailable");
+        const payload = (await response.json()) as {
+          starred?: Array<{ key: string }>;
+        };
+        if (active) {
+          setResultsStarKeys(
+            new Set((payload.starred ?? []).map((item) => item.key)),
+          );
+        }
+      } catch {
+        if (active && !request.signal.aborted) setResultsStarKeys(new Set());
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    };
+    void refreshForecast();
+    const interval = window.setInterval(() => void refreshForecast(), 90_000);
+    return () => {
+      active = false;
+      controller?.abort();
+      window.clearInterval(interval);
+    };
+  }, [forceStatus]);
+
   const [urlGame, setUrlGame] = useState<string | null>(initialGame);
   const [teamRosterNames, setTeamRosterNames] = useState<Set<string> | null>(
     null,
@@ -498,12 +540,20 @@ export function MarketExplorer({
       </div>
 
       <FeedStatus />
+      {!forceStatus && resultsStarKeys.size > 0 ? (
+        <p className="mb-3 inline-flex items-center gap-1.5 text-[11px] text-muted">
+          <Star className="size-3.5 fill-amber-500 text-amber-500" aria-hidden="true" />
+          Starred bets are currently projected to appear on the 15-pick Results scorecard.
+          Picks can change until their game window locks.
+        </p>
+      ) : null}
 
       {(loading && opportunities.length === 0) || activeRosterLoading ? (
         <LoadingTable />
       ) : (
         <MarketTable
           markets={visible}
+          resultsStarKeys={resultsStarKeys}
           emptyMessage={
             filters.query.trim()
               ? `No markets match “${filters.query.trim()}”. Try a team, player, stat, or simpler shorthand.`
