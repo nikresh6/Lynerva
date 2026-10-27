@@ -3,7 +3,7 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import { Search, SlidersHorizontal, Star, X } from "lucide-react";
+import { RefreshCw, Search, SlidersHorizontal, Star, X } from "lucide-react";
 import { getNflTeam } from "@/lib/nfl/teams";
 import { isPricedOpportunity } from "@/lib/markets/eligibility";
 import { resultsPickKey } from "@/lib/model/results-pick-key";
@@ -118,6 +118,49 @@ function FeedStatus() {
   );
 }
 
+function MarketSyncState({
+  hasResultsShortlist,
+  refreshing,
+  onRetry,
+}: {
+  hasResultsShortlist: boolean;
+  refreshing: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex min-w-0 flex-col gap-4 rounded-2xl border bg-surface p-5 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:p-6"
+    >
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-background text-muted">
+          <RefreshCw className="size-4 animate-spin" aria-hidden="true" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-foreground">
+            Syncing the NFL board
+          </p>
+          <p className="mt-1 max-w-xl text-xs leading-5 text-muted">
+            {hasResultsShortlist
+              ? "Results picks are ready. Waiting for the current market feed so we can show their cards."
+              : "Refreshing market prices and projections. Your picks will appear when the feed is ready."}
+          </p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={refreshing}
+        className="inline-flex h-9 w-full shrink-0 items-center justify-center gap-2 rounded-lg border bg-background px-3 text-xs font-semibold text-foreground transition-colors hover:bg-surface-raised disabled:cursor-wait disabled:opacity-50 sm:w-auto"
+      >
+        <RefreshCw className={refreshing ? "size-3.5 animate-spin" : "size-3.5"} aria-hidden="true" />
+        {refreshing ? "Syncing…" : "Retry feed"}
+      </button>
+    </div>
+  );
+}
+
 function normalizePlayerName(value: string) {
   return value
     .toLowerCase()
@@ -169,7 +212,7 @@ export function MarketExplorer({
   emptyMessage?: string;
   topOnly?: boolean;
 }) {
-  const { opportunities, loading } = useMarketData();
+  const { opportunities, loading, refreshing, error, refresh } = useMarketData();
   const searchParams = useSearchParams();
   const initialGame = normalizeGameKey(searchParams.get("game"));
   const initialTeam = getNflTeam(searchParams.get("team") ?? "");
@@ -552,12 +595,23 @@ export function MarketExplorer({
 
       <FeedStatus />
       {!forceStatus && resultsStarKeys.size > 0 ? (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="max-w-[620px] text-[11px] leading-5 text-muted">
-            <Star className="mr-1 inline size-3.5 fill-amber-500 text-amber-500" aria-hidden="true" />
-            Stars show picks currently projected for the 15-pick Results scorecard.
-            They can change until their kickoff-window cutoff.
-          </p>
+        <div className="mb-4 flex min-w-0 flex-col gap-3 rounded-xl border bg-surface/70 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-4">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-amber-500/10 text-amber-500">
+              <Star className="size-4 fill-current" aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold leading-5 text-foreground">
+                Results watchlist
+                <span className="ml-1.5 font-normal text-muted">
+                  · {resultsStarKeys.size} projected
+                </span>
+              </p>
+              <p className="text-[11px] leading-4 text-muted">
+                Starred picks may change before kickoff.
+              </p>
+            </div>
+          </div>
           <button
             type="button"
             onClick={() => {
@@ -570,17 +624,26 @@ export function MarketExplorer({
             aria-pressed={resultsOnly}
             className={
               resultsOnly
-                ? "inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 text-xs font-semibold text-foreground"
-                : "inline-flex h-9 items-center gap-1.5 rounded-lg border bg-surface px-3 text-xs font-semibold hover:border-border-strong"
+                ? "inline-flex h-9 w-full shrink-0 items-center justify-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 text-xs font-semibold text-foreground transition-colors hover:bg-amber-500/15 sm:w-auto"
+                : "inline-flex h-9 w-full shrink-0 items-center justify-center gap-2 rounded-lg border bg-background px-3 text-xs font-semibold text-foreground transition-colors hover:border-border-strong hover:bg-surface-raised sm:w-auto"
             }
           >
-            <Star className="size-3.5 fill-amber-500 text-amber-500" aria-hidden="true" />
-            {resultsOnly ? "Show all ranked picks" : `View ${resultsStarKeys.size} Results candidates`}
+            {resultsOnly ? "Back to top picks" : "View Results candidates"}
+            <span className="rounded-md bg-surface-raised px-1.5 py-0.5 text-[10px] tabular-nums">
+              {resultsStarKeys.size}
+            </span>
           </button>
         </div>
       ) : null}
 
-      {(loading && opportunities.length === 0) || activeRosterLoading ? (
+      {opportunities.length === 0 &&
+      (loading || refreshing || Boolean(error) || resultsStarKeys.size > 0) ? (
+        <MarketSyncState
+          hasResultsShortlist={resultsStarKeys.size > 0}
+          refreshing={refreshing}
+          onRetry={() => void refresh()}
+        />
+      ) : activeRosterLoading ? (
         <LoadingTable />
       ) : (
         <MarketTable
