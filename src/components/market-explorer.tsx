@@ -73,6 +73,7 @@ function FeedStatus() {
     ratedCount,
     displayedCount,
     fetchedAt,
+    stale,
   } = useMarketData();
 
   return (
@@ -109,6 +110,11 @@ function FeedStatus() {
       <span className="feed-pill text-muted">
         Odds refreshed {fetchedAt ? relativeTime(fetchedAt) : "just now"}
       </span>
+      {stale ? (
+        <span className="feed-pill border-warning/30 bg-warning-bg text-warning">
+          Saved prices · verify current Kalshi quotes before wagering
+        </span>
+      ) : null}
       {error ? (
         <span className="feed-pill border-warning/30 bg-warning-bg text-warning">
           {error}
