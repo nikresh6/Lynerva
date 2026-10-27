@@ -782,7 +782,6 @@ export async function lockEligibleScorecards() {
 
 
 const PREVIEW_LOOKBACK_MS = 4 * 24 * 60 * 60_000;
-const STAR_FRESHNESS_MS = 3 * 60 * 60_000;
 
 /**
  * Shows an honest, mutable projection of a future scorecard using precisely
@@ -890,8 +889,6 @@ export async function getUpcomingScorecard(): Promise<WeeklyScorecard | null> {
         typeof candidate.features.subject === "string"
           ? candidate.features.subject
           : null;
-      const isFresh =
-        now.getTime() - candidate.predictedAt.getTime() <= STAR_FRESHNESS_MS;
       picks.push({
         id: `preview-${candidate.id}`,
         rank: rule.rankStart + index,
@@ -915,7 +912,7 @@ export async function getUpcomingScorecard(): Promise<WeeklyScorecard | null> {
         settledAt: null,
         result: "pending",
         profitOnTen: null,
-        trackingStatus: hasFullCard && isFresh ? "slated" : "candidate",
+        trackingStatus: hasFullCard ? "slated" : "candidate",
         lockAt: lockAt.toISOString(),
         platform: candidate.platform,
         platformMarketId: candidate.platformMarketId,
