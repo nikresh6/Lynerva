@@ -75,10 +75,12 @@ export type ScorecardPick = {
   profitOnTen: number | null;
   reconstructed?: boolean;
   recoverySource?: string;
-  // Model scorecard only. These do not represent personal Tracker positions
-  // or real-money trades.
+  // A preview is not frozen and never implies a placed bet.
   trackingStatus?: "candidate" | "slated" | "locked" | "reconstructed";
   lockAt?: string;
+  platform?: string;
+  platformMarketId?: string;
+  platformOutcomeId?: string | null;
 };
 
 export type ScorecardOutageSlot = {
@@ -661,6 +663,9 @@ export async function lockEligibleScorecards() {
       direction: normalizedMarkets.direction,
       threshold: normalizedMarkets.threshold,
       outcomeLabel: normalizedMarkets.outcomeLabel,
+      platform: marketListings.platform,
+      platformMarketId: marketListings.platformMarketId,
+      platformOutcomeId: marketListings.platformOutcomeId,
     })
     .from(predictions)
     .innerJoin(
@@ -783,11 +788,10 @@ const STAR_FRESHNESS_MS = 3 * 60 * 60_000;
  * Shows an honest, mutable projection of a future scorecard using precisely
  * the same ranked candidate selection as the authoritative freeze.
  *
- * A star is earned only if the entire bucket has enough recent candidates.
- * Neither this list nor a star writes to weekly_scorecard_picks or the
- * user's manually maintained personal Tracker.
+ * Stars appear on the main Picks board for predicted selections slated to
+ * appear in the Results scorecard. No preview writes a frozen record.
  */
-async function getUpcomingScorecard(): Promise<WeeklyScorecard | null> {
+export async function getUpcomingScorecard(): Promise<WeeklyScorecard | null> {
   const db = getDb();
   const now = new Date();
   const schedule = await db
@@ -910,6 +914,9 @@ async function getUpcomingScorecard(): Promise<WeeklyScorecard | null> {
         profitOnTen: null,
         trackingStatus: hasFullCard && isFresh ? "slated" : "candidate",
         lockAt: lockAt.toISOString(),
+        platform: candidate.platform,
+        platformMarketId: candidate.platformMarketId,
+        platformOutcomeId: candidate.platformOutcomeId,
       });
     }
   }
@@ -1118,23 +1125,6 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
         recoveryNote:
           "Ranks 1-9 were reconstructed from pregame Week 3 model/source signals after the database outage. Reconstructed rows are audit-only and never enter model learning.",
       });
-    }
-
-    // Preview the future slate without altering locked historical records.
-    // Existing locks win if the bucket has already frozen.
-    const upcoming = await getUpcomingScorecard();
-    if (upcoming) {
-      const existing = cards.find((card) => card.key === upcoming.key);
-      if (existing) {
-        const frozenRanks = new Set(existing.picks.map((pick) => pick.rank));
-        existing.picks = [
-          ...existing.picks,
-          ...upcoming.picks.filter((pick) => !frozenRanks.has(pick.rank)),
-        ].toSorted((a, b) => a.rank - b.rank);
-        existing.expectedPicks = upcoming.expectedPicks;
-      } else {
-        cards.push(upcoming);
-      }
     }
 
     return cards
