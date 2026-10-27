@@ -1,8 +1,9 @@
 "use client";
 
-import { ChevronDown, CloudSun, ExternalLink, FlaskConical, HeartPulse, X } from "lucide-react";
+import { ChevronDown, CloudSun, ExternalLink, FlaskConical, HeartPulse, Star, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { MarketOpportunity } from "@/lib/markets/types";
+import { resultsPickKey } from "@/lib/model/results-pick-key";
 import { ACTIVE_PROJECTION_SOURCES } from "@/lib/model/source-weighting";
 import { cn, formatPercent, relativeTime, titleCase } from "@/lib/utils";
 import { PlatformMark } from "./platform-mark";
@@ -1321,9 +1322,11 @@ export function BetLab({ market, onClose }: { market: MarketOpportunity; onClose
 export function MarketTable({
   markets,
   emptyMessage = "No NFL markets match these filters.",
+  resultsStarKeys = new Set<string>(),
 }: {
   markets: MarketOpportunity[];
   emptyMessage?: string;
+  resultsStarKeys?: ReadonlySet<string>;
 }) {
   const [selected, setSelected] = useState<MarketOpportunity | null>(null);
   const [alternateGroup, setAlternateGroup] = useState<{ key: string; lines: MarketOpportunity[] } | null>(null);
@@ -1431,6 +1434,20 @@ export function MarketTable({
                       ) : null}
                     </div>
                     <div className="mt-2 line-clamp-2 text-[15px] font-semibold leading-6">
+                      {resultsStarKeys.has(resultsPickKey({
+                        platform: market.platform,
+                        platformMarketId: market.platformMarketId,
+                        platformOutcomeId: market.platformOutcomeId,
+                        side: market.recommendedSide,
+                      })) ? (
+                        <span
+                          className="mr-1.5 inline-flex align-middle text-amber-500"
+                          title="Currently projected for the Results page's frozen weekly 15-pick scorecard. Can change before kickoff."
+                          aria-label="Projected Results scorecard pick"
+                        >
+                          <Star className="size-4 fill-current" aria-hidden="true" />
+                        </span>
+                      ) : null}
                       <span className="mr-1.5 text-positive">{displayPickSide(market)}</span>
                       {displayMarketTitle(market)}
                     </div>
