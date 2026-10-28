@@ -85,6 +85,8 @@ async function prepareAuthDatabase() {
 }
 
 export function ensureAuthDatabaseReady() {
+  // All Better Auth tables are already present in the Neon schema.
+  if (process.env.DATABASE_URL || process.env.NEON_DATABASE_URL) return Promise.resolve();
   if (!readiness) {
     readiness = prepareAuthDatabase().catch((error) => {
       readiness = null;
