@@ -1,6 +1,8 @@
 import "server-only";
 
 import { readFile, rename, writeFile } from "node:fs/promises";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/db";
 
 import { fetchKalshiNflMarkets } from "@/lib/kalshi";
 import { estimateMarket } from "@/lib/model";
@@ -57,6 +59,7 @@ let refreshPromise: Promise<MarketsPayload> | null = null;
 // share one module cache. Share the latest complete, *non-empty* model snapshot
 // through the existing persistent Railway volume so cold API workers can
 // render actual picks immediately after a restart.
+const NEON_MARKET_CACHE = Boolean(process.env.DATABASE_URL || process.env.NEON_DATABASE_URL);
 const SHARED_MARKET_SNAPSHOT_PATH =
   process.env.HUDDLEMARK_DATABASE_URL?.startsWith("file:/data/")
     ? "/data/huddlemark-market-feed.json"
@@ -68,15 +71,34 @@ let sharedSnapshotRead: Promise<void> | null = null;
 let sharedSnapshotWrite: Promise<void> | null = null;
 
 async function restoreSharedMarketSnapshot(): Promise<void> {
-  if (!SHARED_MARKET_SNAPSHOT_PATH) return;
+  if (!NEON_MARKET_CACHE && !SHARED_MARKET_SNAPSHOT_PATH) return;
   if (sharedSnapshotRead) return sharedSnapshotRead;
   if (Date.now() - lastSharedSnapshotReadAt < SHARED_SNAPSHOT_READ_INTERVAL_MS) return;
   lastSharedSnapshotReadAt = Date.now();
   sharedSnapshotRead = (async () => {
     try {
-      const parsed = JSON.parse(
-        await readFile(SHARED_MARKET_SNAPSHOT_PATH, "utf8"),
-      ) as { storedAt?: number; payload?: MarketsPayload };
+      const parsed: { storedAt?: number; payload?: MarketsPayload } =
+        NEON_MARKET_CACHE
+          ? await (async () => {
+              const rows = await getDb().execute(
+                sql`SELECT payload, stored_at FROM market_feed_cache WHERE id = 'global'`,
+              );
+              const record = rows[0] as Record<string, unknown> | undefined;
+              const timestamp = record?.stored_at;
+              const storedAt =
+                timestamp instanceof Date
+                  ? timestamp.getTime()
+                  : timestamp
+                    ? Date.parse(String(timestamp))
+                    : 0;
+              return {
+                storedAt,
+                payload: record?.payload as MarketsPayload | undefined,
+              };
+            })()
+          : JSON.parse(
+              await readFile(SHARED_MARKET_SNAPSHOT_PATH!, "utf8"),
+            ) as { storedAt?: number; payload?: MarketsPayload };
       const storedAt = parsed.storedAt ?? 0;
       if (
         !parsed.payload ||
@@ -103,7 +125,22 @@ async function restoreSharedMarketSnapshot(): Promise<void> {
   return sharedSnapshotRead;
 }
 
-function persistSharedMarketSnapshot(payload: MarketsPayload): void {
+async function persistSharedMarketSnapshot(payload: MarketsPayload): Promise<void> {
+  if (NEON_MARKET_CACHE) {
+    if (!payload.opportunities.length) return;
+    try {
+      await getDb().execute(
+        sql`INSERT INTO market_feed_cache (id, payload, stored_at)
+            VALUES ('global', ${JSON.stringify(payload)}::jsonb, now())
+            ON CONFLICT (id) DO UPDATE
+              SET payload = excluded.payload, stored_at = excluded.stored_at`,
+      );
+    } catch (error) {
+      console.error("[markets-cache] Neon snapshot write failed", error);
+      throw error;
+    }
+    return;
+  }
   if (
     !SHARED_MARKET_SNAPSHOT_PATH ||
     payload.opportunities.length === 0 ||
@@ -125,6 +162,7 @@ function persistSharedMarketSnapshot(payload: MarketsPayload): void {
   })().finally(() => {
     sharedSnapshotWrite = null;
   });
+  await sharedSnapshotWrite;
 }
 
 const matchupSnapshots = new Map<
@@ -852,12 +890,12 @@ async function computeMarketOpportunities(
 async function refreshSnapshot() {
   if (!refreshPromise) {
     refreshPromise = computeMarketOpportunities()
-      .then((payload) => {
+      .then(async (payload) => {
         // Never replace a verified, non-empty feed with a transient empty
         // provider response; keep the last known markets visible as stale.
         if (payload.opportunities.length > 0) {
           warmSnapshot = { payload, storedAt: Date.now() };
-          persistSharedMarketSnapshot(payload);
+          await persistSharedMarketSnapshot(payload);
         }
         return payload;
       })
