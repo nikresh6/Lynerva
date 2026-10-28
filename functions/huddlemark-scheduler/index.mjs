@@ -18,7 +18,12 @@ export default {
     const secret = process.env.CRON_SECRET;
     if (!origin || !secret) return Response.json({ error: "Scheduler not configured" }, { status: 503 });
     try {
-      const reply = await fetch(new URL(route, origin), {
+      const destination = new URL(route, origin);
+      // Private preview deployments can supply a short-lived Vercel share
+      // token in their origin URL. Production does not need one.
+      const shareToken = new URL(origin).searchParams.get("_vercel_share");
+      if (shareToken) destination.searchParams.set("_vercel_share", shareToken);
+      const reply = await fetch(destination, {
         headers: { Authorization: `Bearer ${secret}` },
         signal: AbortSignal.timeout(90_000),
       });
