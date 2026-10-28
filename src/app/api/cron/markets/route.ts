@@ -2,7 +2,7 @@ import { getFreshMarketOpportunities } from "@/lib/markets/service";
 import { persistMarkets } from "@/lib/markets/persist";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 function authorized(request: Request) {
   const secret = process.env.CRON_SECRET;
