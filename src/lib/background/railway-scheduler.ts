@@ -332,7 +332,7 @@ async function refreshNflverseAndLearning() {
   }
 }
 
-async function gradeFinalEspnGames() {
+export async function gradeFinalEspnGames() {
   if (finalGradingJobRunning || databaseBackoffActive()) return;
   finalGradingJobRunning = true;
   logJob("espn-final-grading", "started");
