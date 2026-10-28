@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   doublePrecision,
   index,
@@ -254,8 +255,8 @@ export const marketListings = pgTable(
     noBidBps: integer("no_bid_bps"),
     noAskBps: integer("no_ask_bps"),
     lastPriceBps: integer("last_price_bps"),
-    liquidityCents: integer("liquidity_cents"),
-    volumeCents: integer("volume_cents"),
+    liquidityCents: bigint("liquidity_cents", { mode: "number" }),
+    volumeCents: bigint("volume_cents", { mode: "number" }),
     closesAt: timestamp("closes_at", { withTimezone: true, mode: "date" }),
     sourceUpdatedAt: timestamp("source_updated_at", { withTimezone: true, mode: "date" }).notNull(),
     fetchedAt: timestamp("fetched_at", { withTimezone: true, mode: "date" }).notNull(),
@@ -290,8 +291,8 @@ export const marketPriceSnapshots = pgTable(
     yesAskBps: integer("yes_ask_bps"),
     noBidBps: integer("no_bid_bps"),
     noAskBps: integer("no_ask_bps"),
-    liquidityCents: integer("liquidity_cents"),
-    volumeCents: integer("volume_cents"),
+    liquidityCents: bigint("liquidity_cents", { mode: "number" }),
+    volumeCents: bigint("volume_cents", { mode: "number" }),
   },
   (table) => [
     index("price_snapshot_listing_time_idx").on(
