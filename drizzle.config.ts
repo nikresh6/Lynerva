@@ -1,12 +1,11 @@
 import { defineConfig } from "drizzle-kit";
 
 export default defineConfig({
-  dialect: "turso",
+  dialect: "postgresql",
   schema: "./src/db/schema.ts",
-  out: "./drizzle",
+  out: "./drizzle-pg",
   dbCredentials: {
-    url: process.env.TURSO_DATABASE_URL ?? "file:local.db",
-    authToken: process.env.TURSO_AUTH_TOKEN,
+    url: process.env.DATABASE_URL ?? process.env.NEON_DATABASE_URL ?? "postgresql://localhost/huddlemark",
   },
   strict: true,
   verbose: true,
