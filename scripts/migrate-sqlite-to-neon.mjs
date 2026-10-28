@@ -78,11 +78,11 @@ async function main() {
   }
   const foreignKeys = await pg`
     SELECT child.relname AS child, parent.relname AS parent
-    FROM pg_constraint constraint
-    JOIN pg_class child ON child.oid = constraint.conrelid
-    JOIN pg_class parent ON parent.oid = constraint.confrelid
-    WHERE constraint.contype = 'f'
-      AND constraint.connamespace = 'public'::regnamespace
+    FROM pg_constraint fk
+    JOIN pg_class child ON child.oid = fk.conrelid
+    JOIN pg_class parent ON parent.oid = fk.confrelid
+    WHERE fk.contype = 'f'
+      AND fk.connamespace = 'public'::regnamespace
   `;
   const dependencies = new Map([...columnsByTable.keys()].map((table) => [table, new Set()]));
   for (const fk of foreignKeys) {
