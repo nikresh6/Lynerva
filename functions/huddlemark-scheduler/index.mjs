@@ -14,6 +14,7 @@ export default {
     if (!route || request.method !== "POST" || !request.headers.get("X-Neon-Trigger-Invocation-Id")) {
       return Response.json({ error: "Forbidden" }, { status: 403 });
     }
+    console.info("[huddlemark-scheduler] invoked", url.pathname);
     const origin = process.env.HUDDLEMARK_ORIGIN;
     const secret = process.env.CRON_SECRET;
     if (!origin || !secret) return Response.json({ error: "Scheduler not configured" }, { status: 503 });
@@ -31,6 +32,7 @@ export default {
         console.error("[huddlemark-scheduler] failed", route, reply.status);
         return Response.json({ ok: false, job: route, status: reply.status }, { status: 502 });
       }
+      console.info("[huddlemark-scheduler] succeeded", route, reply.status);
       return Response.json({ ok: true, job: route, status: reply.status });
     } catch (error) {
       console.error("[huddlemark-scheduler] connection failure", route, error);
