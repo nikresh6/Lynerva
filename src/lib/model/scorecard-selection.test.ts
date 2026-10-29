@@ -31,6 +31,8 @@ function candidate(
     reliabilityBps: 8000,
     sampleSize: 6,
     marketStatus: "open",
+    platform: "kalshi",
+    isLiveMarket: false,
     quoteFetchedAt: new Date("2026-10-29T19:30:00.000Z"),
     yesAskBps: 5000,
     noAskBps: 5200,
@@ -81,6 +83,12 @@ describe("quality-controlled scorecard selection", () => {
     const winners = selectScorecardBucketLeaders(all, games, { id: "tnf", count: 4 }, cutoff);
     expect(winners).toHaveLength(2);
     expect(new Set(winners.map((item) => item.features.subject)).size).toBe(2);
+  });
+
+  it("never locks ungradeable non-Kalshi or in-play contracts", () => {
+    const nonKalshi = candidate("poly", { platform: "polymarket" });
+    const live = candidate("live", { isLiveMarket: true });
+    expect(selectScorecardBucketLeaders([nonKalshi, live], games, rule, cutoff)).toEqual([]);
   });
 
   it("allows unfilled slots rather than forcing poor candidates", () => {
