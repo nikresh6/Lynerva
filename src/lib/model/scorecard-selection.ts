@@ -29,6 +29,8 @@ export type ReliableScorecardCandidate = {
   reliabilityBps: number;
   sampleSize: number;
   marketStatus: string;
+  platform: string;
+  isLiveMarket: boolean;
   quoteFetchedAt: Date;
   yesAskBps: number | null;
   noAskBps: number | null;
@@ -56,7 +58,7 @@ function isQualityCandidate(candidate: ReliableScorecardCandidate, cutoff: Date)
   const quoteAge = cutoff.getTime() - candidate.quoteFetchedAt.getTime();
   if (signalAge < 0 || signalAge > MAX_SIGNAL_AGE_MS) return false;
   if (quoteAge < -60_000 || quoteAge > MAX_SIGNAL_AGE_MS) return false;
-  if (candidate.marketStatus !== "open") return false;
+  if (candidate.marketStatus !== "open" || candidate.platform !== "kalshi" || candidate.isLiveMarket) return false;
   if (publicScore(candidate) < MIN_PUBLIC_SCORE) return false;
   if (candidate.edgeBps < MIN_EDGE_BPS) return false;
   if (candidate.reliabilityBps < MIN_RELIABILITY_BPS) return false;
