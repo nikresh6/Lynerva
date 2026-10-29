@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Check,
   ChevronLeft,
@@ -100,7 +101,24 @@ function EquityCurve({ week }: { week: WeeklyScorecard }) {
 }
 
 export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
+  const router = useRouter();
   const [selectedKey, setSelectedKey] = useState(weeks[0]?.key ?? "");
+  const previousNewestKey = useRef(weeks[0]?.key ?? "");
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") router.refresh();
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [router]);
+
+  useEffect(() => {
+    const newest = weeks[0]?.key ?? "";
+    if (newest !== previousNewestKey.current) {
+      if (selectedKey === previousNewestKey.current) setSelectedKey(newest);
+      previousNewestKey.current = newest;
+    }
+  }, [selectedKey, weeks]);
   const selectedIndex = Math.max(
     0,
     weeks.findIndex((week) => week.key === selectedKey),
@@ -108,6 +126,7 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
   const week = weeks[selectedIndex];
   const record = week ? `${week.hits}–${week.misses}` : "—";
   const modernCard = (week?.expectedPicks ?? 10) === 15;
+  const hasSlated = week?.picks.some((pick) => pick.trackingStatus === "slated") ?? false;
   const settledRate = week?.settled
     ? week.hits / week.settled
     : 0;
@@ -119,12 +138,16 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
     if (week.outageSlots?.length) {
       return "Week 3 is being shown as an audit record. Missing locks stay visibly missing and do not affect the record or ROI.";
     }
+    if (week.settled === 0 && hasSlated) {
+      return "Pregame picks are quality-checked and can change until the five-minute lock. Missing slots stay empty rather than being filled with weak bets. No results or ROI are counted yet.";
+    }
     if (week.settled === 0) return "Nothing is being counted before the answer exists.";
+    if (hasSlated) return "Locked picks remain permanent. New pregame candidates may change until their kickoff windows; only graded bets count toward ROI.";
     if (week.settled < week.picks.length) {
       return `${week.picks.length - week.settled} pick${week.picks.length - week.settled === 1 ? "" : "s"} still waiting. ROI uses settled picks only.`;
     }
     return "Every pick on this card has a final result.";
-  }, [week]);
+  }, [week, hasSlated]);
 
   if (!week) {
     return (
@@ -154,18 +177,18 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
               <ShieldCheck className="size-3.5 text-positive" />
-              Frozen before the result
+              {hasSlated ? "Upcoming picks are provisional" : "Frozen before the result"}
             </div>
             <h1 className="mt-5 max-w-3xl text-4xl font-semibold tracking-[-0.045em] sm:text-6xl">
               How did the model actually do?
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-6 text-muted sm:text-base">
               {modernCard
-                ? "The 15-pick weekly card allocates 2 TNF, 8 Sunday noon, 3 Sunday late, 1 SNF, and 1 MNF. Each slate freezes five minutes before its kickoff window."
+                ? "The weekly card targets up to 15 quality-checked picks: 2 TNF, 8 Sunday noon, 3 Sunday late, 1 SNF and 1 MNF. Weak or stale candidates leave slots unfilled. Picks freeze five minutes before kickoff."
                 : "Historical 10-pick cards remain unchanged: 1 TNF, 4 Sunday noon, 3 Sunday late, 1 SNF, and 1 MNF."}
             </p>
             <p className="mt-2 text-[10px] text-faint">
-              Stored results load immediately. Settlement refreshes run in the background every 30 minutes.
+              Frozen historical results stay permanent. Upcoming selections refresh automatically every minute while this page is open.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -277,7 +300,7 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
             <div className="rounded-xl bg-background p-4">
               <p className="text-[9px] uppercase tracking-[0.08em] text-faint">Selection rule</p>
               <p className="mt-2 text-xs leading-5">{modernCard
-                ? "2 TNF, 8 Sunday noon, 3 Sunday late, 1 SNF, and 1 MNF. Once locked, every pick is permanently retained."
+                ? "Up to 2 TNF, 8 Sunday noon, 3 Sunday late, 1 SNF and 1 MNF. Picks must pass minimum evidence, price and reliability gates. Once locked, every pick is retained."
                 : "1 TNF, 4 Sunday noon, 3 Sunday late, 1 SNF, and 1 MNF. Locked historical picks never change."}</p>
             </div>
           </div>
@@ -287,7 +310,7 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
       <section>
         <div className="mb-4">
           <p className="eyebrow">The full card</p>
-          <h2 className="mt-1 text-2xl font-semibold tracking-[-0.03em]">Every pick stays visible.</h2>
+          <h2 className="mt-1 text-2xl font-semibold tracking-[-0.03em]">{hasSlated ? "Live shortlist and locked picks" : "Every pick stays visible."}</h2>
         </div>
         <div className="grid gap-3 lg:grid-cols-2">
           {week.picks.map((pick) => (
@@ -316,10 +339,10 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
                           : "bg-background text-muted",
                     )}>
                       {pick.result === "hit" ? <Check className="size-3" /> : pick.result === "miss" ? <X className="size-3" /> : <Clock3 className="size-3" />}
-                      {pick.result}
+                      {pick.trackingStatus === "slated" ? "Slated" : pick.result}
                     </span>
                     <span className="text-[9px] text-faint">
-                      {pick.reconstructed ? "Recovered cutoff" : "Frozen"} {shortTime(pick.frozenAt)}
+                      {pick.reconstructed ? "Recovered cutoff" : pick.trackingStatus === "slated" ? "Projected" : "Frozen"} {shortTime(pick.frozenAt)}
                     </span>
                   </div>
                   <h3 className="mt-2 text-sm font-semibold leading-5">{pick.title}</h3>
@@ -356,7 +379,7 @@ export function ResultsDashboard({ weeks }: { weeks: WeeklyScorecard[] }) {
       </section>
 
       <p className="rounded-2xl border bg-surface p-4 text-[11px] leading-5 text-muted">
-        Hypothetical returns exclude taxes and assume the frozen ask was fillable for $10. This is a model audit, not a promise of profit or a recommendation to wager.
+        Hypothetical returns exclude taxes and assume the frozen ask was fillable for $10. Slated picks are not locked bets and can change before kickoff. This is a model audit, not a promise of profit or a recommendation to wager.
       </p>
     </div>
   );
