@@ -425,6 +425,7 @@ export async function gradeFinalEspnGames() {
   } catch (error) {
     noteDatabaseBlock(error);
     logJob("espn-final-grading", "failed", error);
+    throw error; // Scheduled callers must see failures instead of a false successful 200.
   } finally {
     finalGradingJobRunning = false;
   }
