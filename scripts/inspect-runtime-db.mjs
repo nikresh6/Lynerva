@@ -28,7 +28,7 @@ if (!url) {
       const result = await client.execute(`SELECT COUNT(*) AS n FROM "${name}"`);
       sample[name] = Number(result.rows[0]?.n ?? 0);
     }
-    console.info("[database-inspect] verified", JSON.stringify({
+    const weekRows = tableNames.includes("weekly_scorecard_picks")\n      ? (await client.execute("SELECT season, week, COUNT(*) AS picks FROM weekly_scorecard_picks GROUP BY season, week ORDER BY season, week")).rows.map((r) => ({ season: Number(r.season), week: Number(r.week), picks: Number(r.picks) }))\n      : [];\n    const positionsRecency = tableNames.includes("user_positions")\n      ? (await client.execute("SELECT MIN(placed_at) AS earliest, MAX(placed_at) AS latest FROM user_positions")).rows[0]\n      : null;\n    console.info("[database-inspect] verified", JSON.stringify({\n      weeks: weekRows,\n      positionsRecency: positionsRecency ? { earliest: Number(positionsRecency.earliest ?? 0), latest: Number(positionsRecency.latest ?? 0) } : null,
       tableCount: tableNames.length,
       tables: tableNames,
       counts: sample,
