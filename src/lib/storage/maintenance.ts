@@ -41,13 +41,13 @@ async function compactDisposableRows(aggressive: boolean) {
   const db = getDb();
 
   // Legacy tick snapshots are not used by the application anymore.
-  await db.run(sql.raw("DELETE FROM market_price_snapshots"));
+  await db.execute(sql.raw("DELETE FROM market_price_snapshots"));
 
   // Keep settled calibration evidence bounded. Locked scorecard predictions
   // are permanent, while non-scorecard calibration examples are a rolling
   // sample rather than an unbounded event log.
   if (aggressive) {
-    await db.run(sql.raw(`
+    await db.execute(sql.raw(`
       DELETE FROM prediction_results
       WHERE prediction_id NOT IN (
         SELECT prediction_id FROM weekly_scorecard_picks
@@ -60,7 +60,7 @@ async function compactDisposableRows(aggressive: boolean) {
       )
     `));
   } else {
-    await db.run(sql.raw(`
+    await db.execute(sql.raw(`
       DELETE FROM prediction_results
       WHERE prediction_id NOT IN (
         SELECT prediction_id FROM weekly_scorecard_picks
@@ -75,7 +75,7 @@ async function compactDisposableRows(aggressive: boolean) {
   }
 
   const ageSeconds = aggressive ? 6 * 60 * 60 : 36 * 60 * 60;
-  await db.run(sql.raw(`
+  await db.execute(sql.raw(`
     DELETE FROM predictions
     WHERE predicted_at < unixepoch() - ${ageSeconds}
       AND id NOT IN (
@@ -87,7 +87,7 @@ async function compactDisposableRows(aggressive: boolean) {
   `));
 
   const listingAgeSeconds = aggressive ? 7 * 24 * 60 * 60 : 21 * 24 * 60 * 60;
-  await db.run(sql.raw(`
+  await db.execute(sql.raw(`
     DELETE FROM market_listings
     WHERE status IN ('closed', 'settled')
       AND fetched_at < unixepoch() - ${listingAgeSeconds}
@@ -97,17 +97,17 @@ async function compactDisposableRows(aggressive: boolean) {
   `));
 
   // Expired auth helpers should never accumulate forever.
-  await db.run(sql.raw(
+  await db.execute(sql.raw(
     "DELETE FROM verification WHERE expires_at < unixepoch()",
   ));
-  await db.run(sql.raw(
+  await db.execute(sql.raw(
     "DELETE FROM session WHERE expires_at < unixepoch()",
   ));
 
   // Reclaim WAL growth without requiring a full VACUUM, which can temporarily
   // need a second copy of the database and is unsafe near a small disk limit.
-  await db.run(sql.raw("PRAGMA wal_checkpoint(TRUNCATE)"));
-  await db.run(sql.raw("PRAGMA optimize"));
+  await db.execute(sql.raw("PRAGMA wal_checkpoint(TRUNCATE)"));
+  await db.execute(sql.raw("PRAGMA optimize"));
 }
 
 export async function runStorageMaintenance() {

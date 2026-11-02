@@ -61,7 +61,7 @@ function ensurePersistenceIndexes() {
   if (persistenceIndexesPromise) return persistenceIndexesPromise;
   const db = getDb();
   persistenceIndexesPromise = Promise.all([
-    db.run(
+    db.execute(
       sql.raw(
         "CREATE INDEX IF NOT EXISTS predictions_time_idx ON predictions (predicted_at)",
       ),

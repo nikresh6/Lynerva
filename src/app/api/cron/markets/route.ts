@@ -1,8 +1,8 @@
-import { getMarketOpportunities } from "@/lib/markets/service";
+import { getFreshMarketOpportunities } from "@/lib/markets/service";
 import { persistMarkets } from "@/lib/markets/persist";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 function authorized(request: Request) {
   const secret = process.env.CRON_SECRET;
@@ -11,7 +11,7 @@ function authorized(request: Request) {
 
 export async function GET(request: Request) {
   if (!authorized(request)) return Response.json({ error: "Unauthorized" }, { status: 401 });
-  const payload = await getMarketOpportunities();
+  const payload = await getFreshMarketOpportunities();
   const stored = await persistMarkets(payload);
   return Response.json({
     ok: true,

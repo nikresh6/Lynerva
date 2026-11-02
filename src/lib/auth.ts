@@ -97,7 +97,7 @@ function createAuth() {
     trustedOrigins: [...new Set(trustedOrigins)],
     secret,
     database: drizzleAdapter(getDb(), {
-      provider: "sqlite",
+      provider: "pg",
       schema,
     }),
     emailAndPassword: {

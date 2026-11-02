@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev --webpack",
     "build": "next build --webpack",
-    "start": "if [ -n \"$HUDDLEMARK_DATABASE_URL\" ] || [ -n \"$TURSO_DATABASE_URL\" ]; then npm run db:migrate:runtime; fi; node --max-old-space-size=640 node_modules/next/dist/bin/next start",
+    "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -17,7 +17,8 @@
     "data:nflverse": "NODE_OPTIONS=--conditions=react-server dotenv -e .env.local -- tsx scripts/ingest-nflverse.ts",
     "recovery:week": "NODE_OPTIONS=--conditions=react-server tsx scripts/recover-week.ts",
     "smoke:auth": "tsx scripts/smoke-auth.ts",
-    "smoke:live": "NODE_OPTIONS=--conditions=react-server tsx scripts/smoke-live.ts"
+    "smoke:live": "NODE_OPTIONS=--conditions=react-server tsx scripts/smoke-live.ts",
+    "db:push:ci": "drizzle-kit push --force"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",

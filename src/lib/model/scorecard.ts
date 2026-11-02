@@ -14,6 +14,8 @@ import {
 } from "@/db/schema";
 import { recommendedPredictionPerspective } from "./prediction-perspective";
 import { settleLockedScorecardPredictions } from "./results";
+import { selectScorecardBucketLeaders } from "./scorecard-selection";
+export { selectScorecardBucketLeaders } from "./scorecard-selection";
 
 const SCORECARD_BUCKET_LAUNCH_AT = new Date("2026-09-21T16:10:00.000Z");
 const LOCK_SCAN_WINDOW_MS = 14 * 24 * 60 * 60_000;
@@ -559,71 +561,6 @@ function bucketLabel(bucket: string | null) {
   return FIFTEEN_BUCKET_RULES.find((rule) => rule.id === bucket)?.label ?? "Pregame";
 }
 
-type ScorecardCandidateForSelection = {
-  id: string;
-  normalizedMarketId: string;
-  predictedAt: Date;
-  features: Record<string, number | string | boolean | null>;
-  eventTitle: string;
-  family: string;
-  predictedProbabilityBps: number;
-  executablePriceBps: number;
-  edgeBps: number;
-};
-
-export function selectScorecardBucketLeaders<T extends ScorecardCandidateForSelection>(
-  candidates: T[],
-  gameByMatchup: Map<string, { kickoffAt: Date; bucket: ScorecardBucket | null }>,
-  rule: ScorecardBucketRule,
-  cutoff: Date,
-): T[] {
-  const latestByMarket = new Map<string, T>();
-  for (const candidate of candidates) {
-    // Never schedule a negative-edge contract in the 15-pick scorecard.
-    if (candidate.edgeBps <= 0) continue;
-    if (
-      candidate.predictedAt.getTime() > cutoff.getTime() ||
-      candidate.predictedAt.getTime() < SCORECARD_BUCKET_LAUNCH_AT.getTime()
-    ) continue;
-
-    const matchup =
-      typeof candidate.features.matchup === "string"
-        ? matchupKey(candidate.features.matchup)
-        : "";
-    const game = gameByMatchup.get(matchup);
-    if (!game || game.bucket !== rule.id) continue;
-    if (candidate.predictedAt.getTime() >= game.kickoffAt.getTime()) continue;
-
-    // Candidates are newest-first. Keep the newest eligible prediction
-    // for each real normalized market, then rank exactly as the lock does.
-    if (!latestByMarket.has(candidate.normalizedMarketId)) {
-      latestByMarket.set(candidate.normalizedMarketId, candidate);
-    }
-  }
-  const distinct = new Map<string, T>();
-  for (const candidate of [...latestByMarket.values()].toSorted((a, b) => {
-    const scoreDiff =
-      (publicScore(b.features) ?? -Infinity) -
-      (publicScore(a.features) ?? -Infinity);
-    return scoreDiff || b.edgeBps - a.edgeBps;
-  })) {
-    const subject =
-      typeof candidate.features.subject === "string"
-        ? candidate.features.subject
-        : "";
-    const matchup =
-      typeof candidate.features.matchup === "string"
-        ? matchupKey(candidate.features.matchup)
-        : candidate.eventTitle;
-    const perspective = recommendedPredictionPerspective(candidate);
-    const distinctKey = [
-      matchup, candidate.family, subject, perspective.side,
-    ].join(":");
-    if (!distinct.has(distinctKey)) distinct.set(distinctKey, candidate);
-  }
-  return [...distinct.values()].slice(0, rule.count);
-}
-
 export async function lockEligibleScorecards() {
   const db = getDb();
   const now = new Date();
@@ -656,6 +593,8 @@ export async function lockEligibleScorecards() {
       predictedProbabilityBps: predictions.predictedProbabilityBps,
       executablePriceBps: predictions.executablePriceBps,
       edgeBps: predictions.edgeBps,
+      reliabilityBps: predictions.reliabilityBps,
+      sampleSize: predictions.sampleSize,
       opportunityScore: predictions.opportunityScore,
       features: predictions.features,
       predictedAt: predictions.predictedAt,
@@ -668,6 +607,11 @@ export async function lockEligibleScorecards() {
       platform: marketListings.platform,
       platformMarketId: marketListings.platformMarketId,
       platformOutcomeId: marketListings.platformOutcomeId,
+      marketStatus: marketListings.status,
+      isLiveMarket: marketListings.isLive,
+      quoteFetchedAt: marketListings.fetchedAt,
+      yesAskBps: marketListings.yesAskBps,
+      noAskBps: marketListings.noAskBps,
     })
     .from(predictions)
     .innerJoin(
@@ -757,9 +701,12 @@ export async function lockEligibleScorecards() {
       // existed when this rule was introduced.
       if (lockAt.getTime() < SCORECARD_BUCKET_LAUNCH_AT.getTime()) continue;
       if (now.getTime() < lockAt.getTime()) continue;
+      // An interrupted scheduler must not manufacture a frozen card hours after kickoff.
+      if (now.getTime() - lockAt.getTime() > 10 * 60_000) continue;
 
       const top = selectScorecardBucketLeaders(candidates, gameByMatchup, rule, lockAt);
-      if (top.length < rule.count) continue;
+      // Missing quality candidates leave unfilled slots, never fabricate a 15-bet card.
+       if (!top.length) continue;
 
       await db
         .insert(weeklyScorecardPicks)
@@ -839,6 +786,8 @@ export async function getUpcomingScorecard(): Promise<WeeklyScorecard | null> {
       predictedProbabilityBps: predictions.predictedProbabilityBps,
       executablePriceBps: predictions.executablePriceBps,
       edgeBps: predictions.edgeBps,
+      reliabilityBps: predictions.reliabilityBps,
+      sampleSize: predictions.sampleSize,
       opportunityScore: predictions.opportunityScore,
       features: predictions.features,
       predictedAt: predictions.predictedAt,
@@ -851,6 +800,11 @@ export async function getUpcomingScorecard(): Promise<WeeklyScorecard | null> {
       platform: marketListings.platform,
       platformMarketId: marketListings.platformMarketId,
       platformOutcomeId: marketListings.platformOutcomeId,
+      marketStatus: marketListings.status,
+      isLiveMarket: marketListings.isLive,
+      quoteFetchedAt: marketListings.fetchedAt,
+      yesAskBps: marketListings.yesAskBps,
+      noAskBps: marketListings.noAskBps,
     })
     .from(predictions)
     .innerJoin(marketListings, eq(marketListings.id, predictions.listingId))
@@ -883,7 +837,6 @@ export async function getUpcomingScorecard(): Promise<WeeklyScorecard | null> {
     if (now >= lockAt) continue; // Frozen buckets come from persisted locks.
 
     const top = selectScorecardBucketLeaders(scoped, gameByMatchup, rule, now);
-    const hasFullCard = top.length === rule.count;
     for (let index = 0; index < top.length; index += 1) {
       const candidate = top[index]!;
       const perspective = recommendedPredictionPerspective(candidate);
@@ -914,7 +867,7 @@ export async function getUpcomingScorecard(): Promise<WeeklyScorecard | null> {
         settledAt: null,
         result: "pending",
         profitOnTen: null,
-        trackingStatus: hasFullCard ? "slated" : "candidate",
+        trackingStatus: "slated",
         lockAt: lockAt.toISOString(),
         platform: candidate.platform,
         platformMarketId: candidate.platformMarketId,
@@ -1127,6 +1080,27 @@ export async function getWeeklyScorecards(): Promise<WeeklyScorecard[]> {
         recoveryNote:
           "Ranks 1-9 were reconstructed from pregame Week 3 model/source signals after the database outage. Reconstructed rows are audit-only and never enter model learning.",
       });
+    }
+
+    // Display an honest, mutable upcoming slate alongside permanent locked rows.
+    // Never mutate or replace a historical pick after its pregame lock.
+    try {
+      const upcoming = await getUpcomingScorecard();
+      if (upcoming) {
+        const existing = cards.find((card) => card.key === upcoming.key);
+        if (existing) {
+          const lockedRanks = new Set(existing.picks.map((pick) => pick.rank));
+          existing.picks = [
+            ...existing.picks,
+            ...upcoming.picks.filter((pick) => !lockedRanks.has(pick.rank)),
+          ].toSorted((a, b) => a.rank - b.rank);
+          existing.expectedPicks = upcoming.expectedPicks;
+        } else {
+          cards.push(upcoming);
+        }
+      }
+    } catch (error) {
+      console.error("Upcoming scorecard unavailable; retaining frozen history", error);
     }
 
     return cards

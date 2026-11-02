@@ -10,9 +10,22 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: huddlemark_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d huddlemark_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
-      TURSO_DATABASE_URL: file:./ci.db
-      TURSO_AUTH_TOKEN: ""
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/huddlemark_ci
       BETTER_AUTH_URL: http://localhost:3000
       BETTER_AUTH_SECRET: ci-only-secret-ci-only-secret-ci-only-secret-1234
       CRON_SECRET: ci-only-cron-secret
@@ -27,8 +40,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - name: Prepare runtime database
-        run: npm run db:migrate:runtime
+      - name: Prepare PostgreSQL runtime database
+        run: npm run db:push:ci
       - name: Verify auth and real live NFL data
         env:
           USE_MARKET_FIXTURES: "false"

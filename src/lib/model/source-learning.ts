@@ -142,12 +142,15 @@ function errorChainText(error: unknown) {
 }
 
 export function ensureSourceLearningSchema() {
+  // Neon schema is provisioned and versioned independently. Never execute
+  // legacy SQLite DDL against PostgreSQL at runtime.
+  if (process.env.DATABASE_URL || process.env.NEON_DATABASE_URL) return Promise.resolve();
   if (schemaPromise) return schemaPromise;
 
   schemaPromise = (async () => {
     const db = getDb();
     try {
-      await db.run(
+      await db.execute(
         sql.raw(
           "ALTER TABLE player_game_stats ADD COLUMN passing_interceptions real",
         ),
@@ -160,7 +163,7 @@ export function ensureSourceLearningSchema() {
       }
     }
 
-    await db.run(sql.raw(`
+    await db.execute(sql.raw(`
       CREATE TABLE IF NOT EXISTS source_projections (
         id text PRIMARY KEY NOT NULL,
         season integer NOT NULL,
@@ -180,7 +183,7 @@ export function ensureSourceLearningSchema() {
     `));
     const addProjectionColumn = async (statement: string) => {
       try {
-        await db.run(sql.raw(statement));
+        await db.execute(sql.raw(statement));
       } catch (error) {
         if (!/duplicate column name/i.test(errorChainText(error))) throw error;
       }
@@ -197,15 +200,15 @@ export function ensureSourceLearningSchema() {
     // Do not run data backfills from application startup. The previous
     // startup UPDATE scanned/touched the whole projection table on every cold
     // process and could consume a large share of the hosted database quota.
-    await db.run(sql.raw(`
+    await db.execute(sql.raw(`
       CREATE UNIQUE INDEX IF NOT EXISTS source_projection_unique
       ON source_projections (season, week, player_key, statistic, source)
     `));
-    await db.run(sql.raw(`
+    await db.execute(sql.raw(`
       CREATE INDEX IF NOT EXISTS source_projection_stat_week_idx
       ON source_projections (season, week, statistic)
     `));
-    await db.run(sql.raw(`
+    await db.execute(sql.raw(`
       CREATE TABLE IF NOT EXISTS source_projection_grades (
         projection_id text PRIMARY KEY NOT NULL,
         actual_value real NOT NULL,
@@ -217,11 +220,11 @@ export function ensureSourceLearningSchema() {
           ON UPDATE no action ON DELETE cascade
       )
     `));
-    await db.run(sql.raw(`
+    await db.execute(sql.raw(`
       CREATE INDEX IF NOT EXISTS source_projection_grades_time_idx
       ON source_projection_grades (graded_at)
     `));
-    await db.run(sql.raw(`
+    await db.execute(sql.raw(`
       CREATE TABLE IF NOT EXISTS source_weight_history (
         id text PRIMARY KEY NOT NULL,
         season integer NOT NULL,
@@ -236,11 +239,11 @@ export function ensureSourceLearningSchema() {
         updated_at integer DEFAULT (unixepoch()) NOT NULL
       )
     `));
-    await db.run(sql.raw(`
+    await db.execute(sql.raw(`
       CREATE UNIQUE INDEX IF NOT EXISTS source_weight_unique
       ON source_weight_history (season, effective_week, statistic, source)
     `));
-    await db.run(sql.raw(`
+    await db.execute(sql.raw(`
       CREATE INDEX IF NOT EXISTS source_weight_lookup_idx
       ON source_weight_history (season, statistic, effective_week)
     `));

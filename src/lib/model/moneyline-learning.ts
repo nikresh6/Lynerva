@@ -77,10 +77,11 @@ function parseSources(value: unknown) {
 }
 
 export function ensureMoneylineLearningSchema() {
+  if (process.env.DATABASE_URL || process.env.NEON_DATABASE_URL) return Promise.resolve();
   if (schemaPromise) return schemaPromise;
   schemaPromise = (async () => {
     const db = getDb();
-    await db.run(sql.raw(`
+    await db.execute(sql.raw(`
       CREATE TABLE IF NOT EXISTS moneyline_source_weight_history (
         id text PRIMARY KEY NOT NULL,
         season integer NOT NULL,
@@ -94,11 +95,11 @@ export function ensureMoneylineLearningSchema() {
         updated_at integer DEFAULT (unixepoch()) NOT NULL
       )
     `));
-    await db.run(sql.raw(`
+    await db.execute(sql.raw(`
       CREATE UNIQUE INDEX IF NOT EXISTS moneyline_source_weight_unique
       ON moneyline_source_weight_history (season, effective_week, source)
     `));
-    await db.run(sql.raw(`
+    await db.execute(sql.raw(`
       CREATE INDEX IF NOT EXISTS moneyline_source_weight_lookup_idx
       ON moneyline_source_weight_history (season, effective_week)
     `));
